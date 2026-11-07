@@ -100,9 +100,15 @@
   background: var(--shell-content-bg);
 }
 
-/* Native management pages keep their solid fallback when no image is active.
-   With wallpaper, the main column owns the single continuous reading veil. */
-:root[data-desktop-background="image"] .app-shell:not(.has-embedded-surface) :is(.market-page, .share-management-page) {
+/* Market, share management and the library keep their solid fallback when no
+   image is active. With wallpaper they share one fixed reading veil instead of
+   depending on the skin's --shell-content-bg alpha, which packages may set near
+   transparent. Their page surfaces stay clear so the veil is painted once. */
+:root[data-desktop-background="image"] .app-shell:not(.has-embedded-surface) > .app-content > .app-main:has(> :is(.market-page, .share-management-page, .artifact-management-page.library-page)) {
+  background: color-mix(in srgb, var(--bg-base) 88%, transparent);
+}
+
+:root[data-desktop-background="image"] .app-shell:not(.has-embedded-surface) :is(.market-page, .share-management-page, .artifact-management-page.library-page) {
   background: transparent;
 }
 
