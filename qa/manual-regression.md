@@ -1760,3 +1760,9 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 
 - 浏览器设置首次打开、反复刷新、打开或翻页操作说明、忘记授权均不弹出钥匙串确认；Mac 保存新授权码或实际使用已有授权时才可能弹出系统确认。Windows 同样仅在保存与使用时调用 DPAPI。
 - 设置页不常驻安装长说明；“如何连接 Chrome”分三步展示，地址可复制，可前后翻页，最后回到授权码输入框。状态页文案与复制图标应与随包官方扩展一致，整行授权码可直接保存。
+
+## WebApp 聊天与 Copilot Bridge
+
+- macOS / Windows 分别在主工作区 WebApp 中调用 `desktop.chat.open({chatId})`：弹出与 Kanban 历史相同的 WebClient 只读预览，不切换应用路由、不发送 query；含特殊字符的 Chat ID 正确编码，未知 Chat 显示 WebClient 错误。关闭按钮、遮罩和 Esc 可退出；切换应用释放弹窗。
+- 已有 Copilot 会话时打开历史，确认同时只有一个活动聊天观察者；关闭历史恢复原 Copilot 的 Agent、引用、Chat 与草稿，后台 Run 不被停止。反复打开不同历史不残留旧 guest。
+- 调用 `desktop.copilot.open()` / `close()` 与现有按钮行为一致；重复 open 不重置会话，重复 close 无副作用，禁用 Copilot 时返回错误。后台应用、独立窗口、后端与远端访问不能控制其他页面的 Copilot 或打开弹窗。

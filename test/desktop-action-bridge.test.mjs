@@ -4606,3 +4606,40 @@ test("credential actions serve only a trusted Run, on the page's real site, and 
   assert.equal((await call("desktop.credentials.list", { surfaceId: "page:1" })).error.code, "page_not_eligible");
   assert.deepEqual(scripts, []);
 });
+
+test("WebApp history and Copilot methods forward trusted app identity only from page scope", async t => {
+  const { options } = createDesktopActionOptions(t);
+  const id = webappId("chat-ui");
+  const calls = [];
+  options.callRendererAction = async request => {
+    calls.push(request);
+    return { requestId: request.requestId, action: request.action, ok: true, result: { status: "opened" } };
+  };
+  for (const [action, args] of [
+    ["desktop.chat.open", { chatId: "chat / 历史" }],
+    ["desktop.copilot.open", {}], ["desktop.copilot.close", {}]
+  ]) {
+    const result = await handleWebappPageActionRequest(options, id, { action, args, source: { webappId: "forged" } });
+    assert.equal(result.ok, true);
+    assert.equal(result.action, action);
+    assert.deepEqual(calls.at(-1).source, { webappId: id });
+    assert.deepEqual(calls.at(-1).args, args);
+    const denied = await handleDesktopActionRequest(options, { action: calls.at(-1).action, args });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.error.code, "unknown_action");
+  }
+  const before = calls.length;
+  for (const [action, args] of [
+    ["desktop.chat.open", {}], ["desktop.chat.open", { chatId: " " }],
+    ["desktop.chat.open", { chatId: "x".repeat(257) }],
+    ["desktop.chat.open", { chatId: "chat", url: "https://evil.test" }],
+    ["desktop.copilot.open", { agentKey: "other" }], ["desktop.copilot.close", { webappId: "other" }]
+  ]) {
+    const result = await handleWebappPageActionRequest(options, id, { action, args });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "invalid_args");
+  }
+  assert.equal(calls.length, before);
+  options.callRendererAction = async () => ({ ok: false, error: { code: "webapp_ui_unavailable", message: "Open this app first." } });
+  assert.equal((await handleWebappPageActionRequest(options, id, { action: "desktop.chat.open", args: { chatId: "chat" } })).error.code, "webapp_ui_unavailable");
+});

@@ -113,6 +113,8 @@ export interface DesktopActionRendererRequest {
   action: string;
   args: Record<string, unknown>;
   source?: {
+    /** Main-verified local WebApp page identity. */
+    webappId?: string;
     workPanelScope?: { kind: "draft"; draftId: string };
     runId?: string;
     chatId?: string;

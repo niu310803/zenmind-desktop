@@ -17,6 +17,9 @@ import { executeNativeWebappAction } from "./webapp-native-actions";
 // Actions: agents cannot reach them, and they never go through Desktop Action confirmation.
 export const WEBAPP_PAGE_METHODS = new Set([
   "desktop.capabilities.list",
+  "desktop.native.chat.open",
+  "desktop.native.copilot.open",
+  "desktop.native.copilot.close",
   "desktop.native.browser.openExternal",
   "desktop.native.dialog.selectFiles",
   "desktop.native.dialog.selectDirectory",
@@ -35,6 +38,18 @@ export async function executeWebappPageMethod(
   args: Record<string, unknown>,
   webappId: string
 ): Promise<DesktopActionCallResponse> {
+  if (["desktop.native.chat.open", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(action)) {
+    const chatId = readString(args, "chatId");
+    const isChat = action === "desktop.native.chat.open";
+    if (isChat ? (!chatId || chatId.length > 256 || Object.keys(args).some(key => key !== "chatId")) : Object.keys(args).length > 0) {
+      return fail(action, "invalid_args", isChat ? "Use a non-empty chatId (at most 256 characters)." : "This method accepts no arguments.");
+    }
+    const response = await options.callRendererAction({
+      requestId: randomUUID(), action, args: isChat ? { chatId } : {}, source: { webappId }
+    });
+    return response.ok ? ok(action, response.result) : fail(action,
+      response.error?.code || "page_action_unavailable", response.error?.message || "WebApp UI is unavailable.");
+  }
   if (action === "desktop.assistant.image") return executeWebappImage(options, action, args, webappId);
   if (action === "desktop.assistant.image.cancel") return cancelWebappImage(options, action, args, webappId);
   return executeNativeWebappAction(options, action, args, webappId);

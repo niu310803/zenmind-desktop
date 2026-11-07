@@ -88,3 +88,22 @@ test('rejected Compose bootstrap never sends a business request', async t => {
  const client=createBackendClient({url:'http://127.0.0.1:17070/webapps',token:'wbb_expired'});
  await assert.rejects(client.connector.list(),{code:'app_grant_required'});assert.equal(calls,1);
 });
+
+test('page UI helpers use only history identity and explicit Copilot commands', async t => {
+ const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });
+ const calls = [];
+ globalThis.fetch = async (url, options) => {
+  assert.equal(url, '/__desktop/actions/call');
+  calls.push(JSON.parse(options.body));
+  return new Response(JSON.stringify({ ok: true, result: { accepted: true } }));
+ };
+ assert.equal(Object.isFrozen(desktop.chat), true);
+ assert.equal(Object.isFrozen(desktop.copilot), true);
+ await desktop.chat.open({ chatId: 'chat / 历史' });
+ await desktop.copilot.open(); await desktop.copilot.close();
+ assert.deepEqual(calls, [
+  { action: 'desktop.chat.open', args: { chatId: 'chat / 历史' } },
+  { action: 'desktop.copilot.open', args: {} },
+  { action: 'desktop.copilot.close', args: {} }
+ ]);
+});

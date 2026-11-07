@@ -41,6 +41,7 @@ import { DesktopGlobalSearchOverlay } from "./search/DesktopGlobalSearchOverlay"
 import { DesktopActionConfirmationDialog } from "./DesktopActionConfirmationDialog";
 import { DesktopShutdownOverlay } from "./DesktopShutdownOverlay";
 import { DesktopDisplayOverlay, type DesktopDisplayOverlayRequest } from "./DesktopDisplayOverlay";
+import { WebappChatDialog } from "./history/WebappChatDialog";
 import { ChatHistoryDialog } from "./history/ChatHistoryDialog";
 import { ConversationShareDialog } from "./conversation-share/ConversationShareDialog";
 import { useShellOverlay } from "./useShellOverlay";
@@ -786,6 +787,8 @@ export function AppShell() {
   const conversationShareOverlay = shellOverlay.activeOverlay?.kind === "conversationShare"
     ? shellOverlay.activeOverlay
     : null;
+  const [webappChatPreview, setWebappChatPreview] = useState<{ webappId: string; chatId: string } | null>(null);
+  const closeWebappChatPreview = useCallback(() => setWebappChatPreview(null), []);
   const chatHistoryDialogRequestIdRef = useRef(0);
   const sidebarChatMenuRef = useRef<AppSidebarChatMenuHandle>(null);
   const [chatHistoryDialog, setChatHistoryDialog] =
@@ -1297,7 +1300,7 @@ export function AppShell() {
         : undefined;
   const currentCopilotSession = assistantDockSessions[currentCopilotContextKey] ?? null;
   const assistantDockOpen = Boolean(currentCopilotSession);
-  const assistantCopilotOpen = assistantDockOpen && assistantLauncherVisible && copilotDockAllowed;
+  const assistantCopilotOpen = assistantDockOpen && assistantLauncherVisible && copilotDockAllowed && !webappChatPreview;
   const currentAssistantDockOpenRequest =
     pendingAssistantDockOpenRequestRef.current?.contextKey === currentCopilotContextKey
       ? assistantDockOpenRequest
@@ -2243,6 +2246,36 @@ export function AppShell() {
       openAssistantDock();
     }
   }
+
+  // Only the foreground app can control its existing Dock or use the shared
+  // read-only Chat preview observer. Never act on another app's context.
+  useEffect(() => registerDesktopActionProviderForScope("global", async (request) => {
+    if (!["desktop.native.chat.open", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(request.action)) return null;
+    if (!request.source?.webappId || activeWebEntry?.kind !== "webapp" ||
+        activeWebEntry.id !== request.source.webappId || activeWebEntry.openMode === "dialog" || !copilotDockAllowed) {
+      return { ok: false, error: { code: "webapp_ui_unavailable", message: "Open this WebApp in the main workspace first." } };
+    }
+    if (request.action === "desktop.native.chat.open") {
+      const chatId = readString(request.args.chatId);
+      if (!chatId) return { ok: false, error: { code: "invalid_args", message: "chatId is required." } };
+      setWebappChatPreview({ webappId: request.source.webappId, chatId });
+      return { ok: true, result: { chatId, status: "opened" } };
+    }
+    if (request.action === "desktop.native.copilot.open") {
+      if (!assistantLauncherVisible) return { ok: false, error: { code: "copilot_disabled", message: "Copilot is disabled for this page." } };
+      setWebappChatPreview(null);
+      if (!assistantDockOpen) openAssistantDock();
+      return { ok: true, result: { open: true } };
+    }
+    closeAssistantDock();
+    return { ok: true, result: { open: false } };
+  }));
+
+  useEffect(() => {
+    if (webappChatPreview && (activeWebEntry?.kind !== "webapp" || activeWebEntry.id !== webappChatPreview.webappId)) {
+      setWebappChatPreview(null);
+    }
+  }, [activeWebEntry, webappChatPreview]);
 
   function handleCopilotCurrentEmbedPathChange(embedPath: string, agentKey: string, chatId?: string) {
     if (!assistantDockOpen) {
@@ -5457,6 +5490,7 @@ export function AppShell() {
         request={desktopActionConfirmation}
         onDecision={handleDesktopActionConfirmationDecision}
       />
+      {webappChatPreview ? <WebappChatDialog chatId={webappChatPreview.chatId} hostTheme={resolvedTheme} t={t} onClose={closeWebappChatPreview} /> : null}
       {chatHistoryDialog ? (
         <ChatHistoryDialog
           key={chatHistoryDialog.id}

@@ -52,6 +52,8 @@ const { connector, assistant, skill, artifact, kanban } = createBackendClient({
 | 产物 | `artifact.list({chatId,runId?,cursor?,limit?})`；`get/read/open/saveAs({chatId,runId?,artifactId})`；只允许当前应用实例发起的 Chat |
 | 看板 | 安装后直接调用；`kanban.boards.list()`、`kanban.issues.list({projectId?,cursor?,limit?})`、`kanban.issues.get({issueId})` |
 | 宿主 | `desktop.capabilities.list/has`、`desktop.app.getConfig/getUserConfig`、`desktop.theme.get/set`、`desktop.locale.get/set`、browser、dialog、microphone、clipboard.writeText、notification |
+| 聊天预览 | `desktop.chat.open({chatId})` → `{chatId,status:"opened"}`；按 Chat ID 打开 WebClient 只读历史弹窗，不发起 Run |
+| Copilot | `desktop.copilot.open()`、`desktop.copilot.close()` → `{open:boolean}`；幂等控制当前应用已有的 Copilot，沿用 Agent、引用及会话 |
 | 预留 | `automation.*`、desktop.screen.capture、clipboard.readText、file.reveal、window、camera、share；调用抛 `not_implemented` |
 
 主题和语言设置只向本机 WebApp 页面开放，复用 Desktop 的设置持久化与界面更新；不要求 Manifest 声明或额外授权。托管后端 SDK、局域网和发布页面不能调用。能力检测使用 `desktop.capabilities.has('desktop.theme')` 与 `desktop.capabilities.has('desktop.locale')`。
@@ -151,3 +153,14 @@ Cookie 要求：host-only（不得声明 Domain）、`Path=/`、`HttpOnly`、`Sa
 认证通过访问者页面的专用 preload/IPC 执行，不经过发布者的 HTTP Action Bridge。`createBackendClient()` 不暴露 `auth`，公开 Desktop Action 与 WebApp backend/page HTTP token 都不能调用这个入口。页面离开、guest 销毁或身份撤销会中止在途操作；退出清理本能力登记的 Cookie，重启也清理这些会话，不清空其他站点数据。网站自己的退出、会话查询和业务权限归网站后端。
 
 发布页面可将生成的 `bridge.mjs` 作为普通静态 ES Module 随应用提供，仍调用访问者 Desktop 的 preload。它必须在 Desktop 中作为 Website 打开；普通浏览器、Help、Service、WorkPanel 和 iframe 不获得此入口。只有该认证能力可在远端使用，其他本地 SDK 能力不随发布开放。
+
+## 打开历史聊天与 Copilot
+
+```js
+import { desktop } from '/__desktop/bridge.js';
+await desktop.chat.open({ chatId }); // 例如 assistant.execute/chat 返回的 chatId
+await desktop.copilot.open();
+await desktop.copilot.close();
+```
+
+这三个方法仅供主工作区当前 WebApp 的本机页面使用，不需要额外 Manifest 声明；后台应用或独立窗口调用返回 `webapp_ui_unavailable`，应先在主工作区打开该应用。后端、局域网、发布页面和通用 Desktop Action 不能调用。SDK capability ID 为 `desktop.chat`、`desktop.copilot`。历史弹窗仅接受 Chat ID，不接受 URL、Agent 或 Run 控制参数；关闭或切换应用后释放预览。弹窗期间让出 Copilot 的活动观察者，关闭后恢复已有 Dock。Copilot 被页面设置禁用时，open 返回 `copilot_disabled`；重复 open 不新建或重置会话，close 不停止后台 Run。

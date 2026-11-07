@@ -262,6 +262,13 @@ export const desktop = Object.freeze({
     getConfig: getAppConfig,
     getUserConfig
   }),
+  chat: Object.freeze({
+    open: (input) => call("desktop.chat.open", input)
+  }),
+  copilot: Object.freeze({
+    open: () => call("desktop.copilot.open"),
+    close: () => call("desktop.copilot.close")
+  }),
   theme: Object.freeze({
     get: () => call("desktop.theme.get"),
     set: (input) => call("desktop.theme.set", input)
