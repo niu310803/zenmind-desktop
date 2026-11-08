@@ -16,7 +16,7 @@ import { useAppearance } from "../appearance/AppearanceProvider";
 import { DesktopBackground } from "../appearance/DesktopBackground";
 import { isWebclientHostBackgroundSurface } from "../appearance/webclientProjection";
 import { isThemePreference, type ThemePreference } from "../appearance/model";
-import { createWindowDragClickTracker } from "./windowDragClickTracker";
+import { createWindowDragClickTracker } from "../../shared/window-drag-click-tracker";
 import { SettingsSidebarIcon } from "./navigation/SettingsSidebarIcon";
 import { beginChatPerformanceNavigation } from "../services/performanceDiagnostics";
 import {
@@ -4766,6 +4766,7 @@ export function AppShell() {
         isMac ? "is-mac-platform" : "",
         isWindows ? "is-windows-platform" : "",
         windowFullScreen ? "is-window-fullscreen" : "",
+        windowControlsMasked ? "is-window-controls-masked" : "",
         effectiveSidebarCollapsed ? "is-sidebar-collapsed" : "",
         isSidebarResizing ? "is-sidebar-resizing" : "",
         isWorkPanelResizing ? "is-work-panel-resizing" : "",

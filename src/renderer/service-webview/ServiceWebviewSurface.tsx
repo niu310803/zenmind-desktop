@@ -129,6 +129,8 @@ import {
 } from "../appearance/webclientProjection";
 import { createWebclientAppearanceHost } from "./appearanceHost";
 import { createWebclientHeaderLayoutHost } from "./headerLayoutHost";
+import { createWebclientWindowDragHost } from "./windowDragHost";
+import { WEBCLIENT_WINDOW_DRAG_HEIGHT } from "../../shared/webclient-window-drag";
 import type { AgentWebclientHeaderLayout } from "../../shared/contracts/agent-webclient-bridge";
 
 type ServiceWebviewUrlChangeSource = "host" | "guest";
@@ -715,6 +717,9 @@ export function ServiceWebviewSurface({
   headerLayoutInputRef.current = headerLayout;
   const headerLayoutRevisionRef = useRef({ revision: 0, signature: "" });
   const headerLayoutHostRef = useRef<ReturnType<typeof createWebclientHeaderLayoutHost> | null>(null);
+  const windowDragHostRef = useRef<ReturnType<typeof createWebclientWindowDragHost> | null>(null);
+  const windowDragActiveRef = useRef(active !== false);
+  windowDragActiveRef.current = active !== false;
   const ownsActiveSurface = surfaceOwnershipActive ?? active !== false;
   const mainChatSurface = isAgentWebclientChatSurface(serviceId, surfaceId);
   const appearanceSnapshot = useAppearanceSnapshot();
@@ -3443,6 +3448,44 @@ export function ServiceWebviewSurface({
   }, [bridgeReady, serviceWebviewPreloadUrl, webviewRenderKey, service?.id, service?.status, surfaceId, webUrl]);
 
   useLayoutEffect(() => { headerLayoutHostRef.current?.refresh(); }, [headerLayout, active, documentVisible]);
+
+  useEffect(() => {
+    const target = webviewRef.current;
+    const shell = target?.closest(".app-shell");
+    if (!target || !shell || service?.id !== "agent-webclient" || surfaceId !== MAIN_CHAT_SURFACE_ID ||
+      service.status !== "running" || !bridgeReady || !serviceWebviewPreloadUrl) return;
+    const api = window.electronAPI.desktopShell;
+    const host = createWebclientWindowDragHost({
+      webview: target, trustedUrl: () => webUrl, isCurrentGuest: () => webviewRef.current === target,
+      readHeight: () => {
+        // Windows keeps its independent system bar; fullscreens never move.
+        if (shell.classList.contains("is-windows-platform")) return 0;
+        if (!shell.classList.contains("is-mac-platform")) return 0;
+        if (!windowDragActiveRef.current || document.visibilityState === "hidden" ||
+          shell.matches(".is-window-fullscreen,.is-work-panel-fullscreen,.is-window-controls-masked,.is-main-chat-collapsed-by-work-panel,.has-assistant-dock-overlay")) return 0;
+        return Math.max(0, WEBCLIENT_WINDOW_DRAG_HEIGHT - Math.max(0, target.getBoundingClientRect().top));
+      },
+      begin: () => api.beginWindowDrag(), end: () => api.endWindowDrag(),
+      maximize: () => api.toggleWindowMaximize(),
+      onEnabled: (enabled) => {
+        if (!(shell instanceof HTMLElement)) return;
+        // Preserve the original strip over any WorkPanel to the right of Chat.
+        if (enabled) shell.style.setProperty("--webclient-header-right", `${target.getBoundingClientRect().right - shell.getBoundingClientRect().left}px`);
+        else shell.style.removeProperty("--webclient-header-right");
+      },
+    });
+    windowDragHostRef.current = host;
+    const observer = new MutationObserver(() => host.refresh());
+    observer.observe(shell, { attributes: true, attributeFilter: ["class"] });
+    const resize = new ResizeObserver(() => host.refresh());
+    resize.observe(target);
+    return () => {
+      observer.disconnect(); resize.disconnect(); host.dispose();
+      if (windowDragHostRef.current === host) windowDragHostRef.current = null;
+    };
+  }, [bridgeReady, serviceWebviewPreloadUrl, webviewRenderKey, service?.id, service?.status, surfaceId, webUrl]);
+
+  useLayoutEffect(() => { windowDragHostRef.current?.refresh(); }, [active, documentVisible]);
 
   useEffect(() => {
     if (active === false || !bridgeReady || !serviceWebviewPreloadUrl) {

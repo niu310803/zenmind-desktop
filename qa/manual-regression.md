@@ -569,6 +569,13 @@
 - macOS 点击 `Reveal in Finder`，Windows 点击 `Show in File Explorer`；有 Chat 目录时定位该目录，只有持久化 JSONL 时定位该文件。成功后不显示冗余状态行，失败时才显示错误；renderer 返回值和错误信息均不包含绝对路径。
 - 使用包含 `/`、`\\` 或 `..` 的伪造 Chat ID 调用 reveal IPC，确认请求被拒绝且不会打开任意目录。
 
+## Main Chat 顶部空白拖动
+
+- macOS 展开和收起侧栏，分别在 New Chat 与已有 Chat 的顶部 0–39px 空白位置起拖；窗口随鼠标移动，松手立即停止，纵坐标达到 40px 或更下方不发起窗口拖动。搜索、名称、状态、用量的点击、悬停、文本选择与弹出菜单保持原行为，Desktop 左右顶部按钮也保持可用。拖动从空白处开始后经过控件仍继续，从控件开始移到空白不转为窗口拖动；右键及 Control 点击不拖动。
+- macOS 覆盖未激活窗口首次按下、空白处双击最大化/还原、拖动后不误判双击、多屏不同 DPI、页面重载/切换、WorkPanel 分栏与完全收起主聊天、系统全屏、WorkPanel 全屏、搜索/模态遮罩和失焦；不残留拖动、不重建 guest。其他 Website/WebApp 和浏览器工具栏保持原拖动范围。
+- Windows 真机确认原有独立系统栏及窗口按钮可用，WebClient 顶部空白与内容均不触发窗口拖动；系统全屏保持不拖动。
+- 自动检查：`node --test test/webclient-window-drag.test.mjs test/window-drag-double-click.test.mjs test/windows-titlebar-layout.test.mjs`。真实 WebView 输入模拟：`node qa/webclient-window-drag-smoke.mjs`；模拟平台样式不替代两平台真机窗口移动、激活和跨屏验收。
+
 ## 企业聊天浮窗拖动
 
 - 运行 `node qa/enterprise-chat-drag-smoke.mjs`；macOS / Windows 上按住标题栏可拖动聊天面板，靠近窗口边缘与缩小主窗口后仍保持可见；标题栏的创建群聊、刷新和关闭按钮可正常点击。拖动标题栏或入口时两者联动移动，空间充足时保持相对位置；靠近边缘时面板按可用空间展开，面板与入口均可见且不重叠。

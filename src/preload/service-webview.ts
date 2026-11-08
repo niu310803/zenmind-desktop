@@ -1,5 +1,7 @@
 import { installDesktopHistoryGesture } from "./desktop-history-gesture";
 import { installServiceWebviewHeaderLayout } from "./service-webview-header-layout";
+import { installServiceWebviewWindowDrag } from "./service-webview-window-drag";
+installServiceWebviewWindowDrag();
 installServiceWebviewHeaderLayout();
 installDesktopHistoryGesture();
 import { ipcRenderer, webFrame } from "electron";

@@ -57,6 +57,12 @@
   --app-window-drag-height: 0px;
 }
 
+/* A negotiated Main Chat guest owns hit testing: only its empty header space
+   starts a drag. Remove the host strip so WebClient content receives input. */
+.app-shell.is-mac-platform:has(webview[data-window-drag-ready="true"]) .app-window-drag-layer {
+  left: max(var(--app-window-drag-left), var(--webclient-header-right, 100%));
+}
+
 .app-shell.is-windows-platform.is-window-fullscreen {
   --windows-titlebar-content-inset: 0px;
   --app-window-drag-height: 0px;
