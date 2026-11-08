@@ -26,7 +26,7 @@ window.configure = (platform, enabled = true) => {
   window.host.refresh();
 };
 ` }, bundle: true, platform: "browser", outfile: path.join(output, "host.js") });
-const guestHtml = `<!doctype html><style>html,body{margin:0}nav{height:44px}.top-nav-inner{height:44px;display:flex;align-items:center;gap:20px}.nav-group{height:32px;display:flex;align-items:center}.nav-center{flex:1;justify-content:center}input{width:100px;height:24px}button{height:28px}main{height:300px}</style>
+const guestHtml = `<!doctype html><style>html,body{margin:0}nav{height:36px}.top-nav-inner{height:100%;display:flex;align-items:center;gap:20px}.nav-group{height:32px;display:flex;align-items:center}.nav-center{flex:1;justify-content:center}input{width:100px;height:24px}button{height:28px}main{height:300px}</style>
 <nav><div class="top-nav-inner"><div class="nav-group nav-left"><input id="search"></div><div class="nav-group nav-center"><div class="current-worker-card"><strong id="name">小君</strong><span title="待命" id="status">待命</span><button id="usage">10 2.9M</button></div></div><div class="nav-group"><button id="action">更多</button></div></div></nav><main id="body">正文</main>
 <script>window.clicks=[]; document.addEventListener('click',e=>window.clicks.push(e.target.id));window.instance=crypto.randomUUID();</script>`;
 fs.writeFileSync(path.join(output, "host.html"), `<!doctype html><link rel="stylesheet" href="/shell.css"><style>html,body{margin:0;height:100%;width:100%}.app-shell{width:100%;height:100%}webview{position:absolute;left:160px;top:0;width:640px;height:400px}</style><div class="app-shell is-mac-platform"><webview src="/guest" preload="${new URL("file://" + path.join(output, "preload.cjs")).href}"></webview><div class="app-window-drag-layer"><div class="app-window-drag-region"></div></div></div><script src="/host.js"></script>`);
@@ -54,8 +54,13 @@ assert.equal(await js('document.elementFromPoint(700,2).className'),'app-window-
 assert.equal(await js('document.elementFromPoint(400,2).tagName'),'WEBVIEW','split Chat remains unobstructed');
 await js('document.querySelector("webview").style.width="640px";host.refresh()');
 const click=async(x,y,count=1)=>{guest.sendInputEvent({type:'mouseMove',x,y});guest.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:count});guest.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:count});await pause(50);};
-for(const y of [2,24,39]){await js('calls.length=0');await click(160,y);assert.deepEqual(await js('calls'),['begin','end'],'blank y='+y);}
-await js('calls.length=0');await click(160,40);assert.deepEqual(await js('calls'),[],'40px boundary');
+for(const y of [2,24,35]){await js('calls.length=0');await click(160,y);assert.deepEqual(await js('calls'),['begin','end'],'36px header blank y='+y);}
+for(const y of [36,39,40]){await js('calls.length=0');await click(160,y);assert.deepEqual(await js('calls'),[],'below 36px header y='+y);}
+// Layout changes are read at press time; the same guest can shrink or grow.
+await g('document.querySelector("nav").style.height="44px"');
+await js('calls.length=0');await click(160,39);assert.deepEqual(await js('calls'),['begin','end'],'taller header retains 40px maximum');
+await js('calls.length=0');await click(160,40);assert.deepEqual(await js('calls'),[],'40px maximum');
+await g('document.querySelector("nav").style.height="36px"');
 for(const id of ['search','name','status','usage','action']){const r=await g('(()=>{const r=document.getElementById('+JSON.stringify(id)+').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()');await js('calls.length=0');await click(r.x,r.y);assert.deepEqual(await js('calls'),[],'content '+id);assert.equal((await g('window.clicks')).at(-1),id,'content click '+id);}
 await js('calls.length=0');await click(160,24,1);await click(160,24,2);assert.deepEqual(await js('calls'),['begin','end','begin','end','maximize'],'double click');
 for(const config of ['configure("windows")','configure("mac",false)']){await js(config+';calls.length=0');await click(160,24);assert.deepEqual(await js('calls'),[],config);}
@@ -64,7 +69,7 @@ await js('configure("mac",false)');await until(async()=> (await js('calls')).at(
 assert.equal(await g('window.instance'),instance,'configuration keeps same guest');
 await js('configure("mac");document.querySelector("webview").reload()');await until(()=>g('window.instance && window.instance!=='+JSON.stringify(instance)));await until(()=>js('document.querySelector("webview").hasAttribute("data-window-drag-ready")'));
 await js('calls.length=0');await click(160,24);assert.deepEqual(await js('calls'),['begin','end'],'reload renegotiates');
-console.log('PASS: real WebView 40px boundary, overlay pass-through, content clicks, double click, platform/disabled lanes, cancellation and reload');
+console.log('PASS: real WebView 36px header boundary, dynamic header resizing with 40px maximum, overlay pass-through, content clicks, double click, platform/disabled lanes, cancellation and reload');
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>{win?.destroy();server.close();app.quit();});
 `);
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;

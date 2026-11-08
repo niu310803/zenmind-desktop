@@ -85,7 +85,7 @@ html,body,#root{height:100%;margin:0}
 </style><div id="root"></div><script>window.preloadUrl=${JSON.stringify(preloadUrl)}</script><script src="/host.js"></script>`);
 fs.writeFileSync(path.join(root, "guest.html"), `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body,#root{height:100%;margin:0;font:14px system-ui}body{background:#f7faf8;color:#22382a}
-nav{height:44px;display:flex;align-items:center;padding:4px 16px 0;gap:30px;border-bottom:1px solid #dde6df}
+nav{height:36px;display:flex;align-items:center;padding:0 16px;gap:30px;border-bottom:1px solid #dde6df}
 input{width:180px;height:28px;padding:4px 8px;border:1px solid #dde6df;border-radius:7px;background:#fff}
 main{padding:24px}textarea{width:420px;height:100px;padding:12px;border:1px solid #dde6df;border-radius:12px}
 </style><div id="root"></div><script src="/guest.js"></script>`);
@@ -118,11 +118,15 @@ for(const platform of ['darwin','win32']){for(const fullscreen of [false,true]){
  const before=await js('({...window.actions})');await click(0);await click(1);await click(2);
  assert.deepEqual(await js('({...window.actions})'),{search:before.search+1,back:before.back,forward:before.forward+1});
  const point=await center(3);assert.equal(await js('document.querySelectorAll('+JSON.stringify(activeSelector)+')[3].getAttribute("aria-expanded")'),'false');
- if(platform==='darwin')assert.deepEqual(point,{x:174,y:22});
+ if(platform==='darwin')assert.deepEqual(point,{x:174,y:18});
  if(fixed){
-  const rightCenter=await js('(()=>{const r=document.querySelector(".main-chat-work-panel-toggle-icon").getBoundingClientRect();return r.top+r.height/2})()');
-  assert.equal(rightCenter,point.y,'WorkPanel icon must align with the fixed navigation');
+  const rightCenters=await js('(()=>{return [...document.querySelectorAll(".qa-right-actions > button")].map(e=>{const r=e.getBoundingClientRect();return r.top+r.height/2})})()');
+  assert.deepEqual(rightCenters,[point.y,point.y,point.y],'More, share and WorkPanel must align with the fixed navigation');
  }
+ const guestHeaderCenter=await gj('(()=>{const r=document.querySelector("#guest-header").getBoundingClientRect();return r.top+r.height/2})()');
+ const guestTop=await js('document.querySelector("webview").getBoundingClientRect().top');
+ const rightCenter=await js('(()=>{const r=document.querySelector(".qa-right-actions").getBoundingClientRect();return r.top+r.height/2})()');
+ assert.equal(rightCenter,guestTop+guestHeaderCenter,'Desktop controls align with the 36px WebClient header');
  const positions=await js('(()=>{const a=document.querySelector(".main-chat-header-navigation")?.getBoundingClientRect();const c=document.querySelector("webview").getBoundingClientRect();return {right:a?.right,top:a?.top,guestLeft:c.left}})()');
  const searchLeft=await gj('document.querySelector("#search").getBoundingClientRect().left');
  if(fixed)assert.ok(positions.right<=positions.guestLeft+searchLeft,'Desktop buttons overlap the WebClient search input');

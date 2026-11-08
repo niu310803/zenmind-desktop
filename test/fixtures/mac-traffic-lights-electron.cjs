@@ -65,11 +65,13 @@ app.whenReady().then(async () => {
     await delay(400);
     const current = snapshot(window);
     const frames = current.map((value) => value.frame);
+    assert.equal(window.getWindowButtonPosition().y, 11, `${name}: native top inset for the 36px header`);
     for (let index = 0; index < current.length; index++) {
       assert.equal(current[index].target, original[index].target, `${name}: native target`);
       assert.equal(current[index].action, original[index].action, `${name}: native action`);
       assert.equal(frames[index].width, original[index].frame.width, `${name}: native width`);
       assert.equal(frames[index].height, original[index].frame.height, `${name}: native height`);
+      assert.equal(window.getWindowButtonPosition().y + frames[index].height / 2, 18, `${name}: center within the 36px header`);
       assert.equal(frames[index].y, original[index].frame.y, `${name}: vertical position`);
       if (index) assert.equal(frames[index].x - frames[index - 1].x - frames[index - 1].width,
         activeLayout.gap, `${name}: gap`);

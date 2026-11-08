@@ -226,6 +226,10 @@
   top: 10px;
 }
 
+.app-shell.is-mac-platform.has-fixed-sidebar-header-navigation .sidebar-top-actions {
+  top: 6px;
+}
+
 .sidebar-top-actions .sidebar-collapsed-toggle-button {
   position: static !important;
 }

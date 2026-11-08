@@ -1129,12 +1129,12 @@
 }
 
 .app-shell.is-mac-platform .main-chat-header-actions {
-  top: 10px;
+  top: 6px;
   right: 14px;
 }
 
 .app-shell.is-windows-platform .main-chat-header-actions {
-  top: calc(var(--windows-titlebar-content-inset) + 8px);
+  top: calc(var(--windows-titlebar-content-inset) + 6px);
   right: 14px;
 }
 
@@ -1255,10 +1255,10 @@
   height: 26px;
 }
 
-/* Fixed navigation uses 24px controls; match their centerline without moving
-   the group or changing the Windows system-bar buttons. */
+/* Header actions use 24px controls on both platforms; keep the Windows
+   system-bar buttons at their independent height. */
 .app-shell.is-mac-platform.has-fixed-sidebar-header-navigation .sidebar-assistant-top-button,
-.app-shell.has-fixed-sidebar-header-navigation .main-chat-work-panel-toggle {
+.main-chat-header-actions .main-chat-work-panel-toggle {
   height: 24px;
 }
 

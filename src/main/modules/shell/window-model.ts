@@ -7,7 +7,7 @@ export const MAC_FULLSCREEN_CLOSE_DELAY_MS = 500;
 export const MAC_FULLSCREEN_CLOSE_FALLBACK_MS = 2200;
 
 // Safe native fallback: the unmodified 60 DIP group fits the 66 DIP sidebar.
-export const MAC_TRAFFIC_LIGHT_POSITION = { x: 3, y: 15 };
+export const MAC_TRAFFIC_LIGHT_POSITION = { x: 3, y: 11 };
 
 // Keep native button sizes; center the compact group in the collapsed sidebar.
 export const MAC_TRAFFIC_LIGHT_LAYOUT = { gap: 5, centerX: 33 };
