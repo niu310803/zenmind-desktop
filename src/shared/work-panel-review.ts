@@ -11,7 +11,7 @@ export const WORK_PANEL_PREVIEW_REVIEW_EVENT_CHANNEL =
   "workPanel.previewReview.event" as const;
 
 export type WorkPanelReviewKind = "image" | "html";
-export type WorkPanelReviewSourceKind = "workspace-file" | "artifact" | "reference" | "web";
+export type WorkPanelReviewSourceKind = "workspace-file" | "artifact" | "reference" | "web" | "html-draft";
 
 export type WorkPanelPixelRect = {
   x: number;
@@ -80,6 +80,7 @@ export type ReviewSourceRevision = {
   sourceKind: WorkPanelReviewSourceKind;
   fileName: string;
   revision: string;
+  draftExcerpt?: string;
   relativePath?: string;
   resourceId?: string;
   url?: string;
@@ -348,6 +349,11 @@ export function buildWorkPanelReviewComposerDraft(
   }
 
   const lines = [`请根据以下元素批注修改 ${fileName}。`, ""];
+  if (session.source.sourceKind === "html-draft") {
+    lines.push(`代码块正文 SHA-256：${session.source.revision}`);
+    if (session.source.draftExcerpt) lines.push(`代码块开头（仅用于在聊天记录中定位）：${session.source.draftExcerpt}`);
+    lines.push("");
+  }
   for (const annotation of session.annotations) {
     if (annotation.kind !== "html-element") continue;
     lines.push(`标注元素 ${annotation.number}：${annotation.fullXPath}`);
@@ -357,6 +363,8 @@ export function buildWorkPanelReviewComposerDraft(
   lines.push("只修改标注要求涉及的元素，其他内容保持不变。");
   if (session.source.sourceKind === "workspace-file") {
     lines.push("原位修改 workspace 文件，完成后刷新当前 WorkPanel 标签页。");
+  } else if (session.source.sourceKind === "html-draft") {
+    lines.push("这是聊天中 HTML 代码块的临时预览。请定位上述代码块，在回复中给出修改后的 HTML 代码块；不要新建文件、资源或 Artifact。用户会重新点击预览查看新版，旧预览不会自动更新。");
   } else if (session.source.sourceKind === "web" && session.source.liveProjectWeb) {
     lines.push("这是当前 Coder workspace 的实时 loopback 预览；请按元素定位修改 workspace 源码，不要直接改浏览器临时 DOM，完成后通过 HMR 或刷新验证。");
   } else if (session.source.sourceKind === "web") {

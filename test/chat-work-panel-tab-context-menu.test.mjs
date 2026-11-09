@@ -603,3 +603,22 @@ test("native image menus expose default open and platform reveal for local origi
     assert.equal(normalizeChatWorkPanelTabContextMenuRequest({ ...request, nativeImage: { localOriginal, path: "/forged" } }), null);
   }
 });
+
+test('temporary HTML drafts offer preview controls and filename copy, without file or external-open actions', async () => {
+  for (const platform of ['darwin', 'win32']) {
+    const handlers = new Map();
+    let template;
+    const owner = { isDestroyed: () => false, getContentBounds: () => ({ x: 0, y: 0, width: 100, height: 100 }) };
+    registerChatWorkPanelTabContextMenuIpcHandlers({ handle: (channel, handler) => handlers.set(channel, handler) }, {
+      platform, getMainWindow: () => owner, BrowserWindow: { fromWebContents: () => owner },
+      Menu: { buildFromTemplate: items => { template = items; return { popup: options => { items.find(item => item.id === 'copy-title').click(); options.callback(); } }; } },
+    });
+    const result = await handlers.get('chatWorkPanel.tabContextMenu.popup')({ sender: {} }, {
+      mode: 'work-panel', x: 0, y: 0, profile: 'default', nativeHtml: { localOriginal: false, draft: true },
+      reviewMode: 'inactive', isFullscreen: false, canClose: true, canCloseOthers: false,
+    });
+    assert.equal(result.actionId, 'copy-title');
+    for (const id of ['reload', 'toggle-review', 'toggle-fullscreen', 'copy-title', 'close-tab']) assert.ok(template.some(item => item.id === id), id);
+    for (const id of ['copy-path', 'download-resource', 'reveal-resource', 'open-resource-browser', 'open-resource-default-app']) assert.ok(!template.some(item => item.id === id), id);
+  }
+});

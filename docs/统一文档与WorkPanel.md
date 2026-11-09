@@ -69,6 +69,16 @@ Platform 的 MIME、签名和文本探测是加载后最终事实。WebClient �
 
 Platform 分类使用来源中的语义文件名，而不是缓存名或内部存储名。`application/octet-stream` 只表示 MIME 未知，不能压过 `.md/.markdown/.mdx/.txt` 等专用扩展名与安全 UTF-8 探测；安全文本响应必须归一为声明 UTF-8 的文本 MIME。已知文本扩展名若包含 NUL 或不是 UTF-8，仍保持只读，但 UI 应明确显示“文本编码不受支持”，不把它描述成普通未知二进制。
 
+## 临时 HTML 草稿
+
+聊天 Markdown 的 HTML 代码块可以通过显式 `workpanel.document.open-draft-html` 能力进入原生 HTML Surface。它是独立的临时来源，不伪装为 Workspace、Artifact 或 Reference，不上传 Platform、不创建正式资源。来源身份由 Agent、owner Chat 与 UTF-8 正文摘要组成，Main 重算摘要并校验大小；建议文件名不参与去重。
+
+同内容重复打开激活原标签，内容变化创建新标签，旧版仍可查看。草稿没有文件地址，不提供保存、文件定位或外部应用打开，Main 也拒绝其文件操作与 document.commit。DOM 批注仍由宿主交给所属 Chat 的 Composer，携带正文摘要和有界开头片段供定位；要求智能体在回复中给出修订后的 HTML 代码块，不自动修改历史消息或更新预览。
+
+草稿只存放在 Main 的受控临时目录中，协议只能读取该草稿自身；隔离 session、联网与批注权限沿用原生 HTML 规则。Main 同时限制单份正文、全部草稿总量和未认领请求数量。关闭标签释放预览和缓存；来源 WebClient 顶层文档刷新、导航或销毁时撤销其草稿与 pending claim，并关闭对应标签、丢弃批注。Desktop renderer 刷新和应用正常退出同样清理，不跨 generation 恢复。应用崩溃不保证退出清理完成，遗留目录不被重新认领或恢复。
+
+Standalone、没有 canonical Chat 的页面和未宣告新能力的旧宿主继续原有 blob 侧栏预览。宿主明确报告类型不支持时可回落；内容超限、摘要、身份、授权和其他宿主错误停止预览并显示错误，不绕过拒绝。
+
 ## 文件地址
 
 用户可见的文件地址与 Agent WebClient Markdown 使用同一写法：`@chat/<path>` 是所属 Chat 的文件（Artifact、Reference 与 Chat 根目录文件都在此作用域），`@workspace/<path>` 是 Agent Workspace 文件，行位置写作 `:<line>`，`:<line>:<column>` 只取行号。路径是字面值，不做百分号编解码；WorkPanel 在同一 Chat 中复制出的地址粘贴回 Markdown 后打开同一文件。地址只表达作用域与路径，不证明发布身份或写入能力，Artifact/Reference 身份、revision 与保存语义仍由 descriptor 和权威来源决定。

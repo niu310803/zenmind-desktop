@@ -35,7 +35,7 @@ function normalizedPath(value: string) {
 }
 
 function resourcePrefix(document: HtmlPreviewDocument) {
-  if (document.source.kind === "workspace-file") return "";
+  if (document.source.kind === "workspace-file" || document.source.kind === "html-draft") return "";
   // resourceId is an opaque Platform identity, NOT the on-disk directory.
   // Published artifacts live under artifacts/<runId>/..., while references
   // may use a separate storage key. Derive scope from the validated source path.
@@ -48,6 +48,7 @@ function resourcePrefix(document: HtmlPreviewDocument) {
 }
 
 export function isDocumentResourcePath(document: HtmlPreviewDocument, semanticPath: string) {
+  if (document.source.kind === "html-draft") return normalizedPath(semanticPath) !== "" && semanticPath === document.semanticPath;
   const prefix = resourcePrefix(document);
   if (prefix === null || !normalizedPath(semanticPath) || !semanticPath.startsWith(prefix)) return false;
   // A legacy flat resource has no private asset directory; do not grant access

@@ -46,7 +46,7 @@ function assertOwned(stillOwned: () => boolean): void { if (!stillOwned()) throw
 const LOCAL_DOCUMENT_EXTENSIONS = new Set([".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx", ".pdf"]);
 
 function documentFileName(source: WorkPanelDocumentSource): string {
-  const sourcePath = source.kind === "workspace-file" ? source.path : source.relativePath;
+  const sourcePath = source.kind === "workspace-file" ? source.path : source.kind === "html-draft" ? source.name : source.relativePath;
   return sourcePath.replace(/\\/g, "/").split("/").at(-1) ?? "";
 }
 
@@ -274,6 +274,7 @@ export function createDocumentLocalOpenService(ports: DocumentLocalOpenPorts) {
       }
       const sourceKey = source.kind === "workspace-file"
         ? JSON.stringify([source.kind, source.agentKey, source.path])
+        : source.kind === "html-draft" ? JSON.stringify([source.kind, source.agentKey, source.chatId, source.sha256])
         : JSON.stringify([source.kind, source.agentKey, source.chatId, source.resourceId, source.relativePath]);
       if (pending.has(sourceKey)) return failure("duplicate_id", "This document is already being opened.");
       key = sourceKey;
@@ -351,6 +352,7 @@ export function createDocumentLocalOpenService(ports: DocumentLocalOpenPorts) {
       }
       const sourceKey = source.kind === "workspace-file"
         ? JSON.stringify([source.kind, source.agentKey, source.path])
+        : source.kind === "html-draft" ? JSON.stringify([source.kind, source.agentKey, source.chatId, source.sha256])
         : JSON.stringify([source.kind, source.agentKey, source.chatId, source.resourceId, source.relativePath]);
       if (pending.has(sourceKey)) return failure("duplicate_id", "This document is already being opened.");
       key = sourceKey;

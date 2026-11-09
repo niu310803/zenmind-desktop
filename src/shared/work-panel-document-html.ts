@@ -1,12 +1,5 @@
-export type WorkPanelDocumentSource =
-  | { kind: "workspace-file"; agentKey: string; path: string }
-  | {
-      kind: "artifact" | "reference";
-      agentKey: string;
-      chatId: string;
-      resourceId: string;
-      relativePath: string;
-    };
+import type { WorkPanelDocumentSource } from "./contracts/agent-webclient-bridge";
+export type { WorkPanelDocumentSource } from "./contracts/agent-webclient-bridge";
 
 export type WorkPanelDocumentHtmlSelection = {
   handleId: string;
@@ -18,6 +11,7 @@ export type WorkPanelDocumentHtmlSelection = {
   sizeBytes: number;
   revision: string;
   localOriginal: boolean;
+  draftExcerpt?: string;
 };
 
 export type WorkPanelDocumentHtmlClaimRequest = {

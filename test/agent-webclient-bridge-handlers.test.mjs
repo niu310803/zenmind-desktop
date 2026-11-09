@@ -2262,3 +2262,25 @@ test("View WorkPanel guests forward scoped data and CLI actions without acquirin
   assert.equal(capabilities.capabilities.includes("workpanel.open"), false);
   sender.destroy();
 });
+
+test('HTML draft capability binds source Chat and real guest without granting document children access', async () => {
+  const target = mainTarget();
+  const accepted = [];
+  const runtime = createRuntime(new Map([[target.webContentsId, target]]), {
+    openDocument: async (input) => { accepted.push(input); return { ok: true, workspaceId: 'workspace', itemId: 'draft', renderer: 'native-html' }; },
+  });
+  const sender = createSender(target.webContentsId, target.currentUrl);
+  const invoke = (call) => runtime.handlers.get(AGENT_WEBCLIENT_WORKPANEL_INVOKE_CHANNEL)({ sender }, call);
+  assert.ok((await invoke({ method: 'getCapabilities' })).capabilities.includes('workpanel.document.open-draft-html'));
+  const source = { kind: 'html-draft', agentKey: 'agent-1', chatId: 'chat-1', name: 'preview.html', sha256: 'a'.repeat(64), html: '<h1>Preview</h1>' };
+  assert.equal((await invoke({ method: 'openDocument', input: { version: 6, source } })).ok, true);
+  assert.equal(accepted[0].draftGuest, sender);
+  assert.equal((await invoke({ method: 'openDocument', input: { version: 6, source: { ...source, chatId: 'other' } } })).error.code, 'capability_denied');
+  assert.equal((await invoke({ method: 'openDocument', input: { version: 6, source: { ...source, name: '../x.html' } } })).error.code, 'invalid_request');
+  assert.equal(accepted.length, 1);
+  const child = childTarget(222, 'file', 'agent-management');
+  const childRuntime = createRuntime(new Map([[child.webContentsId, child]]));
+  const childSender = createSender(child.webContentsId, child.currentUrl);
+  const childCapabilities = await childRuntime.handlers.get(AGENT_WEBCLIENT_WORKPANEL_INVOKE_CHANNEL)({ sender: childSender }, { method: 'getCapabilities' });
+  assert.equal(childCapabilities.capabilities.includes('workpanel.document.open-draft-html'), false);
+});

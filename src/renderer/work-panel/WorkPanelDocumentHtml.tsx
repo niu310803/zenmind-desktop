@@ -1,4 +1,4 @@
-import { EditOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
+import { EditOutlined, FileTextOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
 import { forwardRef, useImperativeHandle, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Modal, Popover } from "antd";
 import { WORK_PANEL_DOCUMENT_HTML_REVIEW_CHANNEL, WORK_PANEL_DOCUMENT_HTML_REVIEW_EVENT, type WorkPanelDocumentHtmlSelection, type WorkPanelDocumentHtmlPreviewResult } from "../../shared/work-panel-document-html";
@@ -60,7 +60,8 @@ export const WorkPanelDocumentHtml = forwardRef<HtmlDocumentController, Props>(f
     try { frameRef.current?.send(WORK_PANEL_DOCUMENT_HTML_REVIEW_CHANNEL, data); } catch { /* guest closed */ }
   }, []);
   // The toolbar shows and copies the same @workspace/ or @chat/ address.
-  const displayUrl = document.displayUrl || formatWorkPanelFileAddress(document.sourceKind, document.fileName);
+  const isDraft = document.sourceKind === "html-draft";
+  const displayUrl = isDraft ? "" : document.displayUrl || formatWorkPanelFileAddress(document.sourceKind as "workspace-file" | "artifact" | "reference", document.fileName);
   const handleRequest = useMemo(() => ({
     ownerChatId,
     rendererGeneration,
@@ -402,17 +403,24 @@ export const WorkPanelDocumentHtml = forwardRef<HtmlDocumentController, Props>(f
           </>
         ) : (
           <>
-            <div className="work-panel-document-html-location" title={displayUrl}>
-              <LinkOutlined aria-hidden="true" />
-              <input
-                readOnly
-                spellCheck={false}
-                value={displayUrl}
-                aria-label={displayUrl}
-                onFocus={(event) => event.currentTarget.select()}
-                onClick={(event) => event.currentTarget.select()}
-              />
-            </div>
+            {isDraft ? (
+              <div className="work-panel-document-html-location" title={document.fileName}>
+                <FileTextOutlined aria-hidden="true" />
+                <span>{document.fileName}</span>
+              </div>
+            ) : (
+              <div className="work-panel-document-html-location" title={displayUrl}>
+                <LinkOutlined aria-hidden="true" />
+                <input
+                  readOnly
+                  spellCheck={false}
+                  value={displayUrl}
+                  aria-label={displayUrl}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onClick={(event) => event.currentTarget.select()}
+                />
+              </div>
+            )}
             <Button
               icon={<ReloadOutlined />}
               disabled={loading}

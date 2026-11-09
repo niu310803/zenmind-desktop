@@ -1600,7 +1600,9 @@ export function WorkPanelHost({
         sourceKind: context.sourceKind as
           | "workspace-file"
           | "artifact"
-          | "reference",
+          | "reference"
+          | "html-draft",
+        ...(context.sourceKind === "html-draft" ? { draftExcerpt: String(context.draftExcerpt || "") } : {}),
         fileName: String(context.fileName || item.title),
         revision: String(context.revision || ""),
       },
@@ -1742,7 +1744,7 @@ export function WorkPanelHost({
         ? { nativeImage: { localOriginal: nativeImage.localOriginal === true } }
         : {}),
       ...(nativeHtml
-        ? { nativeHtml: { localOriginal: nativeHtml.localOriginal === true } }
+        ? { nativeHtml: { localOriginal: nativeHtml.localOriginal === true, ...(nativeHtml.sourceKind === "html-draft" ? { draft: true } : {}) } }
         : {}),
       ...(documentPath ? { documentPathAvailable: true } : {}),
       ...(documentState?.textEditable
@@ -2693,6 +2695,17 @@ export function WorkPanelHost({
                 .catch(() => undefined);
             }
             return opened;
+          }
+          case "desktop.workpanel.discardHtmlDrafts": {
+            const ids = new Set(Array.isArray(args.handleIds) ? args.handleIds : []);
+            const workspace = stateRef.current.workspaces.find((entry) => entry.ownerChatId === ownerChatId);
+            for (const item of workspace?.items || []) {
+              if (item.descriptor.kind === "native" && item.descriptor.surfaceKey === "document-html" &&
+                  item.descriptor.context.sourceKind === "html-draft" && ids.has(item.descriptor.context.handleId)) {
+                execute({ type: "closeItem", ownerChatId, itemId: item.itemId });
+              }
+            }
+            return { ok: true };
           }
           case "desktop.workpanel.openDocumentHtml": {
             const claimId =

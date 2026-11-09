@@ -96,7 +96,7 @@ export function normalizeChatWorkPanelTabContextMenuRequest(
     (value.reviewMode === undefined || value.reviewMode === "unavailable" || value.reviewMode === "inactive" || value.reviewMode === "active") &&
     (value.textEditMode === undefined || value.textEditMode === "inactive" || value.textEditMode === "active") &&
     (value.documentPathAvailable === undefined || typeof value.documentPathAvailable === "boolean") &&
-    (value.nativeHtml === undefined || (isPlainRecord(value.nativeHtml) && Object.keys(value.nativeHtml).length === 1 && typeof value.nativeHtml.localOriginal === "boolean")) &&
+    (value.nativeHtml === undefined || (isPlainRecord(value.nativeHtml) && Object.keys(value.nativeHtml).every((key) => ["localOriginal", "draft"].includes(key)) && typeof value.nativeHtml.localOriginal === "boolean" && (value.nativeHtml.draft === undefined || typeof value.nativeHtml.draft === "boolean"))) &&
     (value.nativeImage === undefined || (isPlainRecord(value.nativeImage) && Object.keys(value.nativeImage).length === 1 && typeof value.nativeImage.localOriginal === "boolean")) &&
     typeof value.canClose === "boolean" &&
     typeof value.canCloseOthers === "boolean"
@@ -114,7 +114,7 @@ export function normalizeChatWorkPanelTabContextMenuRequest(
         ? { textEditMode: value.textEditMode }
         : {}),
       ...(value.documentPathAvailable === true ? { documentPathAvailable: true } : {}),
-      ...(isPlainRecord(value.nativeHtml) ? { nativeHtml: { localOriginal: value.nativeHtml.localOriginal === true } } : {}),
+      ...(isPlainRecord(value.nativeHtml) ? { nativeHtml: { localOriginal: value.nativeHtml.localOriginal === true, ...(value.nativeHtml.draft === true ? { draft: true } : {}) } } : {}),
       ...(isPlainRecord(value.nativeImage) ? { nativeImage: { localOriginal: value.nativeImage.localOriginal === true } } : {}),
       canClose: value.canClose,
       canCloseOthers: value.canCloseOthers
@@ -195,7 +195,9 @@ function buildWorkPanelTemplate(
         }]
       : [])
   ];
-  const crossEnvironmentItems = fileActionsAvailable
+  const crossEnvironmentItems = request.nativeHtml?.draft
+    ? [{ id: "copy-title", label: t("chatWorkPanel.tabContextMenu.copyFilename"), click: click("copy-title") }]
+    : fileActionsAvailable
     ? [
         {
           id: "download-resource",

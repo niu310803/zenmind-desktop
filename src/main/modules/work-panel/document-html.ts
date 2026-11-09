@@ -25,9 +25,16 @@ import { HTML_MAX_BYTES } from "./document-html-limits";
 import { t } from "../../support/i18n/main-i18n";
 import { formatWorkPanelFileAddress } from "../../../shared/work-panel-file-address";
 
+import { normalizeWorkPanelDocumentSource } from "../../../shared/work-panel-document-source";
+
 const CLAIM_TTL_MS = 30_000;
+const DRAFT_TOTAL_MAX_BYTES = 32 * 1024 * 1024;
+const DRAFT_MAX_COUNT = 16;
+type DraftLifetime = { guest: WebContents; active: boolean; detach(): void; };
 
 type DocumentHandle = Omit<WorkPanelDocumentHtmlSelection, "displayUrl"> & {
+  draftLifetime?: DraftLifetime;
+  onDraftsReleased?: (ids: string[]) => void;
   source: WorkPanelDocumentSource;
   ownerChatId: string;
   rendererGeneration: string;
@@ -39,6 +46,9 @@ type DocumentHandle = Omit<WorkPanelDocumentHtmlSelection, "displayUrl"> & {
 };
 
 type PendingClaim = {
+  reusedHandleId?: string;
+  draftLifetime?: DraftLifetime;
+  onDraftsReleased?: (ids: string[]) => void;
   claimId: string;
   ownerChatId: string;
   rendererWebContentsId: number;
@@ -87,6 +97,8 @@ export type PrepareWorkPanelDocumentHtmlInput = {
   source: WorkPanelDocumentSource;
   title?: string;
   workspaceFilePath?: string;
+  draftGuest?: WebContents;
+  onDraftsReleased?: (handleIds: string[]) => void;
 };
 
 export type PrepareWorkPanelDocumentHtmlResult =
@@ -152,7 +164,11 @@ function inspectHtml(filePath: string) {
 }
 
 function removeTemporary(filePath: string) {
-  fs.rm(path.dirname(filePath), { recursive: true, force: true }, () => undefined);
+  // Windows can briefly keep Chromium's file handle open while the guest closes.
+  const options = process.platform === "win32"
+    ? { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }
+    : { recursive: true, force: true };
+  fs.rm(path.dirname(filePath), options, () => undefined);
 }
 
 function authorityRootFor(filePath: string, semanticPath: string) {
@@ -167,7 +183,7 @@ function authorityRootFor(filePath: string, semanticPath: string) {
 }
 
 function sourcePath(source: WorkPanelDocumentSource) {
-  return (source.kind === "workspace-file" ? source.path : source.relativePath).replace(/\\/gu, "/");
+  return (source.kind === "workspace-file" ? source.path : source.kind === "html-draft" ? source.name : source.relativePath).replace(/\\/gu, "/");
 }
 
 function selection(handle: DocumentHandle): WorkPanelDocumentHtmlSelection {
@@ -176,7 +192,8 @@ function selection(handle: DocumentHandle): WorkPanelDocumentHtmlSelection {
     handleId: handle.handleId,
     sourceKind: handle.source.kind,
     stableIdentity: handle.stableIdentity,
-    displayUrl: formatWorkPanelFileAddress(handle.source.kind, displayPath),
+    displayUrl: handle.source.kind === "html-draft" ? "" : formatWorkPanelFileAddress(handle.source.kind, displayPath),
+    ...(handle.source.kind === "html-draft" ? { draftExcerpt: handle.source.html.slice(0, 512) } : {}),
     fileName: handle.fileName,
     mimeType: handle.mimeType,
     sizeBytes: handle.sizeBytes,
@@ -190,6 +207,42 @@ export class WorkPanelDocumentHtmlRegistry {
 
   constructor(createSession?: ConstructorParameters<typeof DocumentHtmlPreviewSessions>[0]) {
     this.previews = new DocumentHtmlPreviewSessions(createSession);
+  }
+
+  private readonly draftLifetimes = new Map<number, DraftLifetime>();
+
+  private draftLifetime(guest: WebContents) {
+    const existing = this.draftLifetimes.get(guest.id);
+    if (existing) return existing;
+    const invalidate = () => {
+      if (!lifetime.active) return;
+      lifetime.active = false;
+      lifetime.detach();
+      this.draftLifetimes.delete(guest.id);
+      for (const claim of this.claims.values()) {
+        if (claim.draftLifetime === lifetime) this.discardClaim(claim);
+      }
+      const notifications = new Map<(ids: string[]) => void, string[]>();
+      for (const handle of this.handles.values()) {
+        if (handle.draftLifetime === lifetime) {
+          if (handle.onDraftsReleased) {
+            const ids = notifications.get(handle.onDraftsReleased) || [];
+            ids.push(handle.handleId); notifications.set(handle.onDraftsReleased, ids);
+          }
+          this.releaseHandle(handle);
+        }
+      }
+      for (const [notify, ids] of notifications) notify(ids);
+    };
+    const onNavigation = (_event: unknown, _url: string, inPlace: boolean, mainFrame: boolean) => {
+      if (mainFrame && !inPlace) invalidate();
+    };
+    const lifetime: DraftLifetime = { guest, active: !guest.isDestroyed(),
+      detach: () => { guest.removeListener("did-start-navigation", onNavigation); guest.removeListener("destroyed", invalidate); } };
+    guest.on("did-start-navigation", onNavigation);
+    guest.once("destroyed", invalidate);
+    this.draftLifetimes.set(guest.id, lifetime);
+    return lifetime;
   }
 
   private runtime: RegistryRuntime | null = null;
@@ -221,10 +274,27 @@ export class WorkPanelDocumentHtmlRegistry {
     if (handle.temporary) removeTemporary(handle.filePath);
   }
 
+  isLiveHtmlDraftHandle(handleId: string) {
+    const handle = this.handles.get(handleId);
+    return Boolean(handle?.source.kind === "html-draft" && handle.draftLifetime?.active);
+  }
+
   private observeSender(sender: WebContents) {
     if (this.observedSenders.has(sender.id)) return;
     this.observedSenders.add(sender.id);
+    const onNavigation = (_event: unknown, _url: string, inPlace: boolean, mainFrame: boolean) => {
+      if (!mainFrame || inPlace) return;
+      // The Desktop renderer has no surviving workspace after a full reload.
+      for (const handle of this.handles.values()) {
+        if (handle.rendererWebContentsId === sender.id && handle.source.kind === "html-draft") this.releaseHandle(handle);
+      }
+      for (const claim of this.claims.values()) {
+        if (claim.rendererWebContentsId === sender.id && claim.source.kind === "html-draft") this.discardClaim(claim);
+      }
+    };
+    sender.on?.("did-start-navigation", onNavigation);
     sender.once("destroyed", () => {
+      sender.removeListener?.("did-start-navigation", onNavigation);
       for (const handle of this.handles.values()) {
         if (handle.rendererWebContentsId === sender.id) this.releaseHandle(handle);
       }
@@ -253,6 +323,25 @@ export class WorkPanelDocumentHtmlRegistry {
 
   private async resolveSource(input: PrepareWorkPanelDocumentHtmlInput) {
     if (!this.runtime) return null;
+    if (input.source.kind === "html-draft") {
+      const source = normalizeWorkPanelDocumentSource(input.source);
+      if (!source || source.kind !== "html-draft" || crypto.createHash("sha256").update(source.html, "utf8").digest("hex") !== source.sha256) return null;
+      const entries = [
+        ...[...this.claims.values()].filter((entry) => !entry.reusedHandleId && entry.source.kind === "html-draft"),
+        ...[...this.handles.values()].filter((entry) => entry.source.kind === "html-draft"),
+      ];
+      const total = entries.reduce((sum, entry) => sum + (entry.source.kind === "html-draft" ? Buffer.byteLength(entry.source.html, "utf8") : 0), 0);
+      if (entries.length >= DRAFT_MAX_COUNT || total + Buffer.byteLength(source.html, "utf8") > DRAFT_TOTAL_MAX_BYTES) return null;
+      const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-html-draft-"));
+      const filePath = path.join(cacheRoot, source.name);
+      // Windows uses the user's temp-directory ACL; POSIX additionally restricts file mode.
+      const writeOptions = process.platform === "win32"
+        ? { encoding: "utf8" as const, flag: "wx" }
+        : { encoding: "utf8" as const, mode: 0o600, flag: "wx" };
+      try { fs.writeFileSync(filePath, source.html, writeOptions); }
+      catch (error) { removeTemporary(filePath); throw error; }
+      return { filePath, temporary: true, revision: source.sha256, semanticPath: source.name, authorityRoot: "" };
+    }
     if (input.source.kind === "workspace-file") {
       const filePath = cleanText(input.workspaceFilePath, 4_096);
       return filePath ? {
@@ -310,7 +399,26 @@ export class WorkPanelDocumentHtmlRegistry {
     if (input.source.kind !== "workspace-file" && input.source.chatId !== ownerChatId) {
       return { ok: false, code: "capability_denied", message: "Document does not match the trusted owner Chat." };
     }
-    const source = await this.resolveSource(input);
+    const draftLifetime = input.source.kind === "html-draft" && input.draftGuest && input.onDraftsReleased
+      ? this.draftLifetime(input.draftGuest) : undefined;
+    if (input.source.kind === "html-draft" && (!draftLifetime || !draftLifetime.active))
+      return { ok: false, code: "capability_denied", message: "HTML drafts require a live source document." };
+    const normalizedDraft = input.source.kind === "html-draft" ? normalizeWorkPanelDocumentSource(input.source) : null;
+    const reusable = normalizedDraft?.kind === "html-draft" &&
+      crypto.createHash("sha256").update(normalizedDraft.html, "utf8").digest("hex") === normalizedDraft.sha256
+      ? [...this.handles.values()].find((handle) => handle.source.kind === "html-draft" &&
+          handle.ownerChatId === ownerChatId && handle.rendererWebContentsId === rendererWebContentsId &&
+          handle.source.agentKey === normalizedDraft.agentKey && handle.source.sha256 === normalizedDraft.sha256)
+      : undefined;
+    if (reusable && this.claims.size >= DRAFT_MAX_COUNT)
+      return { ok: false, code: "target_unavailable", message: "Too many pending document requests." };
+    const source = reusable
+      ? { filePath: reusable.filePath, temporary: false, revision: reusable.revision }
+      : await this.resolveSource(input);
+    if (draftLifetime && !draftLifetime.active) {
+      if (source?.temporary) removeTemporary(source.filePath);
+      return { ok: false, code: "target_unavailable", message: "The source document was refreshed." };
+    }
     if (!source) return { ok: false, code: "target_unavailable", message: "The HTML document is unavailable." };
     // Size is a preview limit, not a type mismatch: do not send valid HTML to
     // WebClient's truncated text fallback when it exceeds the native limit.
@@ -330,9 +438,12 @@ export class WorkPanelDocumentHtmlRegistry {
     const claimId = crypto.randomUUID();
     const claim: PendingClaim = {
       claimId,
+      reusedHandleId: reusable?.handleId,
+      draftLifetime,
+      onDraftsReleased: input.onDraftsReleased,
       ownerChatId,
       rendererWebContentsId,
-      source: input.source,
+      source: reusable?.source || input.source,
       title: cleanText(input.title, 160),
       filePath: source.filePath,
       temporary: source.temporary,
@@ -363,14 +474,28 @@ export class WorkPanelDocumentHtmlRegistry {
     this.claims.delete(claim.claimId);
     clearTimeout(claim.timeout);
     const inspection = inspectHtml(claim.filePath);
-    if (!inspection) return { ok: false, message: "Native HTML document is unavailable." };
+    if (!inspection || (claim.draftLifetime && !claim.draftLifetime.active)) {
+      if (claim.temporary) removeTemporary(claim.filePath);
+      return { ok: false, message: "Native HTML document is unavailable." };
+    }
     this.observeSender(sender);
     const sourceKey = JSON.stringify(claim.source);
     const existing = [...this.handles.values()].find((handle) =>
-      JSON.stringify(handle.source) === sourceKey &&
+      (claim.source.kind === "html-draft" && handle.source.kind === "html-draft"
+        ? handle.source.agentKey === claim.source.agentKey && handle.ownerChatId === ownerChatId && handle.source.sha256 === claim.source.sha256
+        : JSON.stringify(handle.source) === sourceKey) &&
       handle.rendererGeneration === rendererGeneration &&
       handle.rendererWebContentsId === sender.id,
     );
+    if (claim.reusedHandleId && (!existing || existing.handleId !== claim.reusedHandleId)) {
+      return { ok: false, message: "The HTML draft belongs to an expired renderer." };
+    }
+    if (existing && claim.source.kind === "html-draft") {
+      existing.draftLifetime = claim.draftLifetime;
+      existing.onDraftsReleased = claim.onDraftsReleased;
+      if (claim.temporary) removeTemporary(claim.filePath);
+      return { ok: true, document: selection(existing), reused: true };
+    }
     if (existing) {
       if (existing.temporary && existing.filePath !== claim.filePath) removeTemporary(existing.filePath);
       Object.assign(existing, {
@@ -381,7 +506,7 @@ export class WorkPanelDocumentHtmlRegistry {
           ? ""
           : authorityRootFor(
               claim.filePath,
-              claim.source.kind === "workspace-file" ? claim.source.path : claim.source.relativePath,
+              claim.source.kind === "workspace-file" ? claim.source.path : claim.source.kind === "html-draft" ? claim.source.name : claim.source.relativePath,
             ),
         localOriginal: !claim.temporary,
         fileName: path.posix.basename(sourcePath(claim.source)),
@@ -393,9 +518,13 @@ export class WorkPanelDocumentHtmlRegistry {
     }
     const handle: DocumentHandle = {
       handleId: crypto.randomUUID(),
+      draftLifetime: claim.draftLifetime,
+      onDraftsReleased: claim.onDraftsReleased,
       source: claim.source,
       sourceKind: claim.source.kind,
-      stableIdentity: claim.source.kind === "workspace-file"
+      stableIdentity: claim.source.kind === "html-draft"
+        ? `html-draft:${claim.source.agentKey}:${claim.source.chatId}:${claim.source.sha256}`
+        : claim.source.kind === "workspace-file"
         ? `file:${claim.source.agentKey}:${claim.source.path}`
         : `${claim.source.kind}:${claim.source.agentKey}:${claim.source.chatId}:${claim.source.resourceId}:${claim.source.relativePath}`,
       ownerChatId,
@@ -408,7 +537,7 @@ export class WorkPanelDocumentHtmlRegistry {
         ? ""
         : authorityRootFor(
             claim.filePath,
-            claim.source.kind === "workspace-file" ? claim.source.path : claim.source.relativePath,
+            claim.source.kind === "workspace-file" ? claim.source.path : claim.source.kind === "html-draft" ? claim.source.name : claim.source.relativePath,
           ),
       fileName: path.posix.basename(sourcePath(claim.source)),
       mimeType: inspection.mimeType,
@@ -444,7 +573,7 @@ export class WorkPanelDocumentHtmlRegistry {
 
   async fileAction(request: WorkPanelDocumentHtmlFileActionRequest, sender: WebContents): Promise<WorkPanelDocumentHtmlActionResult> {
     const handle = this.ownedHandle(request, sender);
-    if (!handle || !this.runtime) return { ok: false, message: "Native HTML handle is unavailable." };
+    if (!handle || !this.runtime || handle.source.kind === "html-draft") return { ok: false, message: "Native HTML file actions are unavailable." };
     return performHtmlFileAction(handle, request.action, this.runtime, () => this.ownedHandle(request, sender) === handle && !sender.isDestroyed());
   }
 
@@ -464,7 +593,7 @@ export class WorkPanelDocumentHtmlRegistry {
   ): Promise<WorkPanelDocumentHtmlCommitResult> {
     const handle = this.ownedHandle(request, sender);
     const runtime = this.runtime;
-    if (!handle || !runtime?.commitDocument) return { ok: false, message: "Platform document commit is unavailable." };
+    if (!handle || handle.source.kind === "html-draft" || !runtime?.commitDocument) return { ok: false, message: "Platform document commit is unavailable." };
     if (handle.source.kind === "workspace-file" && request.mode !== "overwrite") {
       return { ok: false, message: "Workspace files can only be overwritten." };
     }
@@ -558,6 +687,8 @@ export class WorkPanelDocumentHtmlRegistry {
   }
 
   dispose() {
+    for (const lifetime of this.draftLifetimes.values()) { lifetime.active = false; lifetime.detach(); }
+    this.draftLifetimes.clear();
     for (const claim of this.claims.values()) this.discardClaim(claim);
     for (const handle of this.handles.values()) this.releaseHandle(handle);
   }

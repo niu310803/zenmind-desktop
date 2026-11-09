@@ -1,6 +1,6 @@
 // Generated from src/shared/contracts/agent-webclient-bridge.ts.
 // Do not edit this mirror directly.
-// sha256:6ac5492ee4bd746e081e0b128e296ee17e0b54f7dba5b448f2749dffddd9f87a
+// sha256:279ab00b4b959f50815b71a0b0f8df245a1af71fd7ce385058f4095648c18ad9
 
 /**
  * Canonical Desktop <-> Agent WebClient bridge contract.
@@ -581,7 +581,16 @@ export type WorkPanelOpenResourceResult =
     }
   | AgentWebclientBridgeFailure;
 
+export const AGENT_WEBCLIENT_HTML_DRAFT_MAX_BYTES = 4 * 1024 * 1024;
+export const AGENT_WEBCLIENT_HTML_DRAFT_MAX_NAME_CHARS = 96;
+
+export type WorkPanelHtmlDraftSource = {
+  kind: "html-draft"; agentKey: string; chatId: string;
+  name: string; sha256: string; html: string;
+};
+
 export type WorkPanelDocumentSource =
+  | WorkPanelHtmlDraftSource
   | { kind: "workspace-file"; agentKey: string; path: string }
   | {
       kind: "artifact" | "reference";
@@ -643,6 +652,7 @@ export type WorkPanelBridgeResult =
 export type WorkPanelCapability =
   | "workpanel.view"
   | "workpanel.open"
+  | "workpanel.document.open-draft-html"
   | "workpanel.document.open-local"
   | "workpanel.document.open-local-direct"
   | "workpanel.activate"

@@ -288,6 +288,7 @@ export type FramePortOptions = {
   }): Promise<WorkPanelOpenResourceResult>;
   openDocument(input: {
     ownerChatId: string;
+    draftGuest?: WebContents;
     document: Omit<WorkPanelOpenDocumentInput, "version">;
   }): Promise<WorkPanelOpenDocumentResult>;
   normalizeWorkPanelOpenLocalResourceRequest(value: unknown): { relativePath: string } | null;

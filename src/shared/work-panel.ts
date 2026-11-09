@@ -307,11 +307,11 @@ function normalizeDescriptor(
     if (descriptor.surfaceKey === "document-html") {
       const allowedContextKeys = new Set([
         "handleId", "sourceKind", "stableIdentity", "displayUrl", "fileName", "mimeType",
-        "sizeBytes", "revision", "localOriginal",
+        "sizeBytes", "revision", "localOriginal", "draftExcerpt",
       ]);
       if (Object.keys(context).some((key) => !allowedContextKeys.has(key))) return null;
       const handleId = cleanIdentity(context.handleId, 256);
-      const sourceKind = ["workspace-file", "artifact", "reference"].includes(String(context.sourceKind))
+      const sourceKind = ["workspace-file", "artifact", "reference", "html-draft"].includes(String(context.sourceKind))
         ? String(context.sourceKind)
         : "";
       const stableIdentity = cleanIdentity(context.stableIdentity, 2_048);
@@ -330,8 +330,11 @@ function normalizeDescriptor(
       const revision = cleanIdentity(context.revision, 512);
       const localOriginal = typeof context.localOriginal === "boolean" ? context.localOriginal : null;
       if (
-        !handleId || !sourceKind || !stableIdentity || !displayPath ||
-        displayUrl !== `${displayUrlPrefix}${displayPath}` ||
+        !handleId || !sourceKind || !stableIdentity ||
+        (sourceKind === "html-draft"
+          ? context.displayUrl !== "" || localOriginal !== false ||
+            typeof context.draftExcerpt !== "string" || context.draftExcerpt.length > 512
+          : !displayPath || displayUrl !== `${displayUrlPrefix}${displayPath}`) ||
         !fileName || !mimeType || sizeBytes < 0 || !revision || localOriginal === null
       ) {
         return null;
@@ -349,6 +352,7 @@ function normalizeDescriptor(
           sizeBytes,
           revision,
           localOriginal,
+          ...(sourceKind === "html-draft" ? { draftExcerpt: context.draftExcerpt as string } : {}),
         },
         ...(title ? { title } : {}),
         ...(descriptor.pinned === true ? { pinned: true } : {}),
@@ -746,7 +750,7 @@ function normalizeReviewSource(source: ReviewSourceRevision) {
   const liveProjectWeb = source.liveProjectWeb === true && sourceKind === "web" &&
     Boolean(url) && isLoopbackWorkPanelReviewUrl(url);
   if (
-    !["workspace-file", "artifact", "reference", "web"].includes(sourceKind) ||
+    !["workspace-file", "artifact", "reference", "web", "html-draft"].includes(sourceKind) ||
     !fileName ||
     !revision ||
     (source.relativePath !== undefined && !relativePath) ||
@@ -761,6 +765,7 @@ function normalizeReviewSource(source: ReviewSourceRevision) {
     sourceKind,
     fileName,
     revision,
+    ...(sourceKind === "html-draft" && typeof source.draftExcerpt === "string" ? { draftExcerpt: source.draftExcerpt.slice(0, 512) } : {}),
     ...(relativePath ? { relativePath } : {}),
     ...(resourceId ? { resourceId } : {}),
     ...(url ? { url } : {}),

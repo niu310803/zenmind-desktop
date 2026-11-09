@@ -80,7 +80,9 @@ export function createWorkpanelInvoke(deps: WorkpanelInvokePort) {
     const localDocumentAllowed = Boolean(documentSurface && documentSource && deps.options.documentLocalOpen &&
       context.target.surfaceRole === (documentSource.kind === "workspace-file" ? "file" : documentSource.kind) &&
       (documentSource.kind === "workspace-file" || documentSource.chatId === ownerChatId));
+    const canOpenHtmlDraft = Boolean(ownerChatId && ["agent-chat", "agent-copilot", "agent-overview"].includes(context.kind));
     const capabilities: WorkPanelCapability[] = [
+      ...(canOpenHtmlDraft ? ["workpanel.document.open-draft-html" as const] : []),
       ...(localDocumentAllowed ? ["workpanel.document.open-local" as const] : []),
       ...(localDocumentAllowed && deps.options.documentLocalOpen?.openDocument ? ["workpanel.document.open-local-direct" as const] : []),
       ...(context.kind === "agent-chat" || context.kind === "agent-copilot" || context.kind === "agent-overview"
@@ -243,6 +245,13 @@ export function createWorkpanelInvoke(deps: WorkpanelInvokePort) {
       const agentKey = readText(source.agentKey);
       if (!agentKey)
         return failure("invalid_request", "Invalid native document Agent");
+      if (sourceKind === "html-draft") {
+        if (!canOpenHtmlDraft) return failure("capability_denied", "This surface cannot preview HTML drafts");
+        const normalized = normalizeWorkPanelDocumentSource(source);
+        if (!normalized || normalized.kind !== "html-draft") return failure("invalid_request", "Invalid HTML draft");
+        if (normalized.chatId !== ownerChatId) return failure("capability_denied", "Draft does not match the trusted owner Chat");
+        return deps.options.openDocument({ ownerChatId, draftGuest: event.sender, document: { source: normalized, title: documentInput.title } });
+      }
       if (sourceKind === "workspace-file") {
         if (Object.keys(source).some((key) => !["kind", "agentKey", "path"].includes(key)) ||
           !readText(source.path))

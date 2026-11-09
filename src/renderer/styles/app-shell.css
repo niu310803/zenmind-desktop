@@ -1547,6 +1547,13 @@
   white-space: nowrap;
 }
 
+.work-panel-document-html-location>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .work-panel-document-html-location:focus-within {
   border-color: #1677ff;
   box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);

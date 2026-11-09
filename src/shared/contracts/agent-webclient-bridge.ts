@@ -577,7 +577,16 @@ export type WorkPanelOpenResourceResult =
     }
   | AgentWebclientBridgeFailure;
 
+export const AGENT_WEBCLIENT_HTML_DRAFT_MAX_BYTES = 4 * 1024 * 1024;
+export const AGENT_WEBCLIENT_HTML_DRAFT_MAX_NAME_CHARS = 96;
+
+export type WorkPanelHtmlDraftSource = {
+  kind: "html-draft"; agentKey: string; chatId: string;
+  name: string; sha256: string; html: string;
+};
+
 export type WorkPanelDocumentSource =
+  | WorkPanelHtmlDraftSource
   | { kind: "workspace-file"; agentKey: string; path: string }
   | {
       kind: "artifact" | "reference";
@@ -639,6 +648,7 @@ export type WorkPanelBridgeResult =
 export type WorkPanelCapability =
   | "workpanel.view"
   | "workpanel.open"
+  | "workpanel.document.open-draft-html"
   | "workpanel.document.open-local"
   | "workpanel.document.open-local-direct"
   | "workpanel.activate"

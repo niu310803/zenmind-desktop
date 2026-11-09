@@ -35,7 +35,7 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
     },
   });
 
-  const openDocument: AgentWebclientBridgeIpcOptions["openDocument"] = async ({ ownerChatId, document }) => {
+  const openDocument: AgentWebclientBridgeIpcOptions["openDocument"] = async ({ ownerChatId, document, draftGuest }) => {
     const mainWindow = options.getMainWindow();
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
       return { ok: false, error: { code: "target_unavailable", message: "WorkPanel renderer is unavailable" } };
@@ -62,7 +62,8 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
         return { ok: false, error: { code: "target_unavailable", message: "Agent workspace is unavailable" } };
       }
     }
-    const imagePrepared = await workPanelResourceImageRegistry.prepareClaim({
+    if (source.kind !== "html-draft") {
+      const imagePrepared = await workPanelResourceImageRegistry.prepareClaim({
         ownerChatId,
         rendererWebContentsId: mainWindow.webContents.id,
         profile: source.kind,
@@ -73,35 +74,44 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
         title: document.title,
         ...(workspaceFilePath ? { workspaceFilePath } : {}),
       });
-    if (imagePrepared.ok) {
-      try {
-        const response = await desktopActionOptions.callRendererAction({
-          requestId: `workpanel-document-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          action: "desktop.workpanel.openResourceImage",
-          args: {
-            claimId: imagePrepared.claimId,
-            surfaceKey: "document-image",
-            ...(document.title ? { title: document.title } : {}),
-          },
-          source: { chatId: ownerChatId, agentKey: source.agentKey },
-        });
-        if (!response.ok) return { ok: false, error: { code: (response.error?.code || "target_unavailable") as any, message: response.error?.message || "WorkPanel renderer is unavailable" } };
-        const result = response.result as { workspaceId?: unknown; item?: { itemId?: unknown } } | undefined;
-        const workspaceId = typeof result?.workspaceId === "string" ? result.workspaceId : "";
-        const itemId = typeof result?.item?.itemId === "string" ? result.item.itemId : "";
-        return workspaceId && itemId
-          ? { ok: true, workspaceId, itemId, renderer: "native-image" as const }
-          : { ok: false, error: { code: "protocol_error", message: "Native image host returned an invalid result" } };
-      } finally {
-        workPanelResourceImageRegistry.discardPreparedClaim(imagePrepared.claimId);
+      if (imagePrepared.ok) {
+        try {
+          const response = await desktopActionOptions.callRendererAction({
+            requestId: `workpanel-document-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            action: "desktop.workpanel.openResourceImage",
+            args: {
+              claimId: imagePrepared.claimId,
+              surfaceKey: "document-image",
+              ...(document.title ? { title: document.title } : {}),
+            },
+            source: { chatId: ownerChatId, agentKey: source.agentKey },
+          });
+          if (!response.ok) return { ok: false, error: { code: (response.error?.code || "target_unavailable") as any, message: response.error?.message || "WorkPanel renderer is unavailable" } };
+          const result = response.result as { workspaceId?: unknown; item?: { itemId?: unknown } } | undefined;
+          const workspaceId = typeof result?.workspaceId === "string" ? result.workspaceId : "";
+          const itemId = typeof result?.item?.itemId === "string" ? result.item.itemId : "";
+          return workspaceId && itemId
+            ? { ok: true, workspaceId, itemId, renderer: "native-image" as const }
+            : { ok: false, error: { code: "protocol_error", message: "Native image host returned an invalid result" } };
+        } finally {
+          workPanelResourceImageRegistry.discardPreparedClaim(imagePrepared.claimId);
+        }
       }
-    }
-    if (imagePrepared.code !== "unsupported_native_type") {
-      return { ok: false, error: { code: imagePrepared.code, message: imagePrepared.message } };
+      if (imagePrepared.code !== "unsupported_native_type") {
+        return { ok: false, error: { code: imagePrepared.code, message: imagePrepared.message } };
+      }
     }
     const prepared = await workPanelDocumentHtmlRegistry.prepareClaim({
       ownerChatId,
       rendererWebContentsId: mainWindow.webContents.id,
+      draftGuest,
+      onDraftsReleased: (handleIds) => {
+        void desktopActionOptions.callRendererAction({
+          requestId: `discard-html-drafts-${Date.now()}-${Math.random()}`,
+          action: "desktop.workpanel.discardHtmlDrafts",
+          args: { handleIds }, source: { chatId: ownerChatId, agentKey: source.agentKey },
+        }).catch(() => undefined);
+      },
       source: source.kind === "workspace-file"
         ? { ...source, path: workspaceRelativePath! }
         : source,
@@ -120,6 +130,17 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
       const result = response.result as { workspaceId?: unknown; item?: { itemId?: unknown } } | undefined;
       const workspaceId = typeof result?.workspaceId === "string" ? result.workspaceId : "";
       const itemId = typeof result?.item?.itemId === "string" ? result.item.itemId : "";
+      if (source.kind === "html-draft") {
+        const handleId = String((response.result as { item?: { descriptor?: { context?: { handleId?: unknown } } } })?.item?.descriptor?.context?.handleId || "");
+        if (!workPanelDocumentHtmlRegistry.isLiveHtmlDraftHandle(handleId)) {
+          await desktopActionOptions.callRendererAction({
+            requestId: `discard-late-html-draft-${Date.now()}-${Math.random()}`,
+            action: "desktop.workpanel.discardHtmlDrafts", args: { handleIds: [handleId] },
+            source: { chatId: ownerChatId, agentKey: source.agentKey },
+          });
+          return { ok: false, error: { code: "target_unavailable", message: "The source document was refreshed." } };
+        }
+      }
       return workspaceId && itemId
         ? { ok: true, workspaceId, itemId, renderer: "native-html" as const }
         : { ok: false, error: { code: "protocol_error", message: "Native HTML host returned an invalid result" } };

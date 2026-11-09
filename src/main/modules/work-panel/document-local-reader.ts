@@ -108,7 +108,7 @@ function verifyChatAncestors(runtimeRoot: string, chatId: string, relativePath: 
 export function createWorkPanelDocumentReader(ports: DocumentLocalReaderPorts) {
   return async (requestedSource: WorkPanelDocumentSource) => {
     const source = normalizeWorkPanelDocumentSource(requestedSource);
-    if (!source) throw new Error("Invalid document source");
+    if (!source || source.kind === "html-draft") throw new Error("Invalid local document source");
     const runtimeRoot = await canonicalRuntimeRoot((ports.resolveRuntimeRoot ?? resolvePreferredAgentPlatformRuntimeRoot)(ports.app));
     const protectedRoots = [runtimeRoot];
     if (source.kind === "workspace-file") {
