@@ -113,11 +113,12 @@ const click=async(index)=>clickPoint(await center(index));
 const cases=[];
 for(const platform of ['darwin','win32']){for(const fullscreen of [false,true]){
  const fixed=platform==='darwin'||fullscreen,expectedInset=fixed?(platform==='darwin'?132:62):0;
- await js('window.configure('+JSON.stringify({platform,fullscreen,collapsed:true,mainChat:true,sidebarMode:'primary',copilot:false})+')');
+ await js('window.configure('+JSON.stringify({platform,fullscreen,collapsed:true,mainChat:true,sidebarMode:'primary',copilot:true})+')');
  await until(()=>gj('document.querySelector("#guest-header").style.paddingLeft==="'+expectedInset+'px"'));
  const before=await js('({...window.actions})');await click(0);await click(1);await click(2);
  assert.deepEqual(await js('({...window.actions})'),{search:before.search+1,back:before.back,forward:before.forward+1});
  const point=await center(3);assert.equal(await js('document.querySelectorAll('+JSON.stringify(activeSelector)+')[3].getAttribute("aria-expanded")'),'false');
+ assert.equal(await js('document.querySelector(".sidebar-assistant-top-button")'),null,'navigation must not expose a right-sidebar button');
  const cursors=await js('(()=>{return [...document.querySelectorAll(".main-chat-header-action,.app-system-bar-action,.app-sidebar-shell")].map(e=>getComputedStyle(e).cursor)})()');
  assert.ok(cursors.every(value=>value==='default'),'Navigation controls and blank sidebar space use the normal arrow');
  if(platform==='darwin')assert.deepEqual(point,{x:174,y:18});
@@ -161,10 +162,8 @@ for(const platform of ['darwin','win32']){for(const fullscreen of [false,true]){
  const nonChatExpand=await center(3);await clickPoint(nonChatExpand);await pause(230);assert.deepEqual(await center(3),point);
  assert.equal(await js('document.querySelector("webview").getBoundingClientRect().top'),platform==='win32'&&!fullscreen?30:0);
  if(platform==='darwin'){
-  const assistant=await js('(()=>{const e=document.querySelector(".sidebar-assistant-top-button"),r=e.getBoundingClientRect(),icon=e.querySelector("svg").getBoundingClientRect();return {left:r.left,width:r.width,cy:icon.top+icon.height/2,visible:getComputedStyle(e).display!=="none"}})()');
-  assert.ok(assistant.visible&&assistant.width>0&&assistant.left>=196,'Copilot must not overlap the fixed group');
-  assert.equal(assistant.cy,point.y,'Copilot icon must align with the fixed navigation');
-  assert.equal(await js('(()=>{return [...document.querySelectorAll(".sidebar-top-actions button")].filter(e=>e.getBoundingClientRect().width>0).length})()'),1);
+  assert.equal(await js('document.querySelector(".sidebar-assistant-top-button")'),null,'expanded navigation must not expose a right-sidebar button');
+  assert.equal(await js('(()=>{return [...document.querySelectorAll(".sidebar-top-actions button")].filter(e=>e.getBoundingClientRect().width>0).length})()'),0);
   await js('window.configure({sidebarMode:"settings"})');await pause(80);
   assert.equal(await js('document.querySelector(".main-chat-header-navigation")'),null);
  }

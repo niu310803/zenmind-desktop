@@ -722,38 +722,15 @@ test("desktop custom theme tokens are shared by control center and log viewer", 
   assert.doesNotMatch(globalStyles, /:root\[data-theme="dark"\] \.control-center-page\s*\{[\s\S]*?--control-center-bg:/);
 });
 
-test("assistant launcher sits beside the sidebar collapse button", () => {
+test("navigation omits the right-sidebar launcher while content keeps its own controls", () => {
   const appShell = readAppShellSource();
-  const sidebarSource = fs.readFileSync(
-    path.join(projectRoot, "src", "renderer", "app-shell", "navigation", "AppSidebar.tsx"),
-    "utf8"
-  );
-  const globalStyles = readRendererStyles();
-  const nativeAssistantDockPath = path.join(projectRoot, "src", "renderer", "components", "AssistantDock.tsx");
-
-  assert.equal(fs.existsSync(nativeAssistantDockPath), false);
-  assert.match(appShell, /function AgentWebclientCopilotDock/);
-  assert.match(appShell, /onOpenAssistantDock=\{\(\) => openAssistantDock\(\)\}/);
-  assert.match(appShell, /function buildAgentWebclientCopilotPath/);
-  assert.match(appShell, /fallbackAgentKey = ""/);
-  assert.match(appShell, /function resolveTargetAgentKey/);
-  assert.match(appShell, /normalizeAgentKey\(openRequest\?\.agentKey \?\? openRequest\?\.workerKey \?\? fallbackAgentKey\)/);
-  assert.match(appShell, /if \(!agentKey\) \{[\s\S]{0,160}return AGENT_WEBCLIENT_COPILOT_PATH/);
-  assert.match(appShell, /params\.set\("chatId", chatId\)/);
-  assert.match(appShell, /return createAgentWebclientCopilotPath\(agentKey, params\)/);
-  assert.match(appShell, /decodeRoutePathSegment\(rawAgentKey\) \?\? ""/);
-  assert.match(appShell, /buildAgentWebclientCopilotPath\(openRequest, resolvedAgentKey\)/);
-  assert.match(appShell, /embedPath=\{targetEmbedPath\}/);
-  assert.match(sidebarSource, /sidebar-top-actions/);
-  assert.match(sidebarSource, /sidebar-assistant-top-button/);
-  assert.match(sidebarSource, /import \{ PRODUCT_NAME, STORAGE_NAMESPACE \}/);
-  assert.match(sidebarSource, /t\("sidebar\.copilot\.open", \{ appName: PRODUCT_NAME \}\)/);
-  assert.match(sidebarSource, /t\("sidebar\.copilot\.close", \{ appName: PRODUCT_NAME \}\)/);
-  assert.match(sidebarSource, /t\("sidebar\.copilot\.unavailableForPage", \{ appName: PRODUCT_NAME \}\)/);
-  assert.match(globalStyles, /--assistant-dock-embedded-width:\s*360px;/);
-  assert.match(globalStyles, /\.agent-webclient-copilot-dock\s*\{/);
-  assert.doesNotMatch(globalStyles, /\.assistant-dock-/);
-  assert.match(globalStyles, /\.sidebar-top-actions\s*\{[\s\S]*?display:\s*inline-flex;/);
+  const sidebarSource = readSourceFile("src", "renderer", "app-shell", "navigation", "AppSidebar.tsx");
+  assert.doesNotMatch(sidebarSource, /sidebar-assistant-top-button|handleAssistantDockClick/);
+  const systemActions = appShell.slice(appShell.indexOf('className="app-system-bar-primary-actions"'),
+    appShell.indexOf('className="app-system-bar-window-controls"'));
+  assert.doesNotMatch(systemActions, /toggleSystemBarAssistantDock|sidebar-right-panel-icon/);
+  assert.match(appShell, /main-chat-header-action main-chat-work-panel-toggle/);
+  assert.match(appShell, /<WebappCopilotButton open=\{assistantCopilotOpen\}/);
 });
 
 test("embedded surfaces use theme-backed host colors instead of hard-coded light fallbacks", () => {
@@ -1618,7 +1595,7 @@ test("sidebar renders Kanban and section groups above the fixed tool menu", () =
   assert.match(sidebarSource, /createPortal/);
   assert.match(sidebarSource, /sidebar-tool-menu-trigger/);
   assert.match(sidebarSource, /sidebar-tool-menu-item/);
-  assert.match(sidebarSource, /sidebar-assistant-top-button/);
+  assert.doesNotMatch(sidebarSource, /sidebar-assistant-top-button/);
   assert.match(sidebarSource, /sidebar-group-heading/);
   assert.doesNotMatch(sidebarSource, /sidebar-tool-grid/);
   assert.doesNotMatch(sidebarSource, /sidebar-assistant-launcher/);
@@ -3630,7 +3607,7 @@ test("page-level copilot controls sidebar visibility and assistant agent followi
   assert.match(appShell, /assistantDockOpen = Boolean\(currentCopilotSession\)/);
   assert.match(appShell, /assistantCopilotOpen = assistantDockOpen && assistantLauncherVisible && !isAgentWebclientMainRoute/);
   assert.doesNotMatch(appShell, /assistantDockOpenPath/);
-  assert.match(appShell, /assistantLauncherDisabled=\{isAgentWebclientMainRoute\}/);
+  assert.doesNotMatch(appShell, /assistantLauncherDisabled=\{isAgentWebclientMainRoute\}/);
   assert.match(appShell, /open=\{assistantCopilotOpen\}/);
   assert.match(appShell, /assistantLauncherVisible=\{assistantLauncherVisible\}/);
   assert.match(appShell, /function closeAssistantDock\(\)[\s\S]*?setAssistantDockOpenRequest\(null\)[\s\S]*?pendingAssistantDockOpenRequestRef\.current = null[\s\S]*?updateCopilotDockContextSession\(currentCopilotContextKey, null\)/);
@@ -3681,25 +3658,7 @@ test("page-level copilot controls sidebar visibility and assistant agent followi
   assert.doesNotMatch(appShell, /key=\{`agent-webclient-copilot:\$\{targetEmbedPath\}`\}/);
   assert.match(appShell, /function isSingleAgentWebclientRoute\(pathname: string\)[\s\S]*?matchPath\("\/agent\/:agentKey", pathname\)/);
   assert.match(sidebarSource, /assistantLauncherVisible/);
-  assert.match(sidebarSource, /assistantLauncherDisabled/);
-  assert.match(sidebarSource, /assistantLauncherVisible \? \(/);
-  assert.match(sidebarSource, /<SidebarActionIcon kind="sidebar_right" \/>/);
-  assert.match(sidebarSource, /if \(assistantDockOpen\) \{\s*onCloseAssistantDock\?\.\(\);\s*\} else \{\s*onOpenAssistantDock\?\.\(\);/);
-  assert.doesNotMatch(sidebarSource, /assistantDockOpen \? "sidebar-link-active" : ""/);
-  assert.doesNotMatch(sidebarSource, /!assistantDockOpen && \(isActive \|\| pendingPath === "\/settings"\)/);
-  assert.match(sidebarSource, /assistantDockOpen \? "is-assistant-open" : ""/);
-  assert.match(sidebarSource, /title=\{t\("sidebar\.copilot\.title"\)\}/);
-  assert.doesNotMatch(sidebarSource, /sidebar-link-label-collapsed" aria-hidden="true">助手/);
-  assert.doesNotMatch(sidebarSource, /assistantDockOpen \? "is-open" : ""/);
-  assert.doesNotMatch(sidebarSource, /sidebar-assistant-switch/);
-  assert.match(sidebarSource, /disabled=\{assistantLauncherDisabled\}/);
-  assert.doesNotMatch(globalStyles, /\.sidebar-assistant-launcher\.is-open/);
-  assert.match(globalStyles, /\.sidebar-assistant-top-button-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;[\s\S]*?color:\s*#94a3b8;/);
-  assert.match(globalStyles, /\.sidebar-assistant-top-button\.is-assistant-open \.sidebar-assistant-top-button-icon\s*\{[\s\S]*?color:\s*#1e293b;/);
-  assert.match(globalStyles, /:root\[data-theme="dark"\] \.sidebar-assistant-top-button\.is-assistant-open \.sidebar-assistant-top-button-icon\s*\{[\s\S]*?color:\s*#e2e8f0;/);
-  assert.doesNotMatch(globalStyles, /\.sidebar-assistant-top-button:not\(\.is-assistant-open\)[\s\S]*?filter:\s*grayscale/);
-  assert.match(globalStyles, /\.sidebar-assistant-top-button\.is-disabled/);
-  assert.doesNotMatch(globalStyles, /\.sidebar-assistant-switch/);
+  assert.doesNotMatch(sidebarSource, /assistantLauncherDisabled|handleAssistantDockClick|sidebar-assistant-top-button/);
 });
 
 test("Kanban cards match the Website hierarchy and date-only contract", () => {

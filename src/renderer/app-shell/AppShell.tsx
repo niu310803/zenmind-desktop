@@ -4835,26 +4835,6 @@ export function AppShell() {
               >
                 <SidebarActionIcon kind="forward" />
               </button>
-              {sidebarMode === "primary" && assistantLauncherVisible && !usesWebappSurface ? (
-                <button
-                  type="button"
-                  className={`app-system-bar-action${assistantCopilotOpen ? " is-active" : ""}`}
-                  onClick={toggleSystemBarAssistantDock}
-                  aria-label={
-                    isAgentWebclientMainRoute
-                      ? t("sidebar.copilot.unavailableForPage", { appName: PRODUCT_NAME })
-                      : assistantCopilotOpen
-                        ? t("sidebar.copilot.close", { appName: PRODUCT_NAME })
-                        : t("sidebar.copilot.open", { appName: PRODUCT_NAME })
-                  }
-                  aria-disabled={isAgentWebclientMainRoute}
-                  aria-pressed={assistantCopilotOpen}
-                  disabled={isAgentWebclientMainRoute}
-                  title={t("sidebar.copilot.title")}
-                >
-                  <SidebarActionIcon kind="sidebar_left" className="sidebar-right-panel-icon" />
-                </button>
-              ) : null}
               {sidebarMode === "primary" ? (
                 <button
                   type="button"
@@ -4929,8 +4909,6 @@ export function AppShell() {
           currentPathname={location.pathname}
           currentRoute={currentRoute}
           pendingPath={pendingSidebarNavigationPath}
-          assistantDockOpen={assistantCopilotOpen}
-          assistantLauncherDisabled={isAgentWebclientMainRoute}
           assistantLauncherVisible={assistantLauncherVisible && !usesWebappSurface}
           marketEnabled={marketEnabled}
           helpEnabled={helpEnabled}
@@ -4976,7 +4954,6 @@ export function AppShell() {
           bootstrapChatId={assistantSettings?.bootstrapChatId}
           sidebarNavigationCanGoBack={Boolean(desktopNavigationBackStep)}
           sidebarNavigationCanGoForward={Boolean(desktopNavigationForwardStep)}
-          onOpenAssistantDock={() => openAssistantDock()}
           onCloseAssistantDock={closeAssistantDock}
           onDesktopSsoLogin={handleDesktopSsoLogin}
           onDesktopSsoLogout={handleDesktopSsoLogout}

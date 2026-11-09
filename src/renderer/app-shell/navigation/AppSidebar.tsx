@@ -1008,8 +1008,6 @@ type AppSidebarProps = {
   currentPathname: string;
   currentRoute: string;
   pendingPath?: string | null;
-  assistantDockOpen?: boolean;
-  assistantLauncherDisabled?: boolean;
   assistantLauncherVisible?: boolean;
   marketEnabled?: boolean;
   helpEnabled?: boolean;
@@ -1045,7 +1043,6 @@ type AppSidebarProps = {
   bootstrapChatId?: string;
   sidebarNavigationCanGoBack?: boolean;
   sidebarNavigationCanGoForward?: boolean;
-  onOpenAssistantDock?: () => void;
   onCloseAssistantDock?: () => void;
   onDesktopSsoLogin?: () => void;
   onDesktopSsoLogout?: () => void;
@@ -1105,8 +1102,6 @@ export function AppSidebar({
   currentPathname,
   currentRoute,
   pendingPath,
-  assistantDockOpen = false,
-  assistantLauncherDisabled = false,
   assistantLauncherVisible = true,
   marketEnabled = true,
   helpEnabled = false,
@@ -1142,7 +1137,6 @@ export function AppSidebar({
   bootstrapChatId = "",
   sidebarNavigationCanGoBack = false,
   sidebarNavigationCanGoForward = false,
-  onOpenAssistantDock,
   onCloseAssistantDock,
   onDesktopSsoLogin,
   onDesktopSsoLogout,
@@ -4005,18 +3999,6 @@ export function AppSidebar({
           : current,
       );
     }
-  }
-
-  function handleAssistantDockClick() {
-    if (assistantLauncherDisabled) {
-      return;
-    }
-    if (assistantDockOpen) {
-      onCloseAssistantDock?.();
-    } else {
-      onOpenAssistantDock?.();
-    }
-    onNavigateItem?.();
   }
 
   function toggleSidebarGroup(groupId: SidebarGroupId) {
@@ -7007,39 +6989,6 @@ export function AppSidebar({
                     <SidebarActionIcon kind="forward" />
                   </button>
                 </div>
-                {isPrimaryMode && assistantLauncherVisible ? (
-                  <button
-                    type="button"
-                    className={[
-                      "app-sidebar-collapse-button",
-                      "sidebar-assistant-top-button",
-                      "is-compact",
-                      assistantDockOpen ? "is-assistant-open" : "",
-                      assistantLauncherDisabled ? "is-disabled" : "",
-                      isCollapsed ? "is-collapsed-state" : "is-expanded-state",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={handleAssistantDockClick}
-                    aria-label={
-                      assistantLauncherDisabled
-                        ? t("sidebar.copilot.unavailableForPage", {
-                            appName: PRODUCT_NAME,
-                          })
-                        : assistantDockOpen
-                          ? t("sidebar.copilot.close", { appName: PRODUCT_NAME })
-                          : t("sidebar.copilot.open", { appName: PRODUCT_NAME })
-                    }
-                    aria-disabled={assistantLauncherDisabled}
-                    aria-pressed={assistantDockOpen}
-                    disabled={assistantLauncherDisabled}
-                    title={t("sidebar.copilot.title")}
-                  >
-                    <span className="app-sidebar-collapse-button-icon sidebar-assistant-top-button-icon">
-                      <SidebarActionIcon kind="sidebar_left" className="sidebar-right-panel-icon" />
-                    </span>
-                  </button>
-                ) : null}
                 {isPrimaryMode ? (
                   <SidebarCollapseToggle
                     className="sidebar-collapsed-toggle-button"
