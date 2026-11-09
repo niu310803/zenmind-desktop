@@ -6,6 +6,7 @@ import { notarizeAndStapleDmg, resolveMacDmgArtifactPath } from "./lib/mac-notar
 import { npmCmd, runAndWait, withBrandEnv } from "./platform/spawn.mjs";
 import { verifyMacReleaseApp } from "./lib/mac-app-signing.js";
 import { verifyMacShareExtension } from "./lib/mac-share-extension.mjs";
+import { verifyMacDmgInstaller } from "./lib/mac-dmg-installer.mjs";
 
 const MAC_SIGNING_CERTIFICATE_PREFIX = "Developer ID Application:";
 const DARWIN_BUILTIN_SIGN_ENV_KEYS = [
@@ -117,6 +118,10 @@ await runAndWait(npmCmd, [
   "--arm64"
 ], brandProcessOptions({ cwd: projectRoot }));
 
+const updateAppPath = path.join(projectRoot, "dist", brand.id, "mac-arm64", `${brand.productName}.app`);
+// The afterSign hook creates the separate installer identity before the DMG is
+// sealed; the same notarization submission covers both signed applications.
+verifyMacDmgInstaller({ projectRoot, brand, hostAppPath: updateAppPath });
 let updateAppNotarized = false;
 if (!shouldSkipNotarize()) {
   const dmgPath = resolveMacDmgArtifactPath(projectRoot, brand);
@@ -128,7 +133,6 @@ if (!shouldSkipNotarize()) {
 
 // Build the automatic-update archive from the same verified, signed application.
 // Keep the DMG metadata unchanged for existing manual-install/release validation.
-const updateAppPath = path.join(projectRoot, "dist", brand.id, "mac-arm64", `${brand.productName}.app`);
 if (updateAppNotarized) {
   await runAndWait("xcrun", ["stapler", "staple", updateAppPath], brandProcessOptions({ cwd: projectRoot }));
   await runAndWait("xcrun", ["stapler", "validate", updateAppPath], brandProcessOptions({ cwd: projectRoot }));

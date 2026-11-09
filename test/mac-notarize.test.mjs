@@ -41,17 +41,38 @@ test("notarytool auth args validate partial credential groups", () => {
   );
 });
 
-test("mac DMG artifact resolves from latest-mac metadata", () => {
+test("mac DMG artifact resolves the current manual build without updater metadata", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-mac-dmg-artifact-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const outputDir = path.join(root, "dist", "zenmind");
   fs.mkdirSync(outputDir, { recursive: true });
-  fs.writeFileSync(path.join(outputDir, "latest-mac.yml"), "path: ZenMind-0.3.5-arm64.dmg\n", "utf8");
+  fs.writeFileSync(path.join(root, "VERSION"), "v0.3.5\n", "utf8");
   fs.writeFileSync(path.join(outputDir, "ZenMind-0.3.5-arm64.dmg"), "fake dmg\n", "utf8");
 
   assert.equal(
-    resolveMacDmgArtifactPath(root, { id: "zenmind" }),
+    resolveMacDmgArtifactPath(root, { id: "zenmind", productName: "ZenMind" }),
     path.join(outputDir, "ZenMind-0.3.5-arm64.dmg")
   );
+  // An old publisher file must not cause notarization of a previous release.
+  fs.writeFileSync(path.join(outputDir, "latest-mac.yml"), "path: ZenMind-0.3.4-arm64.dmg\n", "utf8");
+  fs.writeFileSync(path.join(outputDir, "ZenMind-0.3.4-arm64.dmg"), "old dmg\n", "utf8");
+  assert.equal(resolveMacDmgArtifactPath(root, { id: "zenmind", productName: "ZenMind" }),
+    path.join(outputDir, "ZenMind-0.3.5-arm64.dmg"));
+  fs.rmSync(path.join(outputDir, "ZenMind-0.3.5-arm64.dmg"));
+  assert.throws(() => resolveMacDmgArtifactPath(root, { id: "zenmind", productName: "ZenMind" }), /DMG artifact not found/u);
+});
+
+test("mac DMG artifact respects its target architecture and rejects unsafe build identity", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-mac-dmg-target-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, "VERSION"), "v0.3.5\n", "utf8");
+  fs.mkdirSync(path.join(root, "dist", "cutej"), { recursive: true });
+  const expected = path.join(root, "dist", "cutej", "CuteJ-0.3.5-x64.dmg");
+  fs.writeFileSync(expected, "x64 fixture");
+  assert.equal(resolveMacDmgArtifactPath(root, { id: "cutej", productName: "CuteJ" }, { arch: "x64" }), expected);
+  for (const brand of [{ id: "../other", productName: "CuteJ" }, { id: "cutej", productName: "../Other" }]) {
+    assert.throws(() => resolveMacDmgArtifactPath(root, brand), /Invalid macOS DMG build identity/u);
+  }
 });
 
 test("mac notarization host check branches explicitly by platform", () => {
