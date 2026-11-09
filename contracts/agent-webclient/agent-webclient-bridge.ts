@@ -1,6 +1,6 @@
 // Generated from src/shared/contracts/agent-webclient-bridge.ts.
 // Do not edit this mirror directly.
-// sha256:deaf4ca916b5061c6a6095bb5c178fbc80bf63ab80fe987a292888bd9155aa45
+// sha256:6ac5492ee4bd746e081e0b128e296ee17e0b54f7dba5b448f2749dffddd9f87a
 
 /**
  * Canonical Desktop <-> Agent WebClient bridge contract.
@@ -140,6 +140,9 @@ export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_ACTION =
 export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_VERSION = 1 as const;
 export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_PAGE_EVENT =
   "__agentWebclientWorkPanelPreviewReviewEvent" as const;
+export const AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION =
+  "workPanel.document.editMode" as const;
+export const AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION = 1 as const;
 export const AGENT_WEBCLIENT_COMPOSER_DRAFT_ACTION =
   "workPanel.composer.insertDraft" as const;
 export const AGENT_WEBCLIENT_COMPOSER_DRAFT_VERSION = 1 as const;
@@ -204,6 +207,13 @@ export type AgentWebclientWorkPanelPreviewReviewAction = {
   enabled?: boolean;
   kind?: "html" | "image";
   annotations?: unknown[];
+};
+
+/** Host-owned read-only/edit switch for a text WorkPanel tab. */
+export type AgentWebclientWorkPanelDocumentEditModeAction = {
+  action: typeof AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION;
+  version: typeof AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION;
+  enabled: boolean;
 };
 
 export type AgentWebclientComposerDraftAction = {
