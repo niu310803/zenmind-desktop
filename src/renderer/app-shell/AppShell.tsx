@@ -735,7 +735,6 @@ export function AppShell() {
     useState<boolean | null>(null);
   const [primaryChatNavigation, setPrimaryChatNavigation] = useState(readPrimaryChatNavigation);
   const [primaryChatNavError, setPrimaryChatNavError] = useState("");
-  const [primaryAgentOrderingSupported, setPrimaryAgentOrderingSupported] = useState(false);
   const [primaryChatNavAgents, setPrimaryChatNavAgents] = useState<AssistantNavAgentItem[]>([]);
   function handlePrimaryChatNavigationChange(enabled: boolean) {
     savePrimaryChatNavigation(enabled);
@@ -1810,7 +1809,6 @@ export function AppShell() {
         const nextItems = normalizeAssistantNavAgents(resolveAssistantNavDisplayItems(nextResult));
         setAssistantNavAgentsLoaded(true);
         setPrimaryChatNavAgents(navigationItems);
-        setPrimaryAgentOrderingSupported(nextResult.agentOrderingSupported === true);
         setChatNavAgentOptions(getChatNavigationAgentOptions(navigationItems));
         setAssistantNavAgents(nextItems);
         setAssistantNavChatItems(nextResult.chatItems);
@@ -1963,7 +1961,6 @@ export function AppShell() {
       const nextResult = normalizeAssistantNavAgentItemsResult(result);
       setAssistantNavAgentsLoaded(true);
       setPrimaryChatNavAgents(nextResult.items);
-      setPrimaryAgentOrderingSupported(nextResult.agentOrderingSupported === true);
       setChatNavAgentOptions(getChatNavigationAgentOptions(nextResult.items));
       setAssistantNavAgents(normalizeAssistantNavAgents(resolveAssistantNavDisplayItems(nextResult)));
       setAssistantNavChatItems(nextResult.chatItems);
@@ -4926,14 +4923,8 @@ export function AppShell() {
           faviconCache={faviconCache}
           primaryChatNavError={primaryChatNavError}
           primaryChatNavigation={primaryChatNavigation}
+          onPrimaryChatNavigationChange={handlePrimaryChatNavigationChange}
           primaryChatNavAgents={primaryChatNavAgents}
-          onReorderPrimaryAgents={primaryAgentOrderingSupported ? async (agentKeys) => {
-            try {
-              return await window.electronAPI.assistant.reorderNavigationAgents({ agentKeys });
-            } finally {
-              await refreshAssistantNavAgents({ force: true });
-            }
-          } : undefined}
           assistantNavAgents={assistantNavAgents}
           assistantPinnedChatItems={assistantPinnedChatItems}
           assistantChatPinningSupported={assistantChatPinningSupported}

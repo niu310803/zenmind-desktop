@@ -1,5 +1,5 @@
 import { PrimaryChatNavigation } from "./PrimaryChatNavigation";
-import { primaryChatNavigationTarget } from "./primaryChatView";
+import { isBotAgent, selectBotNavigationAgents, primaryChatNavigationTarget } from "./primaryChatView";
 import { SkinHeading } from "../../appearance/SkinVisual";
 import { DesktopUpdateCard } from "../../updates/DesktopUpdateCard";
 import { useDesktopUpdates } from "../../updates/useDesktopUpdates";
@@ -1020,9 +1020,9 @@ type AppSidebarProps = {
   onSetWebItemPinned?: (item: WebEntry, pinned: boolean) => Promise<void>;
   webItems: WebEntry[];
   primaryChatNavigation?: boolean;
+  onPrimaryChatNavigationChange?: (enabled: boolean) => void;
   primaryChatNavError?: string;
   primaryChatNavAgents?: AssistantNavAgentItem[];
-  onReorderPrimaryAgents?: (agentKeys: string[]) => Promise<{ ok: boolean; agentKeys: string[]; message: string }>;
   assistantNavAgents?: AssistantNavAgentItem[];
   assistantPinnedChatItems?: AssistantNavChatItem[];
   assistantChatPinningSupported?: boolean;
@@ -1113,21 +1113,21 @@ export function AppSidebar({
   webPinningAvailable = false,
   onSetWebItemPinned,
   webItems,
-  primaryChatNavigation = false,
+  primaryChatNavigation = true,
+  onPrimaryChatNavigationChange,
   primaryChatNavError = "",
   primaryChatNavAgents = [],
-  onReorderPrimaryAgents,
   assistantNavAgents = [],
   assistantPinnedChatItems: manualPinnedChatItems = [],
   assistantChatPinningSupported = false,
-  assistantNavChatItems = [],
+  assistantNavChatItems: allAssistantNavChatItems = [],
   assistantNavChatItemsHasMore = false,
   assistantChatSortMode = "recent",
   assistantChatOrderingSupported = false,
   chatWorkPanelOpenChatIds = [],
   assistantNavAgentsLoaded = true,
   websitesLoaded = true,
-  chatNavAgentOptions = [],
+  chatNavAgentOptions: allChatNavAgentOptions = [],
   copilotAgentOptions = [],
   chatDefaultAgentKey = "",
   desktopSsoStatus = null,
@@ -1208,11 +1208,17 @@ export function AppSidebar({
       // Keep the current renderer preference when storage is unavailable.
     }
   }, [pinnedChatSortMode]);
+  const botNavAgents = useMemo(() => selectBotNavigationAgents(primaryChatNavAgents), [primaryChatNavAgents]);
+  const botAgentKeys = useMemo(() => new Set(botNavAgents.map(agent => agent.agentKey)), [botNavAgents]);
+  // BOT children are reachable through history; ordinary navigation keeps its own groups.
+  const assistantNavChatItems = useMemo(() => allAssistantNavChatItems.filter(chat => !botAgentKeys.has(chat.agentKey)), [allAssistantNavChatItems, botAgentKeys]);
+  const chatNavAgentOptions = useMemo(() => allChatNavAgentOptions.filter(agent => !isBotAgent(agent)), [allChatNavAgentOptions]);
+  const visiblePinnedChatItems = useMemo(() => manualPinnedChatItems.filter(chat => !botAgentKeys.has(chat.agentKey)), [manualPinnedChatItems, botAgentKeys]);
   const assistantPinnedChatItems = useMemo(
     () => pinnedChatSortMode === "recent"
-      ? [...manualPinnedChatItems].sort((a, b) => b.updatedAt - a.updatedAt)
-      : manualPinnedChatItems,
-    [manualPinnedChatItems, pinnedChatSortMode],
+      ? [...visiblePinnedChatItems].sort((a, b) => b.updatedAt - a.updatedAt)
+      : visiblePinnedChatItems,
+    [visiblePinnedChatItems, pinnedChatSortMode],
   );
   const projectDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1557,7 +1563,7 @@ export function AppSidebar({
     isPrimaryMode &&
     !isCollapsed;
   const primaryAssistantNavAgents = useMemo(
-    () => assistantNavAgents.filter(shouldShowAssistantInPrimaryNavigation),
+    () => assistantNavAgents.filter(agent => shouldShowAssistantInPrimaryNavigation(agent) && !isBotAgent(agent)),
     [assistantNavAgents],
   );
   const allProjectsExpanded =
@@ -1575,8 +1581,8 @@ export function AppSidebar({
     () =>
       chatNavAgentOptions.find(
         (agent) => agent.agentKey === normalizedChatDefaultAgentKey,
-      ) ?? null,
-    [chatNavAgentOptions, normalizedChatDefaultAgentKey],
+      ) ?? (allChatNavAgentOptions.some(agent => agent.agentKey === normalizedChatDefaultAgentKey && isBotAgent(agent)) ? chatNavAgentOptions[0] : null) ?? null,
+    [chatNavAgentOptions, allChatNavAgentOptions, normalizedChatDefaultAgentKey],
   );
   const resolvedChatDefaultAgent = chatDefaultAgent;
   const resolvedChatDefaultAgentKey =
@@ -2440,9 +2446,9 @@ export function AppSidebar({
 
   function findAssistantNavAgent(agentKey: string) {
     return (
-      assistantNavAgentsRef.current.find(
+      primaryChatNavAgentsRef.current.find(agent => agent.agentKey === agentKey) || assistantNavAgentsRef.current.find(
         (agent) => agent.agentKey === agentKey,
-      ) || primaryChatNavAgentsRef.current.find(agent => agent.agentKey === agentKey) || null
+      ) || null
     );
   }
 
@@ -2491,6 +2497,7 @@ export function AppSidebar({
       return agent
         ? {
             kind: "agent",
+            ...(isBotAgent(agent) ? { bot: true, canClearPrimary: Boolean(agent.primaryChat && !agent.primaryChat.hasActiveRun && !agent.primaryChat.hasPendingAwaiting) } : {}),
             canRevealWorkspace: !getRevealWorkspaceDisabledReason(agent),
             canOpenProjectEditor:
               Boolean(runtime.onOpenAgentProjectEditor) &&
@@ -2582,6 +2589,7 @@ export function AppSidebar({
       );
     }
     if (target.kind === "agent") {
+      if (target.bot) return actionId === "agent.edit" || actionId === "agent.history" || (actionId === "agent.clear-primary" && target.canClearPrimary === true);
       return (
         actionId === "agent.edit" ||
         (actionId === "agent.reveal-workspace" && target.canRevealWorkspace) ||
@@ -2692,6 +2700,16 @@ export function AppSidebar({
         !getRevealWorkspaceDisabledReason(agent)
       ) {
         sidebarContextMenuRuntimeRef.current.onOpenAgentProjectEditor?.(agent);
+      } else if (actionId === "agent.history") {
+        onOpenChatHistory?.(agent.agentKey);
+      } else if (actionId === "agent.clear-primary") {
+        const chat = agent.primaryChat;
+        if (!isBotAgent(agent) || !chat || chat.hasActiveRun || chat.hasPendingAwaiting) return;
+        if (!window.confirm(t("sidebar.bots.clearPrimaryConfirm"))) return;
+        // Recheck the authoritative pointer after the confirmation dialog.
+        const latest = findAssistantNavAgent(agent.agentKey)?.primaryChat;
+        if (!latest || latest.chatId !== chat.chatId || latest.hasActiveRun || latest.hasPendingAwaiting) return;
+        await handleAssistantArchiveChat(latest);
       } else if (actionId === "agent.edit") {
         handleEditAgent(agent);
       }
@@ -3926,7 +3944,7 @@ export function AppSidebar({
       const currentAgent = assistantNavAgents.find(
         (agent) => agent.agentKey === agentKey,
       );
-      const nextChat = currentAgent
+      const nextChat = currentAgent && !isBotAgent(currentAgent)
         ? getAssistantNavAgentUnpinnedChats(currentAgent).find(
             (candidate) => candidate.chatId !== chat.chatId,
           )
@@ -3971,7 +3989,7 @@ export function AppSidebar({
         const currentAgent = assistantNavAgents.find(
           (agent) => agent.agentKey === agentKey,
         );
-        const nextChat = currentAgent
+        const nextChat = currentAgent && !isBotAgent(currentAgent)
           ? getAssistantNavAgentUnpinnedChats(currentAgent).find(
               (candidate) => candidate.chatId !== chat.chatId,
             )
@@ -5921,13 +5939,11 @@ export function AppSidebar({
     // This is a chat-directory view. Copilot launcher visibility is unrelated
     // and becomes false on Main Chat routes, where this list must stay mounted.
     return <PrimaryChatNavigation
-      agents={primaryChatNavAgents} collapsed={isCollapsed} currentChatId={activeSidebarChatId}
+      agents={botNavAgents} enabled={primaryChatNavigation} onEnabledChange={onPrimaryChatNavigationChange} collapsed={isCollapsed} currentChatId={activeSidebarChatId}
       loaded={assistantNavAgentsLoaded} error={primaryChatNavError}
       onRetry={() => void onRefreshAssistantNavAgents?.({ force: true })}
-      onHistory={(agentKey) => onOpenChatHistory?.(agentKey)}
       itemProps={getSidebarRovingItemProps}
       onContextMenu={handleAgentContextMenu}
-      onReorder={onReorderPrimaryAgents}
       onOpen={(agent) => {
         if (agent.primaryChat) void handleAssistantOpenChat(agent.primaryChat, { focusAgentChat: true });
         else requestNavigate(primaryChatNavigationTarget(agent), { retriggerAgentRoute: true, focusAgentChat: true });
@@ -7034,8 +7050,8 @@ export function AppSidebar({
                     if (!item) return null;
                     if (item.entryType === "chats" || item.entryType === "assistants") {
                       return <Fragment>
-                        {item.entryType === "chats" && primaryChatNavigation ? renderPrimaryChatNavigation() : null}
-                        <div hidden={primaryChatNavigation} style={{ display: primaryChatNavigation ? "none" : "contents" }}>{renderPrimaryNavEntry(item)}</div>
+                        {item.entryType === "chats" ? renderPrimaryChatNavigation() : null}
+                        {renderPrimaryNavEntry(item)}
                       </Fragment>;
                     }
                     return renderPrimaryNavEntry(item);

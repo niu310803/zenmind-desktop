@@ -1781,3 +1781,10 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - macOS / Windows 分别在主工作区 WebApp 中调用 `desktop.chat.open({chatId})`：弹出与 Kanban 历史相同的 WebClient 只读预览，不切换应用路由、不发送 query；含特殊字符的 Chat ID 正确编码，未知 Chat 显示 WebClient 错误。关闭按钮、遮罩和 Esc 可退出；切换应用释放弹窗。
 - 已有 Copilot 会话时打开历史，确认同时只有一个活动聊天观察者；关闭历史恢复原 Copilot 的 Agent、引用、Chat 与草稿，后台 Run 不被停止。反复打开不同历史不残留旧 guest。
 - 调用 `desktop.copilot.open()` / `close()` 与现有按钮行为一致；重复 open 不重置会话，重复 close 无副作用，禁用 Copilot 时返回错误。后台应用、独立窗口、后端与远端访问不能控制其他页面的 Copilot 或打开弹窗。
+
+## Bots 导航
+
+- macOS / Windows 分别检查浅色、深色、图片皮肤、窄侧栏及收起态：只显示 BOT，普通 Chats、置顶、Projects 和新建入口保持可用，BOT 不重复出现。
+- 点击已有主聊天、无主聊天 BOT；后者仅进入新聊天，首次文本和附件消息由 Platform 原子创建主聊天；运行中消息进入 mailbox。返回分身历史后可继续聊天。
+- 检查 BOT 回复、未读、运行和等待状态的 Push 更新，以及清空/归档后的指针刷新。隐藏/显示 Bots 不改变当前 Chat、草稿、guest 或 Run。
+- 更多按钮、右键、菜单键和 Shift+F10 打开原生历史/设置/清空菜单；运行或等待时清空禁用，取消确认不归档，成功清空保留分身历史且不自动打开分身。
