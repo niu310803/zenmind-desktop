@@ -11,6 +11,8 @@ export type SidebarContextMenuActionId =
   | "agent.reveal-workspace"
   | "agent.open-project-editor"
   | "agent.edit"
+  | "agent.history"
+  | "agent.clear-primary"
   | "chat.export"
   | "chat.exportHtml"
   | "chat.share"
@@ -59,6 +61,8 @@ export type SidebarContextMenuTarget =
     }
   | {
       kind: "agent";
+      bot?: boolean;
+      canClearPrimary?: boolean;
       canRevealWorkspace: boolean;
       canOpenProjectEditor: boolean;
     }

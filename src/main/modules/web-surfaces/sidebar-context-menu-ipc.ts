@@ -34,6 +34,8 @@ const LABEL_KEYS: Record<SidebarContextMenuLabelId, TranslationKey> = {
   "agent.reveal-workspace": "sidebar.agent.revealWorkspaceFileManager",
   "agent.open-project-editor": "sidebar.agent.openProjectEditor",
   "agent.edit": "sidebar.agent.edit",
+  "agent.history": "sidebar.primaryChats.history",
+  "agent.clear-primary": "sidebar.bots.clearPrimary",
   "chat.exportMenu": "sidebar.chat.exportMenu",
   "chat.export": "sidebar.chat.export",
   "chat.exportHtml": "sidebar.chat.exportHtml",

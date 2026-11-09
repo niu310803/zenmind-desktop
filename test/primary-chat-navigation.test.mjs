@@ -60,19 +60,19 @@ for (const type of ["chat.archived", "chat.deleted"]) {
     assert.deepEqual(next.items[0].recentChats, agents[0].recentChats);
   });
 }
-test("complete navigation remains the default, and the view preference does not touch old settings", () => {
+test("Bots are visible by default, and the view preference does not touch old settings", () => {
   const previous = globalThis.window;
   const stored = new Map([["old-groups", "keep"]]);
   globalThis.window = { localStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) } };
   try {
-    assert.equal(api.readPrimaryChatNavigation(), false);
+    assert.equal(api.readPrimaryChatNavigation(), true);
     api.savePrimaryChatNavigation(true);
     assert.equal(api.readPrimaryChatNavigation(), true);
     api.savePrimaryChatNavigation(false);
     assert.equal(api.readPrimaryChatNavigation(), false);
     assert.equal(stored.get("old-groups"), "keep");
     window.localStorage.getItem = () => { throw Error("unavailable"); };
-    assert.equal(api.readPrimaryChatNavigation(), false);
+    assert.equal(api.readPrimaryChatNavigation(), true);
   } finally { if (previous === undefined) delete globalThis.window; else globalThis.window = previous; }
 });
 test("Agent names, colors and legacy fallbacks follow WebClient mode rules", () => {
@@ -90,4 +90,13 @@ test("inline TEAM glyph masks remain unique across repeated Agent rows", () => {
   assert.equal(ids.length, 2);
   assert.notEqual(ids[0], ids[1]);
   for (const id of ids) assert.ok(html.includes(`url(#${id})`));
+});
+
+test("Bots are only BOT mode Agents, retain catalog order and use only the Platform main pointer", () => {
+  const bot = {...fixture(), mode: "BOT"};
+  const missing = {...bot, agentKey: "empty", primaryChat: undefined};
+  assert.deepEqual(api.selectBotNavigationAgents([fixture(), bot, {...fixture(), mode:"TEAM"}, missing]), [bot, missing]);
+  assert.equal(api.isBotAgent({mode: " bot "}), true);
+  assert.equal(api.isBotAgent({}), false);
+  assert.match(api.primaryChatNavigationTarget(missing, EPOCH), /primaryNewChat=true$/);
 });
