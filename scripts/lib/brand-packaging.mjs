@@ -142,7 +142,20 @@ export function electronBuilderConfig(brand, target = currentBrandBuildTarget())
     },
     electronLanguages: SUPPORTED_LOCALES,
     afterPack: "./scripts/after-pack.js",
-    afterSign: "./scripts/verify-mac-services-signing.js",
+    afterSign: "./scripts/lib/mac-dmg-installer.mjs",
+    dmg: {
+      backgroundColor: "#f5f5f7",
+      window: { width: 660, height: 420 },
+      iconSize: 80,
+      contents: [
+        {
+          x: 330, y: 100, type: "dir",
+          path: brandBuildRelativePath(brand, "installer", `Install ${brand.productName}.app`)
+        },
+        { x: 160, y: 285 },
+        { x: 500, y: 285, type: "link", path: "/Applications" }
+      ]
+    },
     win: {
       icon: brandBuildRelativePath(brand, "icons", "icon.ico"),
       // NSIS registers OpenWithProgids in our include; builder's association macro changes defaults.
