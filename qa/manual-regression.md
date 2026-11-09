@@ -462,6 +462,8 @@
 
 ## WorkPanel 自由新增 Tab
 
+- 待配套（2026-11-09）：已同步 `workPanel.document.editMode` 的共享契约声明，WebClient 已有动作消费；Desktop 的文本 tab 编辑菜单、状态与动作派发尚未实现。此次只同步契约，不视为该功能交付或跨端验收通过，后续须补齐实现并分别在 macOS／Windows 验收。
+
 - macOS 与 Windows 分别在未打开 WorkPanel 的 Chat 和已有 WorkPanel 的 Chat 中让 Agent 打开网页：工具返回 Surface 身份及 loading/ready，不误报“页面已关闭”或标红；重复打开同一 URL 复用 tab。控制器注册前手动关闭页面仍报告关闭，注册超时仍报告未就绪，不自动重开。
 
 - macOS 与 Windows 分别在 Chat A 打开 Overview，立即切到 Chat B，再切回 A；重复隐藏/显示 WorkPanel、Overview 与普通网页 tab 互切，并覆盖 Overview 尚未加载完成的情况。确认 Overview/Debug 失活时 guest 被回收、激活时创建新 guest 并恢复内容，不残留 `Desktop Platform Frame Port is closed`；普通网页 guest 和文档未保存草稿继续保留，后台 Run 不被中断。
