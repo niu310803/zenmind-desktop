@@ -82,3 +82,16 @@ test("examples reject expired, missing-expiry and shell-unsafe tokens", () => {
     assert.throws(() => platformConnectionExamples("http://127.0.0.1:11949", true, token));
   }
 });
+
+test("Inbox follows the existing Debug unlock on both desktop platforms", () => {
+  for (const isWindows of [false, true]) {
+    for (const debugVisible of [false, true]) {
+      const sections = createSettingsSectionDefinitions({ isWindows, debugVisible });
+      const visibleIds = sections.filter(section => section.visible).map(section => section.id);
+      assert.equal(visibleIds.includes("mailbox"), debugVisible);
+      assert.equal(visibleIds.includes("debug"), debugVisible);
+      assert.equal(sections.find(section => section.id === "mailbox").layout, "wide");
+      assert.equal(resolveSettingsSectionId("/settings/mailbox", visibleIds), debugVisible ? "mailbox" : visibleIds[0]);
+    }
+  }
+});

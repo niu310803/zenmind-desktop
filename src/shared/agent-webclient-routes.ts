@@ -20,6 +20,7 @@ export type AgentWebclientRouteKey =
   | "agents"
   | "kbases"
   | "archives"
+  | "mailbox"
   | "schedules"
   | "memory"
   | "registries"
@@ -64,6 +65,14 @@ export const AGENT_WEBCLIENT_ROUTE_DEFINITIONS = [
     routePath: "/kbases",
     embedPath: "/kbases",
     labelKey: "nav.knowledgeBase",
+    kind: "management",
+    mode: "embedded"
+  },
+  {
+    key: "mailbox",
+    routePath: "/settings/mailbox",
+    embedPath: "/mailbox",
+    labelKey: "settings.mailbox.label",
     kind: "management",
     mode: "embedded"
   },

@@ -861,7 +861,10 @@ export function AppShell() {
   const [envImportBusy, setEnvImportBusy] = useState(false);
   const [envImportError, setEnvImportError] = useState("");
   const desktopActionConfirmationRef = useRef<DesktopActionConfirmationPresentation | null>(null);
-  const rawActiveAgentWebclientRoute = resolveAgentWebclientRoute(location.pathname, location.search);
+  const resolvedAgentWebclientRoute = resolveAgentWebclientRoute(location.pathname, location.search);
+  // Gate the guest itself as well as the menu, including legacy service routes.
+  const rawActiveAgentWebclientRoute = !debugSettingsUnlocked && resolvedAgentWebclientRoute?.embedPath.split(/[?#]/u)[0] === "/mailbox"
+    ? null : resolvedAgentWebclientRoute;
   const rawActiveAgentWebclientRouteLabelKey = rawActiveAgentWebclientRoute?.labelKey;
   const activeAgentWebclientRoute = rawActiveAgentWebclientRoute
     ? {
@@ -5130,7 +5133,8 @@ export function AppShell() {
               <Route
                 key={routeDefinition.key}
                 path={routeDefinition.routePath}
-                element={null}
+                element={routeDefinition.key === "mailbox" && !debugSettingsUnlocked
+                  ? <Navigate to={buildSettingsSectionPath("about")} replace /> : null}
               />
             ))}
             {AGENT_WEBCLIENT_DYNAMIC_ROUTE_PATTERNS.map((routePattern) => (

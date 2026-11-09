@@ -72,6 +72,8 @@ export const enUSMessages = {
   "market.pet.state.awaiting": "Awaiting confirmation",
   "market.pet.state.review": "Review",
 
+  "settings.mailbox.label": "Inbox",
+  "settings.mailbox.description": "View messages between agents and their delivery status.",
   "settings.debug.primaryChats.title": "Show bots",
   "settings.debug.primaryChats.description": "Show BOT main chats alongside conversations and projects.",
   "sidebar.primaryChats.loadFailed": "Could not load bots",

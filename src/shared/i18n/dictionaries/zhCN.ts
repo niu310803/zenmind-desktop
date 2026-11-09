@@ -72,6 +72,8 @@ export const zhCNMessages = {
   "market.pet.state.awaiting": "等待确认",
   "market.pet.state.review": "审阅",
 
+  "settings.mailbox.label": "收件箱",
+  "settings.mailbox.description": "查看智能体之间的通讯记录与投递状态。",
   "settings.debug.primaryChats.title": "显示 机器人",
   "settings.debug.primaryChats.description": "在普通对话和项目之外显示 BOT 主聊天入口。",
   "sidebar.primaryChats.loadFailed": "机器人 加载失败",

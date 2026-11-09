@@ -147,6 +147,14 @@ export function createSettingsSectionDefinitions({
       visible: true
     },
     {
+      id: "mailbox",
+      group: "system",
+      label: "mailbox",
+      description: "",
+      layout: "wide",
+      visible: debugVisible
+    },
+    {
       id: "debug",
       group: "system",
       label: "debug",
@@ -186,6 +194,7 @@ const SETTINGS_SECTION_LABEL_KEYS: Record<
   websites: { label: "settings.websites.label", description: "settings.websites.description" },
   webapps: { label: "settings.webapps.label", description: "settings.webapps.description" },
   about: { label: "settings.about.label", description: "settings.about.description" },
+  mailbox: { label: "settings.mailbox.label", description: "settings.mailbox.description" },
   debug: { label: "settings.debug.label", description: "settings.debug.description" }
 };
 
