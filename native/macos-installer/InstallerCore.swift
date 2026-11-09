@@ -145,6 +145,90 @@ func releaseSignature(_ appURL: URL, identifier: String, team: String? = nil,
     }
 }
 
+enum ExistingAppReplacementPolicy: Equatable {
+    case release(requirement: String)
+    // This identity authorizes replacing one user-owned local app. It never
+    // authorizes incoming code, another path, or an executable to launch.
+    case localAdHoc(identifier: String, owner: UInt32, codeHashes: [String])
+
+    var requirement: String {
+        switch self {
+        case .release(let requirement): return requirement
+        case .localAdHoc(let identifier, _, let codeHashes):
+            let hashes = codeHashes.map { "cdhash H\"\($0)\"" }.joined(separator: " or ")
+            return "identifier \"\(identifier)\" and (\(hashes))"
+        }
+    }
+
+    func verificationScript(for appURL: URL) -> String {
+        let verify = "/usr/bin/codesign --verify --deep --strict -R \(shellQuote("=" + requirement)) \(shellQuote(appURL.path))"
+        switch self {
+        case .release: return verify
+        case .localAdHoc(let identifier, let owner, _):
+            return """
+            test "$(/usr/bin/stat -f %u \(shellQuote(appURL.path)))" = \(shellQuote(String(owner)))
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \(shellQuote(appURL.appendingPathComponent("Contents/Info.plist").path)))" = \(shellQuote(identifier))
+            old_signature=$(/usr/bin/codesign --display --verbose=4 \(shellQuote(appURL.path)) 2>&1)
+            printf '%s\\n' "$old_signature" | /usr/bin/grep -qx 'Signature=adhoc'
+            if printf '%s\\n' "$old_signature" | /usr/bin/grep -q '^Authority='; then exit 73; fi
+            old_team=$(printf '%s\\n' "$old_signature" | /usr/bin/sed -n 's/^TeamIdentifier=//p')
+            if [ -n "$old_team" ] && [ "$old_team" != 'not set' ]; then exit 74; fi
+            \(verify)
+            """
+        }
+    }
+}
+
+func existingAppReplacementPolicy(_ appURL: URL, destination: URL, identifier: String, team: String,
+                                  owner: UInt32 = getuid(), commands: InstallerCommands) throws -> ExistingAppReplacementPolicy {
+    do {
+        guard !(try isSymbolicLink(appURL)),
+              try readAppInfo(appURL)["CFBundleIdentifier"] as? String == identifier else {
+            throw InstallerFailure.invalidSignature
+        }
+        if let signature = try? releaseSignature(appURL, identifier: identifier, team: team, commands: commands) {
+            return .release(requirement: signature.requirement)
+        }
+        // Only a complete local development build at this exact install target
+        // may be replaced without an Apple publisher. Formal foreign publishers
+        // cannot fall back, and source/stage validation never calls this function.
+        guard appURL.standardizedFileURL.path == destination.standardizedFileURL.path,
+              appURL.resolvingSymlinksInPath().path == destination.resolvingSymlinksInPath().path,
+              !(try isSymbolicLink(destination.deletingLastPathComponent())),
+              (try FileManager.default.attributesOfItem(atPath: appURL.path)[.ownerAccountID] as? NSNumber)?.uint32Value == owner else {
+            throw InstallerFailure.invalidSignature
+        }
+        func adHocHash(_ data: Data) throws -> String {
+            let lines = String(decoding: data, as: UTF8.self).components(separatedBy: .newlines)
+            func field(_ name: String) -> String {
+                lines.first(where: { $0.hasPrefix(name + "=") })?.dropFirst(name.count + 1).description ?? ""
+            }
+            let codeHash = field("CDHash")
+            guard field("Identifier") == identifier, field("Signature") == "adhoc",
+                  !lines.contains(where: { $0.hasPrefix("Authority=") }),
+                  ["", "not set"].contains(field("TeamIdentifier")),
+                  codeHash.range(of: "^[a-fA-F0-9]{40}$", options: .regularExpression) != nil else {
+                throw InstallerFailure.invalidSignature
+            }
+            return codeHash
+        }
+        let data = try checkedCommand(commands, "/usr/bin/codesign", ["--display", "--verbose=4", appURL.path])
+        var hashes: Set<String> = [try adHocHash(data)]
+        // Display selects one slice, whereas verification checks every slice.
+        // Capture both supported Desktop architectures without requiring lipo or
+        // developer tools on the user's Mac. Unexpected slices still fail closed.
+        for architecture in ["arm64", "x86_64"] {
+            let result = try commands.run("/usr/bin/codesign",
+                ["--display", "--verbose=4", "--architecture", architecture, appURL.path], timeout: 60)
+            if result.status == 0 { hashes.insert(try adHocHash(result.output)) }
+        }
+        let policy = ExistingAppReplacementPolicy.localAdHoc(identifier: identifier, owner: owner, codeHashes: hashes.sorted())
+        _ = try checkedCommand(commands, "/usr/bin/codesign",
+            ["--verify", "--deep", "--strict", "-R", "=" + policy.requirement, appURL.path], timeout: 120)
+        return policy
+    } catch { throw InstallerFailure.invalidSignature }
+}
+
 func isSymbolicLink(_ url: URL) throws -> Bool {
     // attributesOfItem uses lstat, including for an otherwise dangling symlink.
     (try FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeSymbolicLink
@@ -192,6 +276,12 @@ struct InstallFileTransaction {
     let destination: URL
     let workspace: URL
     let requirement: String
+    let existingPolicy: ExistingAppReplacementPolicy?
+    init(source: URL, destination: URL, workspace: URL, requirement: String,
+         existingPolicy: ExistingAppReplacementPolicy? = nil) {
+        self.source = source; self.destination = destination; self.workspace = workspace
+        self.requirement = requirement; self.existingPolicy = existingPolicy
+    }
     var staged: URL { workspace.appendingPathComponent("New.app") }
     var previous: URL { workspace.appendingPathComponent("Previous.app") }
 
@@ -228,12 +318,14 @@ struct InstallFileTransaction {
           exit "$status"
         }
         trap restore EXIT
+        test -d \(shellQuote(destination.deletingLastPathComponent().path))
+        test ! -L \(shellQuote(destination.deletingLastPathComponent().path))
         test -d \(shellQuote(workspace.path)) && test ! -L \(shellQuote(workspace.path))
         test -d \(shellQuote(staged.path)) && test ! -L \(shellQuote(staged.path))
         \(verify(staged))
         if [ -e \(shellQuote(destination.path)) ] || [ -L \(shellQuote(destination.path)) ]; then
           test -d \(shellQuote(destination.path)) && test ! -L \(shellQuote(destination.path))
-          \(verify(destination))
+          \(existingPolicy?.verificationScript(for: destination) ?? verify(destination))
           /bin/mv \(shellQuote(destination.path)) \(shellQuote(previous.path))
           backed_up=1
         fi
@@ -310,13 +402,15 @@ final class MacDmgInstaller {
               !(try isSymbolicLink(source)), !(try isSymbolicLink(destinationDirectory)) else {
             throw InstallerFailure.unsafeDestination
         }
+        let replacementPolicy: ExistingAppReplacementPolicy?
         if itemExists(destination) {
             guard !(try isSymbolicLink(destination)) else { throw InstallerFailure.unsafeDestination }
-            _ = try releaseSignature(destination, identifier: configuration.bundleIdentifier, team: signature.team, commands: commands)
-        }
+            replacementPolicy = try existingAppReplacementPolicy(destination, destination: destination,
+                identifier: configuration.bundleIdentifier, team: signature.team, commands: commands)
+        } else { replacementPolicy = nil }
         let transaction = InstallFileTransaction(source: source, destination: destination,
             workspace: destinationDirectory.appendingPathComponent(".\(configuration.storageNamespace)-install-\(UUID().uuidString)"),
-            requirement: signature.requirement)
+            requirement: signature.requirement, existingPolicy: replacementPolicy)
         let destinationOwner = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.ownerAccountID] as? NSNumber)?.uint32Value
         let needsAuthorization = !FileManager.default.isWritableFile(atPath: destinationDirectory.path) ||
             (itemExists(destination) && (destinationOwner != getuid() || !FileManager.default.isWritableFile(atPath: destination.path)))
@@ -324,7 +418,8 @@ final class MacDmgInstaller {
         do {
             try fileOperation(transaction.prepareScript, authorized: needsAuthorization)
             progress(.stopping)
-            try stopDesktop(source: source, executable: executable, signature: signature, destination: destination)
+            try stopDesktop(source: source, executable: executable, signature: signature,
+                            destination: destination, replacementPolicy: replacementPolicy)
             progress(.replacing)
             try fileOperation(transaction.replaceScript, authorized: needsAuthorization)
             published = true
@@ -357,10 +452,17 @@ final class MacDmgInstaller {
         }
     }
 
-    private func stopDesktop(source: URL, executable: String, signature: AppSignature, destination: URL) throws {
+    private func stopDesktop(source: URL, executable: String, signature: AppSignature, destination: URL,
+                             replacementPolicy: ExistingAppReplacementPolicy?) throws {
         let applications = runningApplications()
         for application in applications {
-            _ = try releaseSignature(application.url, identifier: configuration.bundleIdentifier, team: signature.team, commands: commands)
+            if let expected = replacementPolicy, application.url.standardizedFileURL.path == destination.standardizedFileURL.path {
+                let current = try existingAppReplacementPolicy(application.url, destination: destination,
+                    identifier: configuration.bundleIdentifier, team: signature.team, commands: commands)
+                guard current == expected else { throw InstallerFailure.invalidSignature }
+            } else {
+                _ = try releaseSignature(application.url, identifier: configuration.bundleIdentifier, team: signature.team, commands: commands)
+            }
         }
         let roots = [destination,
             home.appendingPathComponent("Library/Application Support").appendingPathComponent(configuration.programDataDirName),

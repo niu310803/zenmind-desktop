@@ -51,6 +51,8 @@ private final class FixtureCommands: InstallerCommands {
     var wrongTeam = false
     var authorizationCalls = 0
     var cancelAuthorizationAt = 1
+    var realSignaturePaths: Set<String> = []
+    var foreignPublisherPaths: Set<String> = []
 
     func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) throws -> CommandResult {
         if executable == "/usr/bin/osascript" {
@@ -63,10 +65,13 @@ private final class FixtureCommands: InstallerCommands {
             return try run("/bin/bash", ["-c", script], timeout: timeout)
         }
         if executable == "/usr/bin/codesign" {
+            if let path = arguments.last, realSignaturePaths.contains(path) {
+                return try system.run(executable, arguments, timeout: timeout)
+            }
             if arguments.contains("--display") {
                 let app = arguments.last ?? ""
                 let id = app.contains("Install Fixture.app") ? identifier + ".installer" : identifier
-                let team = wrongTeam && app.contains("Install Fixture.app") ? "OTHERTEAM" : "TESTTEAM"
+                let team = (wrongTeam && app.contains("Install Fixture.app")) || foreignPublisherPaths.contains(app) ? "OTHERTEAM" : "TESTTEAM"
                 return CommandResult(status: 0, output: Data("Identifier=\(id)\nTeamIdentifier=\(team)\nAuthority=Developer ID Application: Fixture\nCDHash=abcdef012345\n".utf8))
             }
             return CommandResult(status: 0, output: Data())
@@ -89,7 +94,7 @@ private final class FixtureCommands: InstallerCommands {
             return CommandResult(status: 0, output: Data(text.utf8))
         }
         if executable == "/bin/bash", arguments.count == 2 {
-            var script = arguments[1].replacingOccurrences(of: "/usr/bin/codesign", with: "/usr/bin/true")
+            var script = arguments[1].replacingOccurrences(of: "/usr/bin/codesign --verify", with: "/usr/bin/true")
             if script.contains("/usr/bin/ditto") {
                 events.append("copy")
                 if failStageSignature { script += "\n/usr/bin/false\n" }
@@ -341,6 +346,109 @@ private struct InstallerCoreChecks {
             let leftovers = try fm.contentsOfDirectory(atPath: installer.destinationDirectory.path)
                 .filter { $0.hasPrefix("." + installer.configuration.storageNamespace + "-install-") }
             try expect(leftovers.isEmpty, "cancelled candidate was not cleaned")
+        }
+        try check("a real intact user-owned ad-hoc app can be replaced using its captured code hash") {
+            let tx = try transaction("adhoc-old-accepted")
+            let policy = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                identifier: identifier, team: "TESTTEAM", commands: system)
+            guard case .localAdHoc(let id, let owner, let hashes) = policy else { throw CheckFailure.assertion("ad-hoc policy missing") }
+            try expect(id == identifier && owner == getuid() && !hashes.isEmpty && hashes.allSatisfy { $0.count == 40 }, "ad-hoc identity capture incomplete")
+            let local = InstallFileTransaction(source: tx.source, destination: tx.destination, workspace: tx.workspace,
+                requirement: tx.requirement, existingPolicy: policy)
+            try expect(try execute(local.prepareScript) == 0, "ad-hoc transaction stage failed")
+            try expect(try execute(local.replaceScript) == 0, "ad-hoc old app was not replaced")
+            try expect(try marker(local.destination) == "new", "ad-hoc replacement did not publish")
+            try expect(try marker(local.previous) == "old", "ad-hoc old app backup missing")
+        }
+        try check("tampered ad-hoc old applications remain rejected") {
+            let tx = try transaction("adhoc-tampered")
+            try "tampered".write(to: tx.destination.appendingPathComponent("Contents/Resources/marker.txt"), atomically: true, encoding: .utf8)
+            do {
+                _ = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                    identifier: identifier, team: "TESTTEAM", commands: system)
+                throw CheckFailure.assertion("tampered ad-hoc app accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("ad-hoc exception requires the Info.plist brand identifier") {
+            let tx = try transaction("adhoc-info-id")
+            let infoURL = tx.destination.appendingPathComponent("Contents/Info.plist")
+            var info = try readAppInfo(tx.destination)
+            info["CFBundleIdentifier"] = "cc.other.product"
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: infoURL)
+            _ = try checkedCommand(system, "/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", identifier, tx.destination.path])
+            do {
+                _ = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                    identifier: identifier, team: "TESTTEAM", commands: system)
+                throw CheckFailure.assertion("wrong Info identifier accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("ad-hoc exception also requires the codesign brand identifier") {
+            let tx = try transaction("adhoc-code-id")
+            _ = try checkedCommand(system, "/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", "cc.other.product", tx.destination.path])
+            do {
+                _ = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                    identifier: identifier, team: "TESTTEAM", commands: system)
+                throw CheckFailure.assertion("wrong signing identifier accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("ad-hoc exception requires the installing user's ownership") {
+            let tx = try transaction("adhoc-owner")
+            do {
+                _ = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                    identifier: identifier, team: "TESTTEAM", owner: getuid() + 1, commands: system)
+                throw CheckFailure.assertion("another owner's local app accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("ad-hoc applications at another path cannot use the exception") {
+            let tx = try transaction("adhoc-other-path")
+            do {
+                _ = try existingAppReplacementPolicy(tx.source, destination: tx.destination,
+                    identifier: identifier, team: "TESTTEAM", commands: system)
+                throw CheckFailure.assertion("another ad-hoc path accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("incoming ad-hoc applications still fail the official release gate") {
+            let tx = try transaction("adhoc-source-denied")
+            do {
+                _ = try releaseSignature(tx.source, identifier: identifier, commands: system)
+                throw CheckFailure.assertion("incoming ad-hoc app accepted")
+            } catch InstallerFailure.invalidSignature { }
+        }
+        try check("a newly re-signed old app cannot evade its captured ad-hoc code hash") {
+            let tx = try transaction("adhoc-old-changed")
+            let policy = try existingAppReplacementPolicy(tx.destination, destination: tx.destination,
+                identifier: identifier, team: "TESTTEAM", commands: system)
+            let local = InstallFileTransaction(source: tx.source, destination: tx.destination, workspace: tx.workspace,
+                requirement: tx.requirement, existingPolicy: policy)
+            _ = try execute(local.prepareScript)
+            // A changed executable gives the old app a different CodeDirectory hash,
+            // even though the replacement remains a valid ad-hoc signed bundle.
+            let executable = tx.destination.appendingPathComponent("Contents/MacOS/Fixture")
+            try fm.removeItem(at: executable)
+            try fm.copyItem(at: URL(fileURLWithPath: "/usr/bin/false"), to: executable)
+            _ = try checkedCommand(system, "/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", identifier, tx.destination.path])
+            try expect(try execute(local.replaceScript) != 0, "changed code hash passed publication")
+            try expect(try marker(local.destination) == "old", "changed old app was moved")
+            try expect(!itemExists(local.previous), "old app moved before hash verification")
+        }
+        try check("complete install accepts a real ad-hoc old target without executing it") {
+            var applications: [RunningInstallerApp] = []
+            let (installer, commands, destination) = try fullFixture("full-adhoc-old", running: { applications })
+            commands.realSignaturePaths.insert(destination.path)
+            // NSWorkspace returns directory URLs; a trailing slash must not make
+            // this exact destination look like a different application path.
+            applications = [RunningInstallerApp(pid: Int32.max - 3, url: URL(fileURLWithPath: destination.path, isDirectory: true))]
+            try installer.install()
+            try expect(try marker(destination) == "new", "ad-hoc old target did not update")
+            try expect(commands.events == ["copy", "shutdown", "replace"], "ad-hoc compatibility changed lifecycle")
+        }
+        try check("foreign formal publishers cannot fall back to local ad-hoc compatibility") {
+            let (installer, commands, destination) = try fullFixture("foreign-formal-old")
+            commands.foreignPublisherPaths.insert(destination.path)
+            do { try installer.install(); throw CheckFailure.assertion("foreign formal publisher accepted") }
+            catch InstallerFailure.invalidSignature { }
+            try expect(!commands.shutdownCalled && commands.events.isEmpty, "foreign publisher reached staging")
+            try expect(try marker(destination) == "old", "foreign formal app changed")
         }
         print("PASSED \(checks) installer checks")
     }
