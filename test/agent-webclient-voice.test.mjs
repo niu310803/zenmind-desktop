@@ -21,6 +21,11 @@ test("voice shares Platform auth and origin while retaining the Frame Port bound
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "webclient-voice-"));
   fs.mkdirSync(path.join(root, "frontend/dist"), { recursive: true });
   fs.writeFileSync(path.join(root, "frontend/dist/index.html"), "<!doctype html><title>voice fixture</title>");
+  const vadAssets = path.join(root, "frontend/dist/assets/voice-vad/fixture");
+  fs.mkdirSync(vadAssets, { recursive: true });
+  fs.writeFileSync(path.join(vadAssets, "runtime.wasm"), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
+  fs.writeFileSync(path.join(vadAssets, "runtime.mjs"), "export default {};");
+  fs.writeFileSync(path.join(vadAssets, "model.onnx"), Buffer.from([1, 2, 3]));
   const seen = [], peers = new Set();
   const upstream = http.createServer((req, res) => {
     seen.push({ url: req.url, headers: req.headers });
@@ -41,6 +46,11 @@ test("voice shares Platform auth and origin while retaining the Frame Port bound
     logger: { log() {}, warn() {}, error() {} }, issueAccessToken: async () => ({ ok: true, token: "fixture-token" }),
   });
   const origin = new URL(host.webUrl).origin;
+  const wasm = await fetch(`${origin}/assets/voice-vad/fixture/runtime.wasm`);
+  assert.equal(wasm.headers.get("content-type"), "application/wasm");
+  await WebAssembly.compileStreaming(wasm);
+  assert.match((await fetch(`${origin}/assets/voice-vad/fixture/runtime.mjs`)).headers.get("content-type"), /application\/javascript/);
+  assert.deepEqual(new Uint8Array(await (await fetch(`${origin}/assets/voice-vad/fixture/model.onnx`)).arrayBuffer()), new Uint8Array([1, 2, 3]));
   const config = await (await fetch(`${origin}/runtime-config.js`)).text();
   assert.match(config, /"VOICE_ENABLED":"true"/);
   assert.doesNotMatch(config, /VOICE_BASE_URL|VOICE_ASR_CLIENT_GATE/);
