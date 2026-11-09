@@ -139,7 +139,7 @@ export function HelpPage({ hostTheme }: HelpPageProps) {
 
   if (settingsState.status !== "ready") {
     return (
-      <section className="help-webview-page embedded-surface-page">
+      <section className="help-webview-page embedded-surface-page embedded-surface-page-embedded">
         <div className="help-webview-status" role="status">
           <p>
             {settingsState.status === "loading"
@@ -157,7 +157,7 @@ export function HelpPage({ hostTheme }: HelpPageProps) {
   }
 
   return (
-    <section className="help-webview-page embedded-surface-page">
+    <section className="help-webview-page embedded-surface-page embedded-surface-page-embedded">
       <div className="embedded-surface-frame-shell help-webview-frame-shell">
         {createElement("webview", {
           key: `${webviewKey}:${helpUrl}`,
