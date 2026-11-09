@@ -81,7 +81,7 @@ Tab tooltip、右键“复制路径”与原生 HTML 工具条使用同一地址
 
 Main Chat 卡片、Markdown 链接、Project 文件、Artifact 和 Reference 只提交语义来源，不自行选择 Viewer。打开流程先规范化来源并获得内容类型；Desktop 的 HTML/图片调用 canonical `openDocument` 进入原生 registry，其他内容产生 WebClient descriptor。Standalone 始终进入 WebClient Document Surface。
 
-WorkPanel item 的 stable identity 只取决于来源，不取决于 renderer。WebClient WorkPanel bridge 与公开 Desktop Action 使用各自的返回契约：宿主必须在受信任调用路径保留 bridge 的成功标志、workspace 身份和当前 Chat 状态，不得把公开动作的 workspace 投影直接作为 bridge 结果，也不得透传其他 Chat 或 renderer 内部状态。只有 `unsupported_native_type` 可以由 Desktop 原生打开退回 WebClient；身份、路径、缺失、越界或 revision 失败一律 fail closed。历史 `/file-viewer` 与 `/resource-viewer` 路由保留，但内部共用 Document Surface。
+WorkPanel item 的 stable identity 只取决于来源，不取决于 renderer。WebClient WorkPanel bridge 与公开 Desktop Action 使用各自的返回契约：宿主必须在受信任调用路径保留 bridge 的成功标志、workspace 身份和当前 Chat 状态，不得把公开动作的 workspace 投影直接作为 bridge 结果，也不得透传其他 Chat 或 renderer 内部状态。只有 `unsupported_native_type` 可以由 Desktop 原生打开退回 WebClient；身份、路径、缺失、越界或 revision 失败一律 fail closed。历史 `/file-viewer` 与 `/resource-viewer` 路由保留，但内部共用 Document Surface。 文本类 document tab（Markdown、文本与代码）默认只读，正文不进入编辑器，文档工具栏、选区批注、保存与交接入口全部隐藏；用户在 tab 右键菜单选择“进入编辑模式”后才恢复 Monaco 编辑与选区批注。编辑模式属于单个 tab，退出时若存在未保存修改或批注，宿主确认后丢弃并回到只读状态；HTML 与图片的既有评审批注不受该开关影响。
 
 Markdown 中的主机绝对路径先由 Platform 解析为 Workspace 相对路径再进入文档入口；文档入口仍可接收绝对路径，由 Main 按该 Agent 的权威 workspace 和当前平台路径规则转换为相对路径，再验证文件 realpath 未越界；原生 registry 只接收相对身份。此规则不扩展 Desktop Action 的本地文件入口，后者仍只接受 workspace 相对路径。
 

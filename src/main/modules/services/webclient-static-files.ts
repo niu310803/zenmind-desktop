@@ -60,6 +60,8 @@ export function contentTypeForFile(filePath: string) {
     case ".js":
     case ".mjs":
       return "application/javascript; charset=utf-8";
+    case ".wasm":
+      return "application/wasm";
     case ".css":
       return "text/css; charset=utf-8";
     case ".json":

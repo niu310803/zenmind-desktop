@@ -423,6 +423,76 @@ test("Work Panel tab context menu exposes review only for an explicit trusted ca
   assert.match(builtTemplate[0].label, /Exit|退出/u);
 });
 
+test("Work Panel text edit mode menu is host-declared and bounded", async () => {
+  assert.deepEqual(normalizeChatWorkPanelTabContextMenuRequest({
+    mode: "work-panel",
+    x: 1,
+    y: 2,
+    profile: "artifact",
+    isFullscreen: false,
+    textEditMode: "inactive",
+    canClose: true,
+    canCloseOthers: false
+  }), {
+    mode: "work-panel",
+    x: 1,
+    y: 2,
+    profile: "artifact",
+    isFullscreen: false,
+    textEditMode: "inactive",
+    canClose: true,
+    canCloseOthers: false
+  });
+  assert.equal(normalizeChatWorkPanelTabContextMenuRequest({
+    mode: "work-panel",
+    x: 1,
+    y: 2,
+    profile: "artifact",
+    isFullscreen: false,
+    textEditMode: "editing",
+    canClose: true,
+    canCloseOthers: false
+  }), null);
+
+  const handlers = new Map();
+  const sender = {};
+  const ownerWindow = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0, width: 300, height: 400 }),
+  };
+  let builtTemplate;
+  registerChatWorkPanelTabContextMenuIpcHandlers({
+    handle: (channel, handler) => handlers.set(channel, handler),
+  }, {
+    getMainWindow: () => ownerWindow,
+    BrowserWindow: { fromWebContents: (contents) => contents === sender ? ownerWindow : null },
+    Menu: {
+      buildFromTemplate: (template) => {
+        builtTemplate = template;
+        return {
+          popup: ({ callback }) => {
+            template.find((item) => item.id === "toggle-edit-mode")?.click();
+            callback();
+          },
+        };
+      },
+    },
+  });
+  const result = await handlers.get("chatWorkPanel.tabContextMenu.popup")({ sender }, {
+    mode: "work-panel",
+    x: 20,
+    y: 20,
+    profile: "artifact",
+    isFullscreen: false,
+    textEditMode: "inactive",
+    canClose: true,
+    canCloseOthers: false,
+  });
+  assert.deepEqual(result, { actionId: "toggle-edit-mode" });
+  assert.equal(builtTemplate[0].id, "toggle-edit-mode");
+  assert.match(builtTemplate[0].label, /Edit|编辑/u);
+});
+
 test("Work Panel reveal menu uses platform-native file manager labels", async () => {
   for (const scenario of [
     { platform: "darwin", label: /Finder|访达/u },

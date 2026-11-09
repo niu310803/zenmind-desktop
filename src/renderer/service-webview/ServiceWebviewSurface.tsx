@@ -176,6 +176,7 @@ type ServiceWebviewSurfaceProps = {
     dirty: boolean;
     busy: boolean;
     annotationCount: number;
+    textEditable: boolean;
     targetKey: string;
   }) => void;
   onAgentWebclientDocumentHandoff?: (text: string) => void;
@@ -2959,6 +2960,7 @@ export function ServiceWebviewSurface({
         annotationCount: Number.isFinite(payload.annotationCount)
           ? Math.max(0, Math.floor(Number(payload.annotationCount)))
           : 0,
+        textEditable: payload.textEditable === true,
         targetKey: typeof payload.targetKey === "string"
           ? payload.targetKey.trim().slice(0, 2048)
           : "",

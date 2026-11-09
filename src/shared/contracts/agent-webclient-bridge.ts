@@ -136,6 +136,9 @@ export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_ACTION =
 export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_VERSION = 1 as const;
 export const AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_PAGE_EVENT =
   "__agentWebclientWorkPanelPreviewReviewEvent" as const;
+export const AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION =
+  "workPanel.document.editMode" as const;
+export const AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION = 1 as const;
 export const AGENT_WEBCLIENT_COMPOSER_DRAFT_ACTION =
   "workPanel.composer.insertDraft" as const;
 export const AGENT_WEBCLIENT_COMPOSER_DRAFT_VERSION = 1 as const;
@@ -200,6 +203,13 @@ export type AgentWebclientWorkPanelPreviewReviewAction = {
   enabled?: boolean;
   kind?: "html" | "image";
   annotations?: unknown[];
+};
+
+/** Host-owned read-only/edit switch for a text WorkPanel tab. */
+export type AgentWebclientWorkPanelDocumentEditModeAction = {
+  action: typeof AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION;
+  version: typeof AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION;
+  enabled: boolean;
 };
 
 export type AgentWebclientComposerDraftAction = {
