@@ -6,24 +6,25 @@ final class InstallerDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var statusLabel: NSTextField?
     private var installing = false
+    private var droppedFiles: [String]?
     private let chinese = Locale.preferredLanguages.first?.hasPrefix("zh") ?? true
     private func text(_ zh: String, _ en: String) -> String { chinese ? zh : en }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        // Finder sends the application bundle dropped on this install target.
+        // Keep the signed payload beside this receiver as the only code source.
+        if !installing { droppedFiles = filenames }
+        sender.reply(toOpenOrPrint: .success)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         do {
             let configuration = try InstallerConfiguration(info: Bundle.main.infoDictionary ?? [:])
-            let alert = NSAlert()
-            alert.messageText = text("安装 \(configuration.productName)", "Install \(configuration.productName)")
-            alert.informativeText = text(
-                "将自动退出正在运行的应用、停止本地服务并安装到“应用程序”。正在运行的对话和未保存的编辑可能中断。应用数据会保留，安装后将自动打开。",
-                "The running app and local services will close before installation in Applications. Running conversations and unsaved edits may be interrupted. Your app data will be kept and the app will open after installation.")
-            alert.addButton(withTitle: text("退出并安装", "Quit and Install"))
-            alert.addButton(withTitle: text("取消", "Cancel"))
-            guard alert.runModal() == .alertFirstButtonReturn else { NSApp.terminate(nil); return }
             installing = true
             showProgress(configuration.productName)
+            let requestedFiles = droppedFiles
             let installer = MacDmgInstaller(configuration: configuration, installerURL: Bundle.main.bundleURL,
                 runningApplications: {
                     DispatchQueue.main.sync {
@@ -39,6 +40,9 @@ final class InstallerDelegate: NSObject, NSApplicationDelegate {
                 })
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
+                    if let requestedFiles {
+                        try validateInstallerDrop(requestedFiles, source: installer.locateSource())
+                    }
                     try installer.install()
                     DispatchQueue.main.async { self.installing = false; NSApp.terminate(nil) }
                 } catch {
@@ -95,7 +99,7 @@ final class InstallerDelegate: NSObject, NSApplicationDelegate {
         case InstallerFailure.alreadyInstalling:
             alert.informativeText = text("另一个安装窗口正在安装此应用，请等待安装完成。", "Another installer is installing this app. Wait for it to finish.")
         case InstallerFailure.invalidPackage, InstallerFailure.invalidSignature, InstallerFailure.unsafeDestination:
-            alert.informativeText = text("无法验证安装包或已有应用。请从完整的官方安装盘运行“安装”应用。", "The installer or existing app could not be verified. Run Install from the complete official disk image.")
+            alert.informativeText = text("无法验证安装包或已有应用。请使用完整的官方安装盘，将左侧应用拖到右侧安装。", "The installer or existing app could not be verified. Use the complete official disk image and drag its app to the installation target.")
         case InstallerFailure.recoveryRequired(let location):
             alert.informativeText = text("安装或打开应用失败。旧应用备份已保留，请保留此目录以便恢复：\n", "Installation or launch failed. A previous app backup has been kept for recovery:\n") + location
         default:

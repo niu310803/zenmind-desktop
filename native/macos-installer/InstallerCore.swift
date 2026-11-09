@@ -8,6 +8,19 @@ enum InstallerFailure: Error {
 
 enum InstallStage: String { case preparing, stopping, replacing, opening }
 
+func validateInstallerDrop(_ paths: [String], source: URL) throws {
+    // Dropping selects the action, never the incoming code. The caller locates
+    // and verifies the payload independently; only that exact bundle is allowed.
+    guard paths.count == 1, let path = paths.first, path.hasPrefix("/") else {
+        throw InstallerFailure.invalidPackage
+    }
+    let dropped = URL(fileURLWithPath: path)
+    guard dropped.standardizedFileURL.path == source.standardizedFileURL.path,
+          dropped.resolvingSymlinksInPath().path == source.resolvingSymlinksInPath().path else {
+        throw InstallerFailure.invalidPackage
+    }
+}
+
 struct InstallerConfiguration {
     let productName: String
     let bundleIdentifier: String

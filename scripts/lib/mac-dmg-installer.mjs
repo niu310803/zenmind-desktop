@@ -5,10 +5,11 @@ import { fileURLToPath } from "node:url";
 import plist from "plist";
 import { readDesktopVersion } from "./build-metadata.mjs";
 import { loadBrandConfig, DARWIN_BUNDLE_DEVELOPMENT_REGION, DARWIN_BUNDLE_LOCALIZATIONS } from "./brand-model.mjs";
-import { brandIconDir, brandInstallerDir } from "./brand-paths.mjs";
+import { brandInstallerDir } from "./brand-paths.mjs";
 import { verifyMacReleaseApp } from "./mac-app-signing.js";
 
 export const MAC_DMG_INSTALLER_EXECUTABLE = "DesktopInstaller";
+export const MAC_APPLICATIONS_FOLDER_ICON_PATH = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns";
 export const macDmgInstallerSourceRoot = fileURLToPath(new URL("../../native/macos-installer/", import.meta.url));
 
 export function macDmgInstallerName(brand) {
@@ -43,8 +44,8 @@ export function macDmgInstallerInfo(brand, version) {
   }
   return {
     CFBundleInfoDictionaryVersion: "6.0",
-    CFBundleName: `Install ${brand.productName}`,
-    CFBundleDisplayName: `Install ${brand.productName}`,
+    CFBundleName: "Install to Applications",
+    CFBundleDisplayName: "Install to Applications",
     CFBundleIdentifier: `${brand.appId}.installer`,
     CFBundleExecutable: MAC_DMG_INSTALLER_EXECUTABLE,
     CFBundlePackageType: "APPL",
@@ -55,13 +56,26 @@ export function macDmgInstallerInfo(brand, version) {
     CFBundleIconFile: "icon.icns",
     LSMinimumSystemVersion: "12.0",
     NSHighResolutionCapable: true,
+    CFBundleDocumentTypes: [{
+      CFBundleTypeName: "macOS Application",
+      CFBundleTypeRole: "Viewer",
+      LSHandlerRank: "None",
+      LSItemContentTypes: ["com.apple.application-bundle"]
+    }],
     ...requiredFields
   };
 }
 
-function installerLocalizedInfo(brand, locale) {
-  const label = `${locale === "zh-Hans" ? "安装" : "Install"} ${brand.productName}`;
+function installerLocalizedInfo(locale) {
+  const label = locale === "zh-Hans" ? "安装到应用程序" : "Install to Applications";
   return { CFBundleDisplayName: label, CFBundleName: label };
+}
+
+function applicationsFolderIcon(iconPath) {
+  if (!fs.existsSync(iconPath) || !fs.lstatSync(iconPath).isFile() || !fs.statSync(iconPath).size) {
+    throw new Error("macOS drag installer requires the Applications folder icon");
+  }
+  return fs.readFileSync(iconPath);
 }
 
 function command(program, args, options = {}) {
@@ -70,7 +84,7 @@ function command(program, args, options = {}) {
   });
 }
 
-function assertInstallerContents(appPath, brand, version) {
+function assertInstallerContents(appPath, brand, version, iconPath) {
   if (fs.lstatSync(appPath).isSymbolicLink()) throw new Error("macOS installer must be a regular application bundle");
   const contents = path.join(appPath, "Contents");
   const info = plist.parse(fs.readFileSync(path.join(contents, "Info.plist"), "utf8"));
@@ -83,11 +97,13 @@ function assertInstallerContents(appPath, brand, version) {
   const executable = path.join(contents, "MacOS", MAC_DMG_INSTALLER_EXECUTABLE);
   if (!fs.lstatSync(executable).isFile()) throw new Error("macOS installer executable must be a regular file");
   fs.accessSync(executable, fs.constants.X_OK);
-  if (!fs.statSync(path.join(contents, "Resources", "icon.icns")).size) throw new Error("macOS installer icon is missing");
+  if (!fs.readFileSync(path.join(contents, "Resources", "icon.icns")).equals(applicationsFolderIcon(iconPath))) {
+    throw new Error("macOS drag installer icon does not match the Applications folder icon");
+  }
   for (const locale of DARWIN_BUNDLE_LOCALIZATIONS) {
     const file = path.join(contents, "Resources", `${locale}.lproj`, "InfoPlist.strings");
     const localized = plist.parse(fs.readFileSync(file, "utf8"));
-    if (JSON.stringify(localized) !== JSON.stringify(installerLocalizedInfo(brand, locale))) {
+    if (JSON.stringify(localized) !== JSON.stringify(installerLocalizedInfo(locale))) {
       throw new Error(`macOS installer localized name does not match its brand: ${locale}`);
     }
   }
@@ -95,9 +111,10 @@ function assertInstallerContents(appPath, brand, version) {
 
 export function verifyMacDmgInstaller({
   projectRoot, brand, hostAppPath, appPath = macDmgInstallerPath(projectRoot, brand),
-  version = readDesktopVersion(projectRoot), verifyRelease = verifyMacReleaseApp
+  version = readDesktopVersion(projectRoot), verifyRelease = verifyMacReleaseApp,
+  iconPath = MAC_APPLICATIONS_FOLDER_ICON_PATH
 }) {
-  assertInstallerContents(appPath, brand, version);
+  assertInstallerContents(appPath, brand, version, iconPath);
   const host = verifyRelease(hostAppPath, { expectedBundleId: brand.appId });
   return verifyRelease(appPath, { expectedBundleId: `${brand.appId}.installer`, expectedTeamId: host.teamIdentifier });
 }
@@ -105,12 +122,14 @@ export function verifyMacDmgInstaller({
 /** Build the DMG-only installer after the host app has been signed. */
 export function buildMacDmgInstaller({
   projectRoot, brand, hostAppPath, arch = process.arch, version = readDesktopVersion(projectRoot),
-  platform = process.platform, keychain, timestamp, run = command, verifyRelease = verifyMacReleaseApp
+  platform = process.platform, keychain, timestamp, run = command, verifyRelease = verifyMacReleaseApp,
+  iconPath = MAC_APPLICATIONS_FOLDER_ICON_PATH
 }) {
   if (platform === "win32") throw new Error("Windows must not build the macOS DMG installer");
   if (platform !== "darwin") throw new Error("macOS DMG installer can only be built on macOS");
   if (arch !== "arm64" && arch !== "x64") throw new Error(`Unsupported macOS installer architecture: ${arch}`);
   const info = macDmgInstallerInfo(brand, version);
+  const icon = applicationsFolderIcon(iconPath);
   const host = verifyRelease(hostAppPath, { expectedBundleId: brand.appId });
   const identity = host.authorities.find(authority => authority.startsWith("Developer ID Application:"));
   if (!identity) throw new Error("macOS installer requires its host's Developer ID Application signing identity");
@@ -137,11 +156,11 @@ export function buildMacDmgInstaller({
     fs.writeFileSync(path.join(contents, "Info.plist"), plist.build(info));
     const resources = path.join(contents, "Resources");
     fs.mkdirSync(resources, { recursive: true });
-    fs.copyFileSync(path.join(brandIconDir(projectRoot, brand), "icon.icns"), path.join(resources, "icon.icns"));
+    fs.writeFileSync(path.join(resources, "icon.icns"), icon);
     for (const locale of DARWIN_BUNDLE_LOCALIZATIONS) {
       const localized = path.join(resources, `${locale}.lproj`);
       fs.mkdirSync(localized, { recursive: true });
-      fs.writeFileSync(path.join(localized, "InfoPlist.strings"), plist.build(installerLocalizedInfo(brand, locale)));
+      fs.writeFileSync(path.join(localized, "InfoPlist.strings"), plist.build(installerLocalizedInfo(locale)));
     }
     // A private build-log umask must not make the distributed app accessible
     // only to the build account after another user mounts the disk image.
@@ -155,7 +174,7 @@ export function buildMacDmgInstaller({
       timestamp === "none" ? "--timestamp=none" : timestamp ? `--timestamp=${timestamp}` : "--timestamp",
       "--options", "runtime", stagedApp
     ]);
-    assertInstallerContents(stagedApp, brand, version);
+    assertInstallerContents(stagedApp, brand, version, iconPath);
     verifyRelease(stagedApp, { expectedBundleId: info.CFBundleIdentifier, expectedTeamId: host.teamIdentifier });
     fs.rmSync(output, { recursive: true, force: true });
     fs.renameSync(stagedApp, output);

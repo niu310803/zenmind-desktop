@@ -450,6 +450,30 @@ private struct InstallerCoreChecks {
             try expect(!commands.shutdownCalled && commands.events.isEmpty, "foreign publisher reached staging")
             try expect(try marker(destination) == "old", "foreign formal app changed")
         }
+        try check("the installer droplet accepts exactly its independently located source bundle") {
+            let tx = try transaction("drop-source")
+            try validateInstallerDrop([tx.source.path], source: tx.source)
+            try validateInstallerDrop([tx.source.path + "/"], source: tx.source)
+        }
+        try check("the installer droplet rejects a different same-name application") {
+            let tx = try transaction("drop-other-source")
+            let other = tx.destination.deletingLastPathComponent().appendingPathComponent("other-volume")
+                .appendingPathComponent(tx.source.lastPathComponent)
+            try makeApp(other, marker: "other")
+            do {
+                try validateInstallerDrop([other.path], source: tx.source)
+                throw CheckFailure.assertion("same-name application from another path accepted")
+            } catch InstallerFailure.invalidPackage { }
+        }
+        try check("the installer droplet rejects multiple or absent dropped files") {
+            let tx = try transaction("drop-multiple")
+            for paths in [[tx.source.path, tx.destination.path], [], ["relative.app"]] {
+                do {
+                    try validateInstallerDrop(paths, source: tx.source)
+                    throw CheckFailure.assertion("non-single-source drop accepted")
+                } catch InstallerFailure.invalidPackage { }
+            }
+        }
         print("PASSED \(checks) installer checks")
     }
 }

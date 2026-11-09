@@ -146,15 +146,14 @@ export function electronBuilderConfig(brand, target = currentBrandBuildTarget())
     dmg: {
       artifactName: "${productName}-${version}-${arch}.${ext}",
       backgroundColor: "#f5f5f7",
-      window: { width: 660, height: 420 },
+      window: { width: 540, height: 380 },
       iconSize: 80,
       contents: [
+        { x: 130, y: 220 },
         {
-          x: 330, y: 100, type: "dir",
+          x: 410, y: 220, type: "dir",
           path: brandBuildRelativePath(brand, "installer", `Install ${brand.productName}.app`)
-        },
-        { x: 160, y: 285 },
-        { x: 500, y: 285, type: "link", path: "/Applications" }
+        }
       ]
     },
     win: {

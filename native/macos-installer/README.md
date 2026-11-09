@@ -1,6 +1,8 @@
 # macOS DMG 安装入口
 
-DMG 中的 `Install <Product>.app` 是独立的 AppKit 应用，用户确认后负责复制校验、请求旧 Desktop 正常退出、外部进程复验、换包及打开新版。它使用 `<brand.appId>.installer`，避免 Finder 在旧版运行时将安装动作转发给主应用。
+DMG 保留左侧产品 App、右侧“安装到应用程序”文件夹图标的两图标拖拽界面。右侧是独立的 AppKit 安装 droplet，接收左侧产品 App 的拖入后直接执行复制校验、请求旧 Desktop 正常退出、外部进程复验、换包及打开新版，只显示进度与失败错误。它使用 `<brand.appId>.installer`，避免 Finder 在旧版运行时将安装动作转发给主应用；不再增加第三个安装入口或开始安装确认。
+
+拖入事件仅选择安装动作，不能指定新代码来源。`validateInstallerDrop` 要求恰好一个绝对路径，且规范化与解析符号链接后的路径都与安装器独立找到的同盘产品 App 一致；同名的其他 App、多文件和空输入均拒绝。实际安装始终重新定位并验证安装盘内的产品 App，不从拖入参数读取代码。
 
 `scripts/lib/mac-dmg-installer.mjs` 在 Electron Builder 的 `afterSign` 阶段保留已有主应用验证，然后编译、签名并复验安装器。此时 Builder 导入的 CI 签名钥匙串仍可用。安装器读取同一品牌生成的 Info.plist，必须与主应用拥有相同的 Developer ID Application 发布者；最终 DMG 公证覆盖二者。安装器不进入在线更新 ZIP。
 

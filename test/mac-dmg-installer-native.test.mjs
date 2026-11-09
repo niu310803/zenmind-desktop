@@ -18,5 +18,5 @@ test("macOS installer performs real file transactions and independently verifies
   const output = execFileSync(executable, [], {
     encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"]
   });
-  assert.match(output, /PASSED 35 installer checks/);
+  assert.match(output, /PASSED 38 installer checks/);
 });
