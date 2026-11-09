@@ -20,6 +20,7 @@ export const CHAT_WORK_PANEL_REVEAL_LOCAL_RESOURCE_CHANNEL =
 
 export type ChatWorkPanelTabContextMenuActionId =
   | "toggle-review"
+  | "toggle-edit-mode"
   | "reload"
   | "open-web-dialog"
   | "copy-url"
@@ -53,6 +54,7 @@ export type ChatWorkPanelTabContextMenuPopupRequest =
       profile: ChatWorkPanelTabContextMenuProfile;
       isFullscreen: boolean;
       reviewMode?: "unavailable" | "inactive" | "active";
+      textEditMode?: "inactive" | "active";
       documentPathAvailable?: boolean;
       nativeHtml?: { localOriginal: boolean };
       nativeImage?: { localOriginal: boolean };

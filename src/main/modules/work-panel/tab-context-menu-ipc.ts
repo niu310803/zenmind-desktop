@@ -78,9 +78,9 @@ export function normalizeChatWorkPanelTabContextMenuRequest(
   }
   if (
     value.mode === "work-panel" &&
-    keys.length >= 7 && keys.length <= 11 &&
+    keys.length >= 7 && keys.length <= 12 &&
     keys.every((key) => [
-      "mode", "x", "y", "profile", "isFullscreen", "reviewMode",
+      "mode", "x", "y", "profile", "isFullscreen", "reviewMode", "textEditMode",
       "documentPathAvailable", "nativeHtml", "nativeImage", "canClose", "canCloseOthers",
     ].includes(key)) &&
     keys.includes("mode") &&
@@ -94,6 +94,7 @@ export function normalizeChatWorkPanelTabContextMenuRequest(
     WORK_PANEL_CONTEXT_MENU_PROFILES.has(value.profile as ChatWorkPanelTabContextMenuProfile) &&
     typeof value.isFullscreen === "boolean" &&
     (value.reviewMode === undefined || value.reviewMode === "unavailable" || value.reviewMode === "inactive" || value.reviewMode === "active") &&
+    (value.textEditMode === undefined || value.textEditMode === "inactive" || value.textEditMode === "active") &&
     (value.documentPathAvailable === undefined || typeof value.documentPathAvailable === "boolean") &&
     (value.nativeHtml === undefined || (isPlainRecord(value.nativeHtml) && Object.keys(value.nativeHtml).length === 1 && typeof value.nativeHtml.localOriginal === "boolean")) &&
     (value.nativeImage === undefined || (isPlainRecord(value.nativeImage) && Object.keys(value.nativeImage).length === 1 && typeof value.nativeImage.localOriginal === "boolean")) &&
@@ -108,6 +109,9 @@ export function normalizeChatWorkPanelTabContextMenuRequest(
       isFullscreen: value.isFullscreen,
       ...(value.reviewMode === "inactive" || value.reviewMode === "active"
         ? { reviewMode: value.reviewMode }
+        : {}),
+      ...(value.textEditMode === "inactive" || value.textEditMode === "active"
+        ? { textEditMode: value.textEditMode }
         : {}),
       ...(value.documentPathAvailable === true ? { documentPathAvailable: true } : {}),
       ...(isPlainRecord(value.nativeHtml) ? { nativeHtml: { localOriginal: value.nativeHtml.localOriginal === true } } : {}),
@@ -147,6 +151,15 @@ function buildWorkPanelTemplate(
             ? "chatWorkPanel.tabContextMenu.exitReview"
             : "chatWorkPanel.tabContextMenu.enterReview"),
           click: click("toggle-review")
+        }]),
+    ...(!request.textEditMode
+      ? []
+      : [{
+          id: "toggle-edit-mode",
+          label: t(request.textEditMode === "active"
+            ? "chatWorkPanel.tabContextMenu.exitEditMode"
+            : "chatWorkPanel.tabContextMenu.enterEditMode"),
+          click: click("toggle-edit-mode")
         }]),
     {
       id: "toggle-fullscreen",

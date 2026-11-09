@@ -54,6 +54,8 @@ import {
 import {
   AGENT_WEBCLIENT_COMPOSER_DRAFT_ACTION,
   AGENT_WEBCLIENT_COMPOSER_DRAFT_VERSION,
+  AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION,
+  AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION,
   AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_ACTION,
   AGENT_WEBCLIENT_WORKPANEL_PREVIEW_REVIEW_VERSION,
   AGENT_WEBCLIENT_WORKPANEL_RESOURCE_DOWNLOAD_ACTION,
@@ -184,6 +186,7 @@ type WebclientDocumentState = {
   dirty: boolean;
   busy: boolean;
   annotationCount: number;
+  textEditable: boolean;
   targetKey: string;
 };
 
@@ -541,10 +544,38 @@ export function WorkPanelHost({
   const [webclientDocumentStates, setWebclientDocumentStates] = useState<
     Record<string, WebclientDocumentState>
   >({});
+  const [textEditModes, setTextEditModes] = useState<Record<string, boolean>>({});
+  const textEditModesRef = useRef(textEditModes);
+  textEditModesRef.current = textEditModes;
   const pendingReviewRequestsRef = useRef(
     new Map<string, PendingReviewRequest>(),
   );
   stateRef.current = state;
+
+  useEffect(() => {
+    const openKeys = new Set<string>();
+    for (const workspace of state.workspaces) {
+      for (const item of workspace.items) {
+        openKeys.add(itemRuntimeKey(workspace.ownerChatId, item.itemId));
+      }
+    }
+    const prune = <T,>(record: Record<string, T>) => {
+      let changed = false;
+      const next = { ...record };
+      for (const key of Object.keys(next)) {
+        if (openKeys.has(key)) continue;
+        delete next[key];
+        changed = true;
+      }
+      return changed ? next : record;
+    };
+    const nextModes = prune(textEditModesRef.current);
+    if (nextModes !== textEditModesRef.current) {
+      textEditModesRef.current = nextModes;
+      setTextEditModes(nextModes);
+    }
+    setWebclientDocumentStates((current) => prune(current));
+  }, [state.workspaces]);
 
   let revealLocalResourceLabel = t(
     "chatWorkPanel.tabContextMenu.revealInFileManager",
@@ -1124,6 +1155,57 @@ export function WorkPanelHost({
     return false;
   };
 
+  const sendTextEditModeToPreview = (
+    ownerChatId: string,
+    item: WorkPanelItem,
+    enabled: boolean,
+  ) => {
+    if (item.descriptor.kind !== "webclient") return false;
+    const webview = findItemWebview(ownerChatId, item.itemId);
+    if (!webview) return false;
+    try {
+      webview.send(SERVICE_WEBVIEW_BRIDGE_ACTION_CHANNEL, {
+        action: AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_ACTION,
+        version: AGENT_WEBCLIENT_WORKPANEL_DOCUMENT_EDIT_MODE_VERSION,
+        enabled,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const applyTextEditMode = (
+    ownerChatId: string,
+    item: WorkPanelItem,
+    enabled: boolean,
+  ) => {
+    const runtimeKey = itemRuntimeKey(ownerChatId, item.itemId);
+    const next = { ...textEditModesRef.current, [runtimeKey]: enabled };
+    textEditModesRef.current = next;
+    setTextEditModes(next);
+    sendTextEditModeToPreview(ownerChatId, item, enabled);
+  };
+
+  const toggleTextEditMode = (ownerChatId: string, item: WorkPanelItem) => {
+    const runtimeKey = itemRuntimeKey(ownerChatId, item.itemId);
+    if (textEditModesRef.current[runtimeKey] !== true) {
+      applyTextEditMode(ownerChatId, item, true);
+      return;
+    }
+    const documentState = webclientDocumentStates[runtimeKey];
+    if (documentState?.dirty || documentState?.annotationCount > 0) {
+      modal.confirm({
+        content: t("chatWorkPanel.tabContextMenu.exitEditModeConfirm"),
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        onOk: () => applyTextEditMode(ownerChatId, item, false),
+      });
+      return;
+    }
+    applyTextEditMode(ownerChatId, item, false);
+  };
+
   const toggleReviewForItem = (
     ownerChatId: string,
     item: WorkPanelItem,
@@ -1638,9 +1720,9 @@ export function WorkPanelHost({
         item.descriptor.surfaceKey === "document-image")
         ? item.descriptor.context
         : null;
-    const htmlController = nativeHtmlControllers.current.get(
-      itemRuntimeKey(ownerChatId, item.itemId),
-    );
+    const runtimeKey = itemRuntimeKey(ownerChatId, item.itemId);
+    const htmlController = nativeHtmlControllers.current.get(runtimeKey);
+    const documentState = webclientDocumentStates[runtimeKey];
     const result = await window.electronAPI.chatWorkPanelTabContextMenu.popup({
       mode: "work-panel",
       x: event.clientX,
@@ -1663,6 +1745,9 @@ export function WorkPanelHost({
         ? { nativeHtml: { localOriginal: nativeHtml.localOriginal === true } }
         : {}),
       ...(documentPath ? { documentPathAvailable: true } : {}),
+      ...(documentState?.textEditable
+        ? { textEditMode: textEditModesRef.current[runtimeKey] === true ? "active" as const : "inactive" as const }
+        : {}),
       canClose: item.closable && !item.pinned,
       canCloseOthers:
         workspace?.items.some(
@@ -1801,6 +1886,10 @@ export function WorkPanelHost({
         );
         return;
       }
+    }
+    if (result.actionId === "toggle-edit-mode") {
+      toggleTextEditMode(ownerChatId, item);
+      return;
     }
     if (result.actionId === "toggle-review") {
       toggleReviewForItem(ownerChatId, item);
@@ -3557,6 +3646,8 @@ export function WorkPanelHost({
                                 previous.busy === documentState.busy &&
                                 previous.annotationCount ===
                                   documentState.annotationCount &&
+                                previous.textEditable ===
+                                  documentState.textEditable &&
                                 previous.targetKey === documentState.targetKey
                               ) {
                                 return current;
@@ -3566,6 +3657,24 @@ export function WorkPanelHost({
                                 [reviewRuntimeKey]: documentState,
                               };
                             });
+                            if (!documentState.textEditable) return;
+                            const editMode =
+                              textEditModesRef.current[reviewRuntimeKey];
+                            if (editMode === undefined) {
+                              applyTextEditMode(
+                                workspace.ownerChatId,
+                                item,
+                                false,
+                              );
+                            } else if (!documentState.dirty && !documentState.busy) {
+                              // A reload remounts the guest as editable. Re-assert
+                              // the host-owned mode without waiting for a user toggle.
+                              sendTextEditModeToPreview(
+                                workspace.ownerChatId,
+                                item,
+                                editMode,
+                              );
+                            }
                           }}
                           onAgentWebclientDocumentHandoff={(text) => {
                             void insertDocumentComposerDraft(
