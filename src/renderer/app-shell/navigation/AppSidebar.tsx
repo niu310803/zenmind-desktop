@@ -96,6 +96,7 @@ import { Collapse } from "../../components/Collapse";
 import { Tooltip } from "../../components/Tooltip";
 import { Popover } from "../../components/Popover";
 import { SettingsSidebarIcon } from "./SettingsSidebarIcon";
+import { WebappIcon } from "./WebappIcon";
 import {
   PageFeedbackStack,
   type PageFeedbackItem,
@@ -5165,9 +5166,9 @@ export function AppSidebar({
                   allowOriginFallback={false}
                 />
               </span>
-            ) : showIcon ? (
+            ) : showIcon && webItem.kind === "webapp" ? (
               <span className="sidebar-link-icon">
-                <SidebarIllustration kind={item.icon} />
+                <WebappIcon iconDataUrl={webItem.iconDataUrl} />
               </span>
             ) : null}
             <span className="sidebar-link-label">{item.label}</span>

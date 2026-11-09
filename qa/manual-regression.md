@@ -753,6 +753,7 @@
 - macOS / Windows 分别以无 help 配置的新环境启动：能力导航、账号菜单和新手引导无帮助入口；Windows 顶部帮助菜单隐藏，“关于”仍在文件菜单，方向键/Home/End 可遍历剩余菜单。
 - 直接访问 `/help` 回到控制中心，调用 `help.open` 返回未配置，无帮助 WebView 与网络请求；配置有效帮助地址后重启，入口及匿名 Help WebView 恢复。
 - 配置第一方帮助站点后，在 macOS、Windows 的浅深色图片皮肤及自定义照片下打开市场、分享管理与帮助：三个主区都能隐约看见同一张 Desktop 壁纸；帮助站点正文、加载中和失败重试保持可读。切回默认无图片皮肤后分别恢复原有实色底板，Help WebView 仍保持匿名独立 partition 与同源导航。
+- 帮助页在 macOS / Windows 的普通窗口、全屏、窄窗口和浅深色下均铺满主内容区：顶部不留额外的皮肤条带，底部内容不被裁切，宿主不产生额外滚动；设置读取中、读取失败、网页加载中和失败重试保持相同边界。Windows 普通窗口内容从系统栏下方开始；macOS 顶部拖拽覆盖层继续可用。
 
 ## 无 IM 配置的云桌面
 
@@ -1169,6 +1170,7 @@
 
 ## Sites 混合排序与 WebApp 菜单
 
+- macOS / Windows × 明 / 暗主题：侧栏 WebApp 使用各应用自己的图标，覆盖 HTML 声明的相对路径、根路径、内联 SVG 与未声明时的 favicon 文件；未运行、停止后、重启 Desktop 后仍可显示。置顶入口、Sites 展开列表和收起侧栏 Popover 保持一致；无图标或图片损坏时显示默认应用图标，不显示破图。更新应用后显示新图标，普通 Website favicon、运行绿点、点击、排序和右键菜单保持正常。
 - macOS / Windows 分别拖动 Sites 中的 Website 与 WebApp 交错排序，检查插入线、Esc 取消、普通点击与右键；Alt + 上下键移动，展开列表和收起侧栏的 Popover 都可使用。重启后顺序恢复到 `config/webs/order.json`；置顶后再取消置顶保留 Sites 原位置，主导航、Projects 与 Chats 排序不变。
 - WebApp 右键菜单在展开、收起、置顶入口均包含 Pin/Unpin、Close、New window（独立窗口模式为返回工作区）和 Uninstall；没有 Publish、复制发布链接或 Export。不可卸载应用保持 Uninstall 禁用；关闭与卸载执行期间相应操作禁用。
 
