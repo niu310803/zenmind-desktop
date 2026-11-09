@@ -265,6 +265,8 @@ export type ServiceWebviewBridgeMessage = {
   ok?: boolean;
   mode?: "directory";
   text?: string;
+  /** Present on document-state: the tab can enter the text edit mode. */
+  textEditable?: boolean;
   path?: string;
   filename?: string;
   mimeType?: string;
