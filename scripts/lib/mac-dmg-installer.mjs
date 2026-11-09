@@ -25,7 +25,7 @@ export function macDmgInstallerPath(projectRoot, brand) {
 }
 
 export function macDmgInstallerInfo(brand, version) {
-  macDmgInstallerName(brand);
+  const bundleName = macDmgInstallerName(brand).slice(0, -4);
   const normalizedVersion = String(version || "").replace(/^v/iu, "");
   if (!/^\d+\.\d+\.\d+(?:[-+][a-z\d.+-]+)?$/iu.test(normalizedVersion)) {
     throw new Error("macOS installer requires the Desktop version");
@@ -44,8 +44,9 @@ export function macDmgInstallerInfo(brand, version) {
   }
   return {
     CFBundleInfoDictionaryVersion: "6.0",
-    CFBundleName: "Install to Applications",
-    CFBundleDisplayName: "Install to Applications",
+    // Finder localizes an app name only when this base matches its filename.
+    CFBundleName: bundleName,
+    CFBundleDisplayName: bundleName,
     CFBundleIdentifier: `${brand.appId}.installer`,
     CFBundleExecutable: MAC_DMG_INSTALLER_EXECUTABLE,
     CFBundlePackageType: "APPL",

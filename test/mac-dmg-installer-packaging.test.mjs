@@ -50,7 +50,10 @@ test("both brands provide an independent installer identity and the existing shu
     assert.equal(info.DesktopRuntimeRootDirName, configured.paths.runtimeRootDirName);
     assert.equal(info.DesktopDataSubdirectory, configured.paths.desktopDataSubdir);
     assert.equal(info.DesktopProgramDataDirName, configured.paths.programDataDirName);
-    assert.equal(info.CFBundleDisplayName, "Install to Applications");
+    // A different unlocalized name makes Finder treat the bundle as renamed
+    // and display its raw filename instead of the localized drop-target label.
+    assert.equal(info.CFBundleDisplayName, `Install ${configured.productName}`);
+    assert.equal(info.CFBundleName, info.CFBundleDisplayName);
     assert.deepEqual(info.CFBundleDocumentTypes, [{
       CFBundleTypeName: "macOS Application",
       CFBundleTypeRole: "Viewer",
