@@ -472,3 +472,14 @@ test("Kanban preview uses a Chat-only route on the existing desktop Chat transpo
   assert.equal(createAgentWebclientChatPreviewPath({ chatId: " " }), "");
   assert.equal(resolveAgentWebclientWsSource("kanban-chat", "/chat-preview/chat-1"), "desktop-chat");
 });
+
+test("settings Inbox embeds the existing WebClient mailbox as a management surface", () => {
+  const route = findAgentWebclientRouteDefinition("/settings/mailbox");
+  assert.equal(route.key, "mailbox");
+  assert.equal(route.kind, "management");
+  assert.equal(route.embedPath, "/mailbox");
+  const url = buildAgentWebclientUrl("agent-webclient", route.embedPath);
+  assert.equal(url.pathname, "/mailbox");
+  assert.equal(url.searchParams.has("wsSource"), false);
+  assert.equal(url.searchParams.has("desktopAuthContext"), false);
+});

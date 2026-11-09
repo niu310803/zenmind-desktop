@@ -16,7 +16,8 @@ export type SettingsSectionId =
   | "websites"
   | "webapps"
   | "about"
-  | "debug";
+  | "debug"
+  | "mailbox";
 
 export type SettingsSectionLayout = "measure" | "wide";
 export type SettingsSectionGroupId = "personal" | "integrations" | "system";

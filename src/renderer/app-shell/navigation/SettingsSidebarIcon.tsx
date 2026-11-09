@@ -173,6 +173,7 @@ function DefaultSettingsSidebarIcon({ kind, className }: SettingsSidebarIconProp
           <path d="M14 13h3M14 17h3" />
         </svg>
       );
+    case "mailbox": return <MaterialIcon name="draft" className={iconProps.className} />;
     case "about":
       return (
         <svg {...iconProps}>
