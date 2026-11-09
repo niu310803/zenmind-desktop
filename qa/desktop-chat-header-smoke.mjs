@@ -118,6 +118,8 @@ for(const platform of ['darwin','win32']){for(const fullscreen of [false,true]){
  const before=await js('({...window.actions})');await click(0);await click(1);await click(2);
  assert.deepEqual(await js('({...window.actions})'),{search:before.search+1,back:before.back,forward:before.forward+1});
  const point=await center(3);assert.equal(await js('document.querySelectorAll('+JSON.stringify(activeSelector)+')[3].getAttribute("aria-expanded")'),'false');
+ const cursors=await js('(()=>{return [...document.querySelectorAll(".main-chat-header-action,.app-system-bar-action,.app-sidebar-shell")].map(e=>getComputedStyle(e).cursor)})()');
+ assert.ok(cursors.every(value=>value==='default'),'Navigation controls and blank sidebar space use the normal arrow');
  if(platform==='darwin')assert.deepEqual(point,{x:174,y:18});
  if(fixed){
   const rightCenters=await js('(()=>{return [...document.querySelectorAll(".qa-right-actions > button")].map(e=>{const r=e.getBoundingClientRect();return r.top+r.height/2})})()');

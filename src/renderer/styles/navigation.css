@@ -14,12 +14,12 @@
   /* Keep blank sidebar space in the pointer-driven window drag path. */
   app-region: no-drag;
   -webkit-app-region: no-drag;
-  cursor: grab;
+  cursor: default;
   transition: width 0.2s ease-in-out, min-width 0.2s ease-in-out;
 }
 
 .app-sidebar-shell:active {
-  cursor: grabbing;
+  cursor: default;
 }
 
 .app-shell.is-sidebar-resizing .app-sidebar-shell {
@@ -1025,12 +1025,12 @@
 }
 
 .sidebar-sortable-chat .sidebar-chats-item {
-  cursor: grab;
+  cursor: pointer;
   touch-action: none;
 }
 
 .sidebar-sortable-chat.is-dragging .sidebar-chats-item {
-  cursor: grabbing;
+  cursor: pointer;
 }
 
 .sidebar-sortable-chat.is-drag-disabled .sidebar-chats-item {

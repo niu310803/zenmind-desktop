@@ -6306,7 +6306,7 @@ test("window drag targets keep pointer events for the desktopShell fallback", ()
   assert.match(dragLayerRule, /height:\s*var\(--app-window-drag-height,\s*12px\);/);
   assert.match(dragLayerRule, /z-index:\s*1000;/);
   assert.match(dragLayerRule, /pointer-events:\s*auto;/);
-  assert.match(dragLayerRule, /cursor:\s*grab;/);
+  assert.match(dragLayerRule, /cursor:\s*default;/);
   assert.ok(dragRegionRule, "missing .app-window-drag-region rule");
   assert.match(dragRegionRule, /width:\s*100%;/);
   assert.match(dragRegionRule, /height:\s*100%;/);
@@ -6315,15 +6315,15 @@ test("window drag targets keep pointer events for the desktopShell fallback", ()
   assert.match(dragRegionRule, /-webkit-app-region:\s*no-drag;/);
   assert.match(dragRegionRule, /pointer-events:\s*auto;/);
   assert.match(dragRegionRule, /touch-action:\s*none;/);
-  assert.match(dragRegionRule, /cursor:\s*grab;/);
+  assert.match(dragRegionRule, /cursor:\s*default;/);
   assert.doesNotMatch(dragRegionRule, /(?:^|\n)\s*(?:left|right):/);
   assert.match(sidebarShellRule, /app-region:\s*no-drag;/);
   assert.match(sidebarShellRule, /-webkit-app-region:\s*no-drag;/);
-  assert.match(sidebarShellRule, /cursor:\s*grab;/);
+  assert.match(sidebarShellRule, /cursor:\s*default;/);
   assert.match(globalStyles, /\.app-shell\.is-mac-overlay-sidebar\s*\{[^}]*--app-window-drag-left:\s*220px;/);
   assert.match(globalStyles, /\.app-shell\.is-mac-overlay-sidebar\.has-right-corner-toggle\s*\{[^}]*--app-window-drag-left:\s*0px;[^}]*--app-window-drag-right:\s*72px;/);
   assert.doesNotMatch(globalStyles, /\.app-shell\.is-mac-overlay-sidebar\s+\.app-window-drag-region\s*\{/);
-  assert.match(globalStyles, /\.app-window-drag-region:active\s*\{[^}]*cursor:\s*grabbing;/);
+  assert.match(globalStyles, /\.app-window-drag-region:active\s*\{[^}]*cursor:\s*default;/);
   assert.doesNotMatch(globalStyles, /\.sidebar-chrome-drag-region/);
   const appMainRule = globalStyles.match(/(?:^|\n)\.app-main\s*\{(?<body>[\s\S]*?)^\}/m)?.groups?.body ?? "";
   assert.match(appMainRule, /padding:\s*28px 24px 28px;/);
