@@ -32,6 +32,7 @@ import {
   sortWebEntries
 } from "../common";
 import { withWebappManagementMetadata } from "./metadata";
+import { readWebappIconDataUrl } from "./icon";
 import { assertInstalledWebappId, isInstalledWebappId } from "./identity";
 import { parseInstalledWebappManifest } from "./installed-manifest";
 import type { WebsIntegrationPorts } from "../integration-ports";
@@ -350,6 +351,7 @@ function manifestToEntry(
   }
   validateWebappPackageDirectory(webappDir, manifest);
   const manifestStat = fs.statSync(path.join(webappDir, WEBAPP_FILE));
+  const iconDataUrl = readWebappIconDataUrl(webappDir, manifest.frontend);
   return {
     ...manifest,
     label: preference.label ?? manifest.label,
@@ -360,6 +362,7 @@ function manifestToEntry(
     installPath: webappDir,
     entryKey: createWebappEntryKey(manifest.id),
     kind: "webapp",
+    ...(iconDataUrl ? { iconDataUrl } : {}),
     ...(manifest.copilot
       ? {
           copilotAgentKey: manifest.copilot.agentKey,

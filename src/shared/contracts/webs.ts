@@ -70,6 +70,8 @@ export interface WebappEntry extends WebEntryBase {
   appConfig: WebappManifest["appConfig"];
   userConfig?: WebappUserConfig;
   frontend: WebappFrontendConfig;
+  /** Bounded package-local image for navigation; derived, never saved in the manifest. */
+  iconDataUrl?: string;
   backend?: WebappBackendConfig;
   desktopBridge?: WebappDesktopBridgeConfig;
   copilot?: WebappCopilotConfig;
