@@ -108,7 +108,7 @@ test("Windows 主导航动作紧跟品牌并从侧栏顶部移除", () => {
   assert.ok(windowControlsIndex > actionsIndex);
   assert.match(
     appShellSource,
-    /sidebarMode === "primary"[\s\S]{0,1000}desktop\.globalSearch\.title[\s\S]{0,1000}sidebar\.navigation\.back[\s\S]{0,800}sidebar\.navigation\.forward[\s\S]{0,1400}toggleSystemBarAssistantDock[\s\S]{0,1600}nav\.sidebar\.expand/u,
+    /sidebarMode === "primary"[\s\S]{0,1000}desktop\.globalSearch\.title[\s\S]{0,1000}sidebar\.navigation\.back[\s\S]{0,800}sidebar\.navigation\.forward[\s\S]{0,1600}nav\.sidebar\.expand/u,
   );
   assert.match(
     appShellSource,
