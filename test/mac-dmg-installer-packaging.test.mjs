@@ -89,6 +89,23 @@ test("installer compilation signs only its own bundle using the verified host pu
   assert.notEqual(signing.args.at(-1), hostAppPath);
 });
 
+test("a private build umask does not restrict the distributed installer to its build user", { skip: process.platform === "win32" }, t => {
+  const { root, hostAppPath } = fixture(t);
+  const originalMask = process.umask(0o077);
+  let output;
+  try {
+    output = buildMacDmgInstaller({
+      projectRoot: root, brand, hostAppPath, platform: "darwin", run: fakeCompiler([]), verifyRelease: () => hostSignature
+    });
+  } finally { process.umask(originalMask); }
+  for (const relative of ["", "Contents", "Contents/MacOS", "Contents/Resources", "Contents/Resources/zh-Hans.lproj"]) {
+    assert.equal(fs.statSync(path.join(output, relative)).mode & 0o777, 0o755);
+  }
+  for (const relative of ["Contents/Info.plist", "Contents/Resources/icon.icns", "Contents/Resources/zh-Hans.lproj/InfoPlist.strings"]) {
+    assert.equal(fs.statSync(path.join(output, relative)).mode & 0o777, 0o644);
+  }
+});
+
 test("a failed compiler or mismatched installer publisher preserves the prior generated installer", t => {
   const { root, hostAppPath } = fixture(t);
   const output = macDmgInstallerPath(root, brand);
@@ -168,6 +185,7 @@ test("the builder hook is loadable by the installed electron-builder and skips W
 test("DMG exposes the independent installer and preserves both drag installation entries", async () => {
   const config = electronBuilderConfig(brand, { os: "darwin", arch: "arm64" });
   assert.equal(config.afterSign, "./scripts/lib/mac-dmg-installer.mjs");
+  assert.equal(config.dmg.artifactName, "${productName}-${version}-${arch}.${ext}");
   assert.equal(config.dmg.contents.length, 3);
   assert.equal(config.dmg.contents[0].path, "build/brands/cutej/installer/Install CuteJ.app");
   assert.equal(config.dmg.contents[0].type, "dir");

@@ -143,6 +143,12 @@ export function buildMacDmgInstaller({
       fs.mkdirSync(localized, { recursive: true });
       fs.writeFileSync(path.join(localized, "InfoPlist.strings"), plist.build(installerLocalizedInfo(brand, locale)));
     }
+    // A private build-log umask must not make the distributed app accessible
+    // only to the build account after another user mounts the disk image.
+    for (const directory of [stagedApp, contents, path.dirname(executable), resources,
+      ...DARWIN_BUNDLE_LOCALIZATIONS.map(locale => path.join(resources, `${locale}.lproj`))]) fs.chmodSync(directory, 0o755);
+    for (const file of [path.join(contents, "Info.plist"), path.join(resources, "icon.icns"),
+      ...DARWIN_BUNDLE_LOCALIZATIONS.map(locale => path.join(resources, `${locale}.lproj`, "InfoPlist.strings"))]) fs.chmodSync(file, 0o644);
     run("/usr/bin/codesign", [
       "--force", "--sign", identity,
       ...(keychain ? ["--keychain", keychain] : []),

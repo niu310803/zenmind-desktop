@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import yaml from "js-yaml";
+import { readDesktopVersion } from "./build-metadata.mjs";
 
 function trimEnv(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -49,19 +49,17 @@ export function buildNotaryToolAuthArgs(env = process.env) {
   return null;
 }
 
-export function resolveMacDmgArtifactPath(rootDir, brand) {
-  const latestMacPath = path.join(rootDir, "dist", brand.id, "latest-mac.yml");
-  if (!fs.existsSync(latestMacPath)) {
-    throw new Error(`macOS release metadata not found: ${latestMacPath}`);
+export function resolveMacDmgArtifactPath(rootDir, brand, { arch = "arm64" } = {}) {
+  // A local/manual build need not generate updater metadata. Resolve the pinned
+  // dmg.artifactName from this build's inputs, never a stale latest-mac.yml.
+  const version = readDesktopVersion(rootDir).replace(/^v/iu, "");
+  if (!brand?.productName || /[\x00-\x1f/\\]/u.test(brand.productName) ||
+      !/^[a-z0-9][a-z0-9_-]*$/u.test(brand.id) || !["arm64", "x64", "universal"].includes(arch) ||
+      !/^\d+\.\d+\.\d+(?:[-+][a-z\d.+-]+)?$/iu.test(version)) {
+    throw new Error("Invalid macOS DMG build identity");
   }
-
-  const metadata = yaml.load(fs.readFileSync(latestMacPath, "utf8"));
-  const artifactName = typeof metadata?.path === "string" ? metadata.path.trim() : "";
-  if (!artifactName || !artifactName.toLowerCase().endsWith(".dmg")) {
-    throw new Error(`macOS release metadata does not point to a DMG: ${latestMacPath}`);
-  }
-
-  const artifactPath = path.resolve(path.dirname(latestMacPath), artifactName);
+  const artifactName = `${brand.productName}-${version}-${arch}.dmg`;
+  const artifactPath = path.join(rootDir, "dist", brand.id, artifactName);
   if (!fs.existsSync(artifactPath) || !fs.statSync(artifactPath).isFile()) {
     throw new Error(`macOS DMG artifact not found: ${artifactPath}`);
   }

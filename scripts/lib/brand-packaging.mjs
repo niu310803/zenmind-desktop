@@ -144,6 +144,7 @@ export function electronBuilderConfig(brand, target = currentBrandBuildTarget())
     afterPack: "./scripts/after-pack.js",
     afterSign: "./scripts/lib/mac-dmg-installer.mjs",
     dmg: {
+      artifactName: "${productName}-${version}-${arch}.${ext}",
       backgroundColor: "#f5f5f7",
       window: { width: 660, height: 420 },
       iconSize: 80,
