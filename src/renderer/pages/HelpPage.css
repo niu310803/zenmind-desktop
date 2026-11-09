@@ -1,5 +1,5 @@
 .help-webview-page {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   background: var(--embedded-surface-page-bg);
   app-region: no-drag;
