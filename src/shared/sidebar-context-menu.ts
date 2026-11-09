@@ -62,6 +62,7 @@ export type SidebarContextMenuTarget =
   | {
       kind: "agent";
       bot?: boolean;
+      showHistory?: boolean;
       canClearPrimary?: boolean;
       canRevealWorkspace: boolean;
       canOpenProjectEditor: boolean;

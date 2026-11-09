@@ -3851,6 +3851,7 @@ export function ServiceWebviewSurface({
         <WebviewDebugOverlay
           url={webviewCurrentUrl || embeddedUrl || webviewSrcUrl}
           surfaceIdentity={surfaceIdentity}
+          dismissKey={desiredDesktopRoute}
         />
         {bridgeReady && serviceWebviewPreloadUrl ? (
           <>

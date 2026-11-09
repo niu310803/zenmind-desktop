@@ -1,3 +1,4 @@
+import { useDebugMode } from "../../debug/DebugModeContext";
 import { PrimaryChatNavigation } from "./PrimaryChatNavigation";
 import { isBotAgent, selectBotNavigationAgents, primaryChatNavigationTarget } from "./primaryChatView";
 import { SkinHeading } from "../../appearance/SkinVisual";
@@ -1020,8 +1021,6 @@ type AppSidebarProps = {
   webPinningAvailable?: boolean;
   onSetWebItemPinned?: (item: WebEntry, pinned: boolean) => Promise<void>;
   webItems: WebEntry[];
-  primaryChatNavigation?: boolean;
-  onPrimaryChatNavigationChange?: (enabled: boolean) => void;
   primaryChatNavError?: string;
   primaryChatNavAgents?: AssistantNavAgentItem[];
   assistantNavAgents?: AssistantNavAgentItem[];
@@ -1114,8 +1113,6 @@ export function AppSidebar({
   webPinningAvailable = false,
   onSetWebItemPinned,
   webItems,
-  primaryChatNavigation = true,
-  onPrimaryChatNavigationChange,
   primaryChatNavError = "",
   primaryChatNavAgents = [],
   assistantNavAgents = [],
@@ -1183,6 +1180,7 @@ export function AppSidebar({
   onExitSecondarySidebarMode,
 }: AppSidebarProps) {
   const { t, locale } = useI18n();
+  const debugMode = useDebugMode();
   useEffect(() => {
     if (!assistantNavAgentsLoaded || !assistantLauncherVisible) return;
     // Warm runtime presets before the user opens the project dialog.
@@ -1341,38 +1339,6 @@ export function AppSidebar({
     index: number;
   } | null>(null);
   const sidebarNavRef = useRef<HTMLElement | null>(null);
-  const navigationScrollRef = useRef({ standard: 0, primary: 0 });
-  useLayoutEffect(() => {
-    const nav = sidebarNavRef.current;
-    if (!nav || !isPrimaryMode) return;
-    const mode = primaryChatNavigation ? "primary" : "standard";
-    const target = navigationScrollRef.current[mode];
-    let restoring = true;
-    let frame = 0;
-    const startedAt = performance.now();
-    const previousAnchor = nav.style.overflowAnchor;
-    nav.style.overflowAnchor = "none";
-    let previousHeight = -1;
-    let stableFrames = 0;
-    // Hidden Collapse contents remeasure and animate on reveal. Restore only
-    // after the desired position is reachable; ignore our own scroll events.
-    const restore = () => {
-      const height = nav.scrollHeight;
-      stableFrames = height === previousHeight ? stableFrames + 1 : 0;
-      previousHeight = height;
-      nav.scrollTop = target;
-      if ((height - nav.clientHeight >= target && stableFrames >= 3) || performance.now() - startedAt > 750) {
-        restoring = false;
-        nav.style.overflowAnchor = previousAnchor;
-      } else {
-        frame = requestAnimationFrame(restore);
-      }
-    };
-    restore();
-    const save = () => { if (!restoring) navigationScrollRef.current[mode] = nav.scrollTop; };
-    nav.addEventListener("scroll", save);
-    return () => { cancelAnimationFrame(frame); nav.style.overflowAnchor = previousAnchor; nav.removeEventListener("scroll", save); };
-  }, [primaryChatNavigation, isPrimaryMode]);
   const sidebarScrollThumbRef = useRef<HTMLDivElement | null>(null);
   const bootstrapGuideToolMenuAutoOpenedRef = useRef(false);
   const toolMenuContentRef = useRef<HTMLDivElement | null>(null);
@@ -1640,6 +1606,7 @@ export function AppSidebar({
   const chatDefaultAgentUnavailable =
     assistantNavAgentsLoaded && !chatDefaultAgentAvailable;
   const sidebarContextMenuRuntimeRef = useRef({
+    debugMode,
     creatingProject,
     hasCreateProjectDialog: Boolean(createProjectDialog),
     resolvedChatDefaultAgentKey,
@@ -1664,6 +1631,7 @@ export function AppSidebar({
     onExportWebappItem,
   });
   sidebarContextMenuRuntimeRef.current = {
+    debugMode,
     creatingProject,
     hasCreateProjectDialog: Boolean(createProjectDialog),
     resolvedChatDefaultAgentKey,
@@ -2157,7 +2125,6 @@ export function AppSidebar({
       setSidebarNavFocusId(visibleItems[0].dataset.sidebarNavId || "");
     }
   }, [
-    primaryChatNavigation,
     primaryChatNavAgents,
     expandedAssistantAgentKeys,
     isCollapsed,
@@ -2498,7 +2465,7 @@ export function AppSidebar({
       return agent
         ? {
             kind: "agent",
-            ...(isBotAgent(agent) ? { bot: true, canClearPrimary: Boolean(agent.primaryChat && !agent.primaryChat.hasActiveRun && !agent.primaryChat.hasPendingAwaiting) } : {}),
+            ...(isBotAgent(agent) ? { bot: true, showHistory: runtime.debugMode, canClearPrimary: Boolean(agent.primaryChat && !agent.primaryChat.hasActiveRun && !agent.primaryChat.hasPendingAwaiting) } : {}),
             canRevealWorkspace: !getRevealWorkspaceDisabledReason(agent),
             canOpenProjectEditor:
               Boolean(runtime.onOpenAgentProjectEditor) &&
@@ -2590,7 +2557,7 @@ export function AppSidebar({
       );
     }
     if (target.kind === "agent") {
-      if (target.bot) return actionId === "agent.edit" || actionId === "agent.history" || (actionId === "agent.clear-primary" && target.canClearPrimary === true);
+      if (target.bot) return actionId === "agent.edit" || (actionId === "agent.history" && target.showHistory === true) || (actionId === "agent.clear-primary" && target.canClearPrimary === true);
       return (
         actionId === "agent.edit" ||
         (actionId === "agent.reveal-workspace" && target.canRevealWorkspace) ||
@@ -2701,7 +2668,7 @@ export function AppSidebar({
         !getRevealWorkspaceDisabledReason(agent)
       ) {
         sidebarContextMenuRuntimeRef.current.onOpenAgentProjectEditor?.(agent);
-      } else if (actionId === "agent.history") {
+      } else if (actionId === "agent.history" && sidebarContextMenuRuntimeRef.current.debugMode) {
         onOpenChatHistory?.(agent.agentKey);
       } else if (actionId === "agent.clear-primary") {
         const chat = agent.primaryChat;
@@ -5940,8 +5907,8 @@ export function AppSidebar({
     // This is a chat-directory view. Copilot launcher visibility is unrelated
     // and becomes false on Main Chat routes, where this list must stay mounted.
     return <PrimaryChatNavigation
-      agents={botNavAgents} enabled={primaryChatNavigation} onEnabledChange={onPrimaryChatNavigationChange} collapsed={isCollapsed} currentChatId={activeSidebarChatId}
-      loaded={assistantNavAgentsLoaded} error={primaryChatNavError}
+      agents={botNavAgents} collapsed={isCollapsed} currentChatId={activeSidebarChatId}
+      error={primaryChatNavError}
       onRetry={() => void onRefreshAssistantNavAgents?.({ force: true })}
       itemProps={getSidebarRovingItemProps}
       onContextMenu={handleAgentContextMenu}

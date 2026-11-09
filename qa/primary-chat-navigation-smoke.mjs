@@ -14,7 +14,9 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MemoryRouter} from 'react-router-dom';
 import {AppSidebar} from './src/renderer/app-shell/navigation/AppSidebar';
-import {PrimaryChatNavigationDebugSetting} from './src/renderer/pages/settings/PrimaryChatNavigationDebugSetting';
+import {DebugModeContext} from './src/renderer/debug/DebugModeContext';
+import {STORAGE_NAMESPACE} from './src/shared/brand';
+window.localStorage.setItem(STORAGE_NAMESPACE+':show-bots','false');
 import {RendererI18nContext} from './src/renderer/i18n/i18n-context';
 import {createTranslator} from './src/shared/i18n';
 import './src/renderer/styles.css';
@@ -25,16 +27,16 @@ const initialAgents=Array.from({length:18},(_,i)=>({agentKey:'agent-'+i,displayN
 window.confirm=()=>window.qa.confirm!==false;
 window.qa={archives:[],routes:[],histories:[],orders:[],menus:[],agentOrders:[],set:null,state:null};
 function Fixture(){
- const [agents,setAgents]=useState(initialAgents);window.qa.clearMain=id=>setAgents(items=>items.map(agent=>agent.primaryChat?.chatId===id?{...agent,primaryChat:undefined}:agent));window.qa.resetOrder=()=>setAgents(initialAgents);
- const [options,setOptions]=useState({primary:true,collapsed:false,windows:false,fullScreen:false,error:''});
+ const [agents,setAgents]=useState(initialAgents);window.qa.clearMain=id=>setAgents(items=>items.map(agent=>agent.primaryChat?.chatId===id?{...agent,primaryChat:undefined}:agent));window.qa.resetOrder=()=>setAgents(initialAgents);window.qa.removeBots=()=>setAgents(items=>items.filter(agent=>agent.mode!=='BOT'));window.qa.longText=()=>setAgents(items=>items.map(agent=>agent.agentKey==='agent-4'?{...agent,displayName:'机器人名称很长时应当渐隐而不是省略号'.repeat(4),primaryChat:{...agent.primaryChat,isRead:true,lastRunContent:'机器人回复内容很长时应当渐隐而不是省略号'.repeat(4)}}:agent));
+ const [options,setOptions]=useState({debug:false,collapsed:false,windows:false,fullScreen:false,error:''});
  const [route,setRoute]=useState('/');
  window.qa.set=patch=>setOptions(old=>({...old,...patch}));window.qa.state=options;
  const navigate=target=>{window.qa.routes.push(target);setRoute(target);return true;};
- return <div className={'app-shell '+(options.windows?'is-windows-platform':'is-mac-platform')} style={{display:'flex',height:'100vh',width:'100%',background:'var(--bg-base)','--app-sidebar-width':options.collapsed?'64px':'264px'}}>
+ return <DebugModeContext.Provider value={options.debug}><div className={'app-shell '+(options.windows?'is-windows-platform':'is-mac-platform')} style={{display:'flex',height:'100vh',width:'100%',background:'var(--bg-base)','--app-sidebar-width':options.collapsed?'64px':'264px'}}>
  <div className='app-sidebar-shell' style={{width:options.collapsed?64:264,height:'100%',minHeight:0,flex:'none'}}><AppSidebar
  isCollapsed={options.collapsed} isMac={!options.windows} isWindows={options.windows}
  assistantLauncherVisible={!route.startsWith('/agent/') && route!=='/kanban'}
- currentPathname={route.split('?')[0]} currentRoute={route} primaryChatNavigation={options.primary} primaryChatNavAgents={agents} primaryChatNavError={options.error} onPrimaryChatNavigationChange={primary=>setOptions(old=>({...old,primary}))}
+ currentPathname={route.split('?')[0]} currentRoute={route} primaryChatNavAgents={agents} primaryChatNavError={options.error}
  sidebarNavOrder={['kanban','schedules','new-chat','chats','group:assistants','group:webs']} onSidebarNavOrderChange={order=>window.qa.orders.push(order)}
  webItems={[]} assistantNavAgents={agents.filter(agent=>agent.agentKey!=='agent-0')} chatNavAgentOptions={agents} chatDefaultAgentKey='agent-5'
  assistantNavChatItems={[chat('ordinary','agent-5'),chat('worker','agent-0')]} assistantPinnedChatItems={[chat('pinned','agent-5'),chat('bot-pinned','agent-0')]}
@@ -43,7 +45,7 @@ function Fixture(){
  onRequestNavigate={navigate} onRequestAgentChatNavigate={navigate}
  onToggleCollapsed={()=>setOptions(old=>({...old,collapsed:!old.collapsed}))}
  toolMenuOpen={false} onRequestToolMenuOpen={()=>{}} onAutoOpenToolMenu={()=>{}} onCloseToolMenu={()=>{}}
- /></div><main style={{flex:1,padding:30}}><PrimaryChatNavigationDebugSetting enabled={options.primary} onChange={primary=>setOptions(old=>({...old,primary}))}/><input id='fixture-draft' defaultValue='keep draft'/><div id='fixture-guest' data-instance='stable'>Chat surface</div></main></div>;
+ /></div><main style={{flex:1,padding:30}}><input id='fixture-draft' defaultValue='keep draft'/><div id='fixture-guest' data-instance='stable'>Chat surface</div></main></div></DebugModeContext.Provider>;
 }
 createRoot(document.getElementById('root')).render(<RendererI18nContext.Provider value={{locale:'zh-CN',source:'user',t:createTranslator('zh-CN'),setLocale:async()=>{}}}><MemoryRouter><Fixture/></MemoryRouter></RendererI18nContext.Provider>);
 `;
@@ -77,23 +79,26 @@ await until('window.qa.routes.length===1');
 assert.equal(await js('window.qa.routes.at(-1)'),'/agent/agent-0?chatId=primary-0');
 await click('[data-primary-agent-key="agent-1"]');
 assert.ok((await js('window.qa.routes.at(-1)')).includes('primaryNewChat=true'));
-// Hide only Bots: ordinary groups and the guest remain mounted.
-await js('document.querySelector("#fixture-draft").value="untouched draft"');
+// Bots are direct entries and cannot be hidden, including by old preferences.
+assert.equal(await js('!!document.querySelector(".primary-chat-toggle")'),false);
+assert.equal(await js('!!document.querySelector(".primary-chat-heading")'),false);
 const routeCount=await js('window.qa.routes.length');
-await click('.primary-chat-toggle');
-await until('document.querySelectorAll(".primary-chat-item").length===0');
-assert.equal(await js('window.qa.routes.length'),routeCount);
-assert.equal(await js('document.querySelector("#fixture-draft").value'),'untouched draft');
-assert.equal(await js('document.querySelector("#fixture-guest").dataset.instance'),'stable');
-assert.equal(await js('!!document.querySelector("[data-sidebar-group-id=chats]")'),true);
-await click('.primary-chat-toggle');
-await until('document.querySelectorAll(".primary-chat-item").length===5');
+await js('window.qa.menuAction="agent.history"');
+await click('.primary-chat-history');await delay(60);
+assert.equal(await js('window.qa.histories.length'),0);
+assert.equal(await js('window.qa.menus.at(-1).target.showHistory'),false);
+await js('window.qa.set({debug:true})');await delay(40);
 await js('window.qa.menuAction="agent.history"');
 await click('.primary-chat-history');
 await until('window.qa.histories.length===1');
 assert.equal(await js('window.qa.histories[0]'),'agent-0');
 assert.equal(await js('window.qa.menus.at(-1).target.bot'),true);
 assert.equal(await js('window.qa.menus.at(-1).target.canClearPrimary'),true);
+assert.equal(await js('window.qa.menus.at(-1).target.showHistory'),true);
+await js('window.qa.set({debug:false})');await delay(40);
+await js('window.qa.menuAction="agent.history"');await click('.primary-chat-history');await delay(60);
+assert.equal(await js('window.qa.histories.length'),1);
+assert.equal(await js('window.qa.menus.at(-1).target.showHistory'),false);
 for(const key of ['agent-1','agent-2','agent-3']) {
  await js('document.querySelector("[data-primary-agent-key="+'+JSON.stringify(key)+'+"]").dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:80,clientY:180}))');
  await delay(40);
@@ -115,22 +120,44 @@ await until('window.qa.archives.length===1');
 assert.deepEqual(await js('window.qa.archives'),['primary-0']);
 assert.equal(await js('window.qa.routes.at(-1)'),'/agent/agent-0');
 await until('document.querySelector("[data-primary-agent-key=agent-0]").textContent.includes("下一条消息")');
+await js('window.qa.longText()');
+await js('document.activeElement?.blur()');
+await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:900,y:100});
+await delay(80);
+assert.equal(await js('document.querySelector("[data-primary-agent-key=agent-4] .primary-chat-status")===null'),true);
+assert.equal(await js('(()=>{const item=document.querySelector("[data-primary-agent-key=agent-4]");const body=item.querySelector(".primary-chat-body");return Math.abs(item.getBoundingClientRect().right-body.getBoundingClientRect().right-8)<1&&getComputedStyle(body).paddingRight==="0px";})()'),true);
+const botHoverPoint=await js('(()=>{const rect=document.querySelector("[data-primary-agent-key=agent-4]").getBoundingClientRect();return {x:rect.left+100,y:rect.top+rect.height/2};})()');
+await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',...botHoverPoint});
+await until('getComputedStyle(document.querySelector("[data-primary-agent-key=agent-4] .primary-chat-body")).paddingRight==="24px"');
+await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:900,y:100});
+await until('getComputedStyle(document.querySelector("[data-primary-agent-key=agent-4] .primary-chat-body")).paddingRight==="0px"');
+
 for(const windows of [false,true]) {
  for(const collapsed of [false,true]) {
   await js('window.qa.set('+JSON.stringify({windows,collapsed})+')');
   await until('document.querySelectorAll(".primary-chat-item").length===5');
   await delay(100);
   assert.equal(await js('!!document.querySelector(".sidebar-chrome")'),!windows);
+  if(!collapsed) {
+   await until('document.querySelectorAll("[data-primary-agent-key=agent-4] .sidebar-chat-title[data-overflow=true]").length===2');
+   assert.equal(await js('Array.from(document.querySelectorAll("[data-primary-agent-key=agent-4] .sidebar-chat-title")).every(element=>getComputedStyle(element).maskImage.includes("linear-gradient")&&getComputedStyle(element).textOverflow==="clip")'),true);
+   await js('document.querySelector("[data-primary-agent-key=agent-0]").focus()');
+   assert.equal(await js('(()=>{const row=document.querySelector(".primary-chat-row").getBoundingClientRect();const menu=document.querySelector(".primary-chat-history").getBoundingClientRect();return menu.width===24&&menu.height===24&&Math.abs(menu.top+menu.height/2-row.top-row.height/2)<1;})()'),true);
+   assert.equal(await js('document.querySelector(".primary-chat-history .sidebar-action-icon")!==null'),true);
+  }
   for(const theme of ['light','dark']) {
    await js('document.documentElement.dataset.theme='+JSON.stringify(theme));await delay(50);
    fs.writeFileSync(path.join(output,(windows?'windows':'mac')+'-'+(collapsed?'collapsed':'expanded')+'-'+theme+'.png'),(await win.webContents.capturePage()).toPNG());
   }
  }
 }
+await js('window.qa.removeBots()');
+await until('!document.querySelector(".primary-chat-navigation")');
+assert.equal(await js('!!document.querySelector("[data-sidebar-group-id=chats]")'),true);
 assert.deepEqual(await js('window.qa.orders'),[]);
 assert.deepEqual(errors,[]);
 fs.writeFileSync(path.join(output,'passed'),'ok');
-console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','main pointer and new-chat intent','toggle keeps guest and draft','native history/settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
+console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','main pointer and new-chat intent','always visible direct entries with no heading or toggle','empty bots leave no placeholder','old hidden preference ignored','Debug-only history with live toggle','centered shared pinned more button','long bot name and preview share Chats overflow fade','idle bot text uses full row width and only yields space on hover','native settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
 win.destroy();server.close();app.quit();})().catch(error=>{console.error(error);if(win)win.destroy();server.close();app.exit(1);});
 `;
 fs.writeFileSync(path.join(output,"checks.cjs"), checker);

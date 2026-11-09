@@ -102,7 +102,6 @@ import {
   resolveFixedSurfaceRole,
   resolveLegacyFixedSurfaceId
 } from "../../shared/surface-identity";
-import { readPrimaryChatNavigation, savePrimaryChatNavigation } from "./navigation/primaryChatView";
 import { BRAND_ID, PRODUCT_NAME, STORAGE_NAMESPACE } from "../../shared/brand";
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -733,13 +732,8 @@ export function AppShell() {
   const [assistantSettings, setAssistantSettings] = useState<AssistantSettingsPublic | null>(null);
   const [firstInstallBootstrapNavigationRequested, setFirstInstallBootstrapNavigationRequested] =
     useState<boolean | null>(null);
-  const [primaryChatNavigation, setPrimaryChatNavigation] = useState(readPrimaryChatNavigation);
   const [primaryChatNavError, setPrimaryChatNavError] = useState("");
   const [primaryChatNavAgents, setPrimaryChatNavAgents] = useState<AssistantNavAgentItem[]>([]);
-  function handlePrimaryChatNavigationChange(enabled: boolean) {
-    savePrimaryChatNavigation(enabled);
-    setPrimaryChatNavigation(enabled);
-  }
   const [assistantNavAgents, setAssistantNavAgents] = useState<AssistantNavAgentItem[]>([]);
   const [assistantPinnedChatItems, setAssistantPinnedChatItems] = useState<AssistantNavChatItem[]>([]);
   const [assistantChatPinningSupported, setAssistantChatPinningSupported] = useState(false);
@@ -4925,8 +4919,6 @@ export function AppShell() {
           webappPublishStateById={webappPublishStateById}
           faviconCache={faviconCache}
           primaryChatNavError={primaryChatNavError}
-          primaryChatNavigation={primaryChatNavigation}
-          onPrimaryChatNavigationChange={handlePrimaryChatNavigationChange}
           primaryChatNavAgents={primaryChatNavAgents}
           assistantNavAgents={assistantNavAgents}
           assistantPinnedChatItems={assistantPinnedChatItems}
@@ -5113,8 +5105,6 @@ export function AppShell() {
                     onWebappPublishStatusChange={handleWebappPublishStatusChange}
                     onAssistantSettingsChange={setAssistantSettings}
                     onTunnelHubEnabledChange={setTunnelHubEnabled}
-                    primaryChatNavigation={primaryChatNavigation}
-                    onPrimaryChatNavigationChange={handlePrimaryChatNavigationChange}
                     debugVisible={debugSettingsUnlocked}
                     onCloseDebug={handleCloseDebugSettings}
                   />

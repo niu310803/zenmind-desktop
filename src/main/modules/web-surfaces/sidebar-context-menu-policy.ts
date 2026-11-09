@@ -86,10 +86,11 @@ export function normalizeSidebarContextMenuRequest(
     };
   } else if (target.kind === "agent") {
     if (
-      !hasOnlyKeys(target, ["kind", "canRevealWorkspace", "canOpenProjectEditor", "bot", "canClearPrimary"]) ||
+      !hasOnlyKeys(target, ["kind", "canRevealWorkspace", "canOpenProjectEditor", "bot", "canClearPrimary", "showHistory"]) ||
       !isBoolean(target.canRevealWorkspace) ||
       !isBoolean(target.canOpenProjectEditor) ||
       (target.bot !== undefined && !isBoolean(target.bot)) ||
+      (target.showHistory !== undefined && !isBoolean(target.showHistory)) ||
       (target.canClearPrimary !== undefined && !isBoolean(target.canClearPrimary)) ||
       (target.canClearPrimary === true && target.bot !== true)
     ) {
@@ -99,7 +100,7 @@ export function normalizeSidebarContextMenuRequest(
       kind: "agent",
       canRevealWorkspace: target.canRevealWorkspace,
       canOpenProjectEditor: target.canOpenProjectEditor,
-      ...(target.bot === true ? { bot: true, canClearPrimary: target.canClearPrimary === true } : {}),
+      ...(target.bot === true ? { bot: true, canClearPrimary: target.canClearPrimary === true, showHistory: target.showHistory === true } : {}),
     };
   } else if (target.kind === "chat") {
     if (
@@ -229,7 +230,7 @@ export function buildSidebarContextMenuPolicy(
 
   if (target.kind === "agent") {
     if (target.bot) return [
-      { id: "agent.history", group: 0, enabled: true },
+      ...(target.showHistory ? [{ id: "agent.history" as const, group: 0, enabled: true }] : []),
       { id: "agent.edit", group: 0, enabled: true },
       { id: "agent.clear-primary", group: 1, enabled: target.canClearPrimary === true },
     ];

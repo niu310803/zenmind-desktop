@@ -497,13 +497,17 @@ test("website and webapp menus expose state-aware pinning on both desktop platfo
   }
 });
 
-test("BOT native menu has history, settings and guarded main-chat clearing", () => {
-  for (const canClearPrimary of [true, false]) {
-    const target = {kind:"agent",bot:true,canClearPrimary,canRevealWorkspace:false,canOpenProjectEditor:false};
-    assert.deepEqual(normalizeSidebarContextMenuRequest({x:1,y:2,target}).target, target);
-    const items = buildSidebarContextMenuPolicy(target);
-    assert.deepEqual(items.map(item=>item.id), ["agent.history","agent.edit","agent.clear-primary"]);
-    assert.equal(items.at(-1).enabled,canClearPrimary);
+test("BOT history is Debug-only while settings and guarded clearing remain available", () => {
+  for (const showHistory of [true, false]) {
+    for (const canClearPrimary of [true, false]) {
+      const target = {kind:"agent",bot:true,showHistory,canClearPrimary,canRevealWorkspace:false,canOpenProjectEditor:false};
+      assert.deepEqual(normalizeSidebarContextMenuRequest({x:1,y:2,target}).target, target);
+      const items = buildSidebarContextMenuPolicy(target);
+      assert.deepEqual(items.map(item=>item.id), [...(showHistory ? ["agent.history"] : []),"agent.edit","agent.clear-primary"]);
+      assert.equal(items.at(-1).enabled,canClearPrimary);
+    }
   }
+  assert.equal(normalizeSidebarContextMenuRequest({x:1,y:2,target:{kind:"agent",bot:true,showHistory:"true",canRevealWorkspace:false,canOpenProjectEditor:false}}),null);
+  assert.equal(buildSidebarContextMenuPolicy({kind:"agent",bot:true,canRevealWorkspace:false,canOpenProjectEditor:false}).some(item=>item.id==="agent.history"),false);
   assert.equal(normalizeSidebarContextMenuRequest({x:1,y:2,target:{kind:"agent",canRevealWorkspace:false,canOpenProjectEditor:false,canClearPrimary:true}}),null);
 });

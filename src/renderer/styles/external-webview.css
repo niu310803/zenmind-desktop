@@ -733,7 +733,7 @@
   left: 12px;
   z-index: 9998;
   max-width: calc(100% - 24px);
-  padding: 3px 92px 3px 6px;
+  padding: 3px 118px 3px 6px;
   border: 1px solid rgba(100, 116, 139, 0.22);
   border-radius: 4px;
   background: rgba(248, 250, 252, 0.68);
@@ -753,10 +753,32 @@
   font-weight: 700;
 }
 
-.webview-debug-copy-button {
+.webview-debug-dismiss-button {
   position: absolute;
   top: 3px;
   right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.webview-debug-dismiss-button:hover { background: var(--control-hover-bg); }
+.webview-debug-dismiss-button:focus-visible { outline: 2px solid var(--accent); }
+
+.webview-debug-copy-button {
+  position: absolute;
+  top: 3px;
+  right: 30px;
   min-width: 78px;
   padding: 2px 6px;
   border: 1px solid rgba(100, 116, 139, 0.3);

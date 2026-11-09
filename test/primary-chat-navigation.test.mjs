@@ -60,21 +60,6 @@ for (const type of ["chat.archived", "chat.deleted"]) {
     assert.deepEqual(next.items[0].recentChats, agents[0].recentChats);
   });
 }
-test("Bots are visible by default, and the view preference does not touch old settings", () => {
-  const previous = globalThis.window;
-  const stored = new Map([["old-groups", "keep"]]);
-  globalThis.window = { localStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) } };
-  try {
-    assert.equal(api.readPrimaryChatNavigation(), true);
-    api.savePrimaryChatNavigation(true);
-    assert.equal(api.readPrimaryChatNavigation(), true);
-    api.savePrimaryChatNavigation(false);
-    assert.equal(api.readPrimaryChatNavigation(), false);
-    assert.equal(stored.get("old-groups"), "keep");
-    window.localStorage.getItem = () => { throw Error("unavailable"); };
-    assert.equal(api.readPrimaryChatNavigation(), true);
-  } finally { if (previous === undefined) delete globalThis.window; else globalThis.window = previous; }
-});
 test("Agent names, colors and legacy fallbacks follow WebClient mode rules", () => {
   assert.deepEqual(api.AGENT_ICON_NAMES, ["general", "coder", "kbase", "team", "executor", "proxy"]);
   for (const mode of api.AGENT_ICON_NAMES) assert.equal(api.resolveAgentIcon(undefined, mode).name, mode);
