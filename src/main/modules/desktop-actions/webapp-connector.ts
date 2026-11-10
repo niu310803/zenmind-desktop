@@ -210,10 +210,10 @@ async function executeWebappRead(options: DesktopActionBridgeOptions, action: st
   const item = options.webs.webappManager.list(options.app).find(value => value.id === appId);
   if (!item) throw new ConnectorError("app_grant_required");
   if (action.startsWith("skill.")) {
-    const allowed = action === "skill.list" ? [] : ["skillId"];
+    const allowed = action === "skill.list" ? ["agentKey"] : ["skillId", "agentKey"];
     if (Object.keys(args).some(key => !allowed.includes(key))) throw new ConnectorError("invalid_arguments");
     if (action === "skill.describe" && (typeof args.skillId !== "string" || !args.skillId.trim() || args.skillId.length > 256)) throw new ConnectorError("invalid_arguments");
-    const agentKey = await selectWebappAssistantAgent(options, item);
+    const agentKey = await selectWebappAssistantAgent(options, item, args.agentKey);
     const raw = await request(identity.baseUrl, identity.token, `/api/skills?agentKey=${encodeURIComponent(agentKey)}`, "GET", undefined, false, signal).catch(async error => {
       // Revocation can abort fetch before the success-path context check runs.
       await context.check();

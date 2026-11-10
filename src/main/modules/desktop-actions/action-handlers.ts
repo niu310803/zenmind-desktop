@@ -25,7 +25,7 @@ import { normalizeActionBridgeTimePayload, ActionBridgeTimeContractError } from 
 import { executeWebappKanban } from "./webapp-kanban";
 import { executeWebappAssistant } from "./webapp-assistant";
 import { isWebappConnectorAction, executeWebappConnector } from "./webapp-connector";
-import { resolveWebappAction } from "../../../shared/webapp-bridge";
+import { resolveWebappAction, WEBAPP_AGENT_ACTIONS } from "../../../shared/webapp-bridge";
 import { prepareWebappInstall, type PreparedWebappInstall } from "./webapp-install-preflight";
 import { installWebapp } from "./web-resource-actions";
 import { WEBAPP_PAGE_METHODS, executeWebappPageMethod } from "./webapp-page-methods";
@@ -172,11 +172,15 @@ export async function handleActionCall(
   request: DesktopActionCallRequest,
   invocation: DesktopActionInvocationContext = { kind: "desktop" }
 ): Promise<DesktopActionCallResponse> {
+  const legacyAction = Object.hasOwn(WEBAPP_AGENT_ACTIONS, request.action) ? WEBAPP_AGENT_ACTIONS[request.action] : undefined;
+  if (legacyAction && (invocation.kind === "webappPage" || invocation.kind === "webappBackend")) {
+    return { ...await handleActionCall(options, { ...request, action: legacyAction }, invocation), action: request.action };
+  }
   if (request.action === "assistant.upload" || request.action === "assistant.resource.read") return executeWebappFiles(options, request.action, asRecord(request.args), invocation);
   if (request.action === "assistant.execute") return executeWebappExecute(options, request.args, invocation);
   const isWebapp = invocation.kind === "webappPage" || invocation.kind === "webappBackend";
   if (["kanban.boards.list", "kanban.issues.list", "kanban.issues.get"].includes(request.action)) return executeWebappKanban(options, request.action, asRecord(request.args), invocation);
-  if (["assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit"].includes(request.action)) return executeWebappAssistant(options, request.action, asRecord(request.args), invocation);
+  if (["assistant.agents.list", "assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit"].includes(request.action)) return executeWebappAssistant(options, request.action, asRecord(request.args), invocation);
   if (isWebappConnectorAction(request.action)) return executeWebappConnector(options, request.action, asRecord(request.args), invocation);
   const action = isWebapp ? resolveWebappAction(request.action) : request.action;
   if (isWebapp && WEBAPP_PAGE_METHODS.has(action)) {

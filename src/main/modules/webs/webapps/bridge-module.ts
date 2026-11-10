@@ -46,7 +46,7 @@ async function call(action, args = {}, transport, signal) {
     signal?.throwIfAborted();
     await refreshCloudBackendToken(transport);
     signal?.throwIfAborted();
-    response = await fetch(action === "assistant.upload" ? (transport ? transport.url.replace(/actions\/call$/u, "uploads") : "/__desktop/assistant/uploads") : transport?.url || ACTION_PATH, {
+    response = await fetch(["assistant.upload", "agent.upload"].includes(action) ? (transport ? transport.url.replace(/actions\/call$/u, "uploads") : "/__desktop/assistant/uploads") : transport?.url || ACTION_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(transport ? { Authorization: "Bearer " + transport.token } : {}) },
       credentials: "omit", redirect: "error", signal,
@@ -412,15 +412,15 @@ async function executeNodeRequest(transport, body, signal) {
   });
 }
 
-async function executeAssistant(input, { signal } = {}, transport) {
-  const action = "assistant.execute";
+async function executeAssistant(input, { signal } = {}, transport, action = "assistant.execute") {
   let body;
   try {
     executeJson(input, new Set(), -1);
     if (!input || Array.isArray(input) || typeof input !== "object" ||
-        Object.keys(input).some(key => !["message", "input", "outputSchema"].includes(key)) ||
+        Object.keys(input).some(key => !["message", "input", "outputSchema", "agentKey"].includes(key)) ||
         typeof input.message !== "string" || !input.message.trim() ||
         !input.outputSchema || Array.isArray(input.outputSchema) || input.outputSchema.type !== "object") throw Error("Use message, input and an object outputSchema.");
+    if (input.agentKey !== undefined && (typeof input.agentKey !== "string" || !input.agentKey.trim() || input.agentKey.length > 256)) throw Error("Invalid agentKey.");
     if (input.message.length > 12000) throw new DesktopBridgeError(action, "assistant_message_too_long", "Assistant message exceeds 12000 characters.");
     if (new TextEncoder().encode(JSON.stringify(input.outputSchema)).length > 65536) throw Error("Schema exceeds 64 KiB.");
     const checkFile = node => {
@@ -462,43 +462,16 @@ async function executeAssistant(input, { signal } = {}, transport) {
   } finally { clearTimeout(timer); }
 }
 
-function createDataClient(call, image, execute) {
-const connector = Object.freeze({
-  list: () => call("connector.list"),
-  describe: (input) => call("connector.describe", input),
-  invoke: (input) => call("connector.invoke", input)
-});
-const skill = Object.freeze({ list: () => call("skill.list"), describe: (input) => call("skill.describe", input) });
-const automation = Object.freeze({
-  list: reserved("automation.list"), get: reserved("automation.get"),
-  create: reserved("automation.create"), update: reserved("automation.update"),
-  pause: reserved("automation.pause"), resume: reserved("automation.resume"), remove: reserved("automation.remove"),
-  runs: Object.freeze({ list: reserved("automation.runs.list"), get: reserved("automation.runs.get") })
-});
-const kanban = Object.freeze({
-  boards: Object.freeze({ list: () => call("kanban.boards.list") }),
-  issues: Object.freeze({ list: (input = {}) => call("kanban.issues.list", input), get: (input) => call("kanban.issues.get", input) })
-});
-const artifact = Object.freeze({
-  open: (input) => call("artifact.open", input),
-  saveAs: (input) => call("artifact.saveAs", input),
-  list: (input) => call("artifact.list", input),
-  get: (input) => call("artifact.get", input),
-  read: async (input) => {
-    const result = await call("artifact.read", input);
-    if (typeof result?.dataBase64 !== "string") throw new DesktopBridgeError("artifact.read", "invalid_response", "Invalid artifact response.");
-    const bytes = Uint8Array.from(atob(result.dataBase64), value => value.charCodeAt(0));
-    return new Blob([bytes]).stream();
-  }
-});
-const assistant = Object.freeze({
+function createAssistantMethods(call, image, execute) {
+return Object.freeze({
+  agents: Object.freeze({ list: () => call("assistant.agents.list") }),
   execute,
-  async upload({ file, chatId, name }, { signal } = {}) {
+  async upload({ file, chatId, name, agentKey }, { signal } = {}) {
     if (!(file instanceof Blob) || file.size > 64 * 1024 * 1024) throw new DesktopBridgeError("assistant.upload", "invalid_args", "Use a Blob up to 64 MiB.");
     const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    return call("assistant.upload", { ...(chatId ? { chatId } : {}), name: name || file.name || "attachment.bin", mimeType: file.type || "application/octet-stream", dataBase64: btoa(binary) }, signal);
+    return call("assistant.upload", { ...(chatId ? { chatId } : {}), ...(agentKey !== undefined ? { agentKey } : {}), name: name || file.name || "attachment.bin", mimeType: file.type || "application/octet-stream", dataBase64: btoa(binary) }, signal);
   },
   resource: Object.freeze({ async read(input, { signal } = {}) {
     const result = await call("assistant.resource.read", input, signal);
@@ -527,9 +500,51 @@ const assistant = Object.freeze({
   chat: (input) => call("assistant.chat", typeof input === "string" ? { message: input } : input),
   image
 });
-return Object.freeze({ connector, skill, automation, kanban, artifact, assistant });
 }
-export const { connector, skill, automation, kanban, artifact, assistant } = createDataClient((action, args, signal) => call(action, args, undefined, signal), Object.freeze(image), executeAssistant);
+
+function createDataClient(call, image, execute) {
+const connector = Object.freeze({
+  list: () => call("connector.list"),
+  describe: (input) => call("connector.describe", input),
+  invoke: (input) => call("connector.invoke", input)
+});
+const skill = Object.freeze({ list: (input = {}) => call("skill.list", input), describe: (input) => call("skill.describe", input) });
+const automation = Object.freeze({
+  list: reserved("automation.list"), get: reserved("automation.get"),
+  create: reserved("automation.create"), update: reserved("automation.update"),
+  pause: reserved("automation.pause"), resume: reserved("automation.resume"), remove: reserved("automation.remove"),
+  runs: Object.freeze({ list: reserved("automation.runs.list"), get: reserved("automation.runs.get") })
+});
+const kanban = Object.freeze({
+  boards: Object.freeze({ list: () => call("kanban.boards.list") }),
+  issues: Object.freeze({ list: (input = {}) => call("kanban.issues.list", input), get: (input) => call("kanban.issues.get", input) })
+});
+const artifact = Object.freeze({
+  open: (input) => call("artifact.open", input),
+  saveAs: (input) => call("artifact.saveAs", input),
+  list: (input) => call("artifact.list", input),
+  get: (input) => call("artifact.get", input),
+  read: async (input) => {
+    const result = await call("artifact.read", input);
+    if (typeof result?.dataBase64 !== "string") throw new DesktopBridgeError("artifact.read", "invalid_response", "Invalid artifact response.");
+    const bytes = Uint8Array.from(atob(result.dataBase64), value => value.charCodeAt(0));
+    return new Blob([bytes]).stream();
+  }
+});
+const assistant = createAssistantMethods(call, image, execute);
+const canonicalCall = (action, args, signal) => call({
+  "assistant.agents.list": "agent.list", "assistant.chat": "agent.query",
+  "assistant.events": "agent.events"
+}[action] || action.replace(/^assistant\./u, "agent."), args, signal);
+const methods = createAssistantMethods(canonicalCall, undefined, (input, options) => execute(input, options, "agent.execute"));
+const agent = Object.freeze({
+  list: methods.agents.list, query: methods.chat, execute: methods.execute,
+  upload: methods.upload, resource: methods.resource, observe: methods.subscribe,
+  interrupt: methods.interrupt, steer: methods.steer, send: methods.send, submit: methods.submit
+});
+return Object.freeze({ connector, skill, automation, kanban, artifact, assistant, agent });
+}
+export const { connector, skill, automation, kanban, artifact, assistant, agent } = createDataClient((action, args, signal) => call(action, args, undefined, signal), Object.freeze(image), (input, options, action) => executeAssistant(input, options, undefined, action));
 
 // Copy the generated bridge.mjs into a managed Node backend. Credentials stay
 // in that process and must never be forwarded to frontend code or logs.
@@ -542,7 +557,7 @@ export function createBackendClient({ url, token }) {
   }
   const transport = { url: target.href.replace(/\/$/u, "") + "/actions/call", token,
     ...(token.startsWith("wbb_") ? { bootstrapToken: token, expiresAt: 0 } : {}) };
-  const client = createDataClient((action, args, signal) => call(action, args, transport, signal), reserved("assistant.image"), (input, options) => executeAssistant(input, options, transport));
+  const client = createDataClient((action, args, signal) => call(action, args, transport, signal), reserved("assistant.image"), (input, options, action) => executeAssistant(input, options, transport, action));
   return Object.freeze({ ...client, artifact: Object.freeze({
     list: client.artifact.list, get: client.artifact.get, read: client.artifact.read,
     open: reserved("artifact.open"), saveAs: reserved("artifact.saveAs")

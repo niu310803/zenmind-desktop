@@ -96,7 +96,7 @@ export async function executeWebappExecute(options: DesktopActionBridgeOptions, 
   }, limits.checkMs); checkTimer.unref();
   try {
     context = await abortable(captureWebappContext(options, invocation.webappId, invocation.signal), abort.signal);
-    agentKey = await abortable(selectWebappAssistantAgent(options, context.item), abort.signal);
+    agentKey = await abortable(selectWebappAssistantAgent(options, context.item, (args as WebappExecuteInput).agentKey), abort.signal);
     releaseChat = prepareWebappChat(context.key);
     // Passive Primary Push only: no Run stream or page-control grant is acquired.
     unsubscribe = options.assistantBridge.observeExecuteRun(requestId, agentKey, identity => {

@@ -1,3 +1,4 @@
+import { selectWebappAssistantAgent } from "./webapp-assistant-agent";
 import { randomUUID } from "node:crypto";
 import { type AssistantStartRunRequest } from "../../../shared/contracts";
 import { type DesktopActionBridgeOptions, type DesktopActionInvocationContext } from "./action-contracts";
@@ -78,6 +79,14 @@ export async function executeWebappAssistant(options: DesktopActionBridgeOptions
   try {
     if (invocation.kind !== "webappPage" && invocation.kind !== "webappBackend") throw new ConnectorError("forbidden");
     const context = await captureWebappContext(options, invocation.webappId, invocation.signal);
+    if (action === "assistant.agents.list") {
+      if (Object.keys(args).length) throw new ConnectorError("invalid_arguments");
+      const agents = await options.assistantBridge.listAgents();
+      const defaultAgentKey = await selectWebappAssistantAgent(options, context.item);
+      const items = agents.map(agent => ({ agentKey: agent.agentKey, name: agent.displayName || agent.agentKey, role: agent.role }));
+      await context.check();
+      return { ok: true, action, result: { items, defaultAgentKey } };
+    }
     const allowed = action === "assistant.events" ? ["runId", "cursor"] : action === "assistant.steer" || action === "assistant.send" ? ["runId", "message", "requestId", "steerId"] : action === "assistant.submit" ? ["runId", "awaitingId", "submitId", "param", "params"] : ["runId"];
     if (Object.keys(args).some(key => !allowed.includes(key)) || typeof args.runId !== "string") throw new ConnectorError("invalid_arguments");
     const run = runs.get(args.runId);

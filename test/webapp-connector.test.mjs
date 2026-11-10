@@ -126,7 +126,7 @@ for (const kind of ['webappPage','webappBackend']) test(`${kind}: default packag
  const invocation={kind,webappId:'one'};
  assert.deepEqual((await api.executeWebappConnector(options,'skill.list',{},invocation)).result,{items:[{skillId:'actual-skill',name:'Actual',agentHasSkill:true}]});
  assert.equal((await api.executeWebappConnector(options,'skill.describe',{skillId:'actual-skill'},invocation)).result.skillId,'actual-skill');
- assert.equal((await api.executeWebappConnector(options,'skill.list',{agentKey:'other'},invocation)).error.code,'invalid_arguments');
+ assert.equal((await api.executeWebappConnector(options,'skill.list',{token:'other'},invocation)).error.code,'invalid_arguments');
  assert.equal((await api.executeWebappConnector(options,'skill.describe',{skillId:''},invocation)).error.code,'invalid_arguments');
  assert.equal((await api.executeWebappConnector(options,'skill.describe',{skillId:'missing'},invocation)).error.code,'skill_not_found');
 });
@@ -396,4 +396,17 @@ test('controls freeze the root Agent, reject foreign runs and keep stop on Prima
  }
  assert.equal((await api.executeWebappAssistant(options,'assistant.submit',{runId:'control-run',awaitingId:'a',param:{ok:true}},invocation)).ok,true);
  assert.equal((await api.executeWebappAssistant(options,'assistant.interrupt',{runId:'control-run'},invocation)).ok,true);assert.deepEqual(calls.at(-1),['control-run','root']);controller.abort();
+});
+
+for (const kind of ['webappPage','webappBackend']) test(`${kind}: agent directory returns safe metadata and a default; explicit selections are validated`,async()=>{
+ const options=fixture();options.getAssistantSettings=()=>({desktopHelperAgentKey:'helper'});options.webs.webappManager.readUserConfig=()=>({});
+ options.assistantBridge={listAgents:async()=>[{agentKey:'helper',displayName:'Default helper',role:'assistant',token:'secret'},{agentKey:'chosen',displayName:'Chosen',role:'assistant',path:'/private'}]};
+ const invocation={kind,webappId:'one'};
+ const listed=await api.executeWebappAssistant(options,'assistant.agents.list',{},invocation);
+ assert.deepEqual(listed.result,{items:[{agentKey:'helper',name:'Default helper',role:'assistant'},{agentKey:'chosen',name:'Chosen',role:'assistant'}],defaultAgentKey:'helper'});
+ assert.equal(JSON.stringify(listed).includes('secret'),false);assert.equal(JSON.stringify(listed).includes('/private'),false);
+ fetcher=async url=>{assert.equal(new URL(url).searchParams.get('agentKey'),'chosen');return response({skills:[]})};
+ assert.equal((await api.executeWebappConnector(options,'skill.list',{agentKey:'chosen'},invocation)).ok,true);
+ assert.equal((await api.executeWebappConnector(options,'skill.list',{agentKey:'missing'},invocation)).error.code,'assistant_agent_unavailable');
+ assert.equal((await api.executeWebappAssistant(options,'assistant.agents.list',{agentKey:'chosen'},invocation)).error.code,'invalid_arguments');
 });

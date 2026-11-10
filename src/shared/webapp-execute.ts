@@ -6,7 +6,7 @@ export const WEBAPP_EXECUTE_RESPONSE_BYTES = 1024 * 1024;
 export type WebappExecuteResult =
   | { chatId: string; status: "success"; output: Record<string, unknown> }
   | { chatId: string; status: "failure"; reason: string };
-export type WebappExecuteInput = { message: string; outputSchema: Record<string, unknown>; input?: unknown };
+export type WebappExecuteInput = { message: string; outputSchema: Record<string, unknown>; input?: unknown; agentKey?: string };
 
 export function isExecuteRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
@@ -14,7 +14,8 @@ export function isExecuteRecord(value: unknown): value is Record<string, unknown
 }
 
 export function validateWebappExecute(value: unknown): string | null {
-  if (!isExecuteRecord(value) || Object.keys(value).some(key => !["message", "input", "outputSchema"].includes(key))) return "invalid_args";
+  if (!isExecuteRecord(value) || Object.keys(value).some(key => !["message", "input", "outputSchema", "agentKey"].includes(key))) return "invalid_args";
+  if (value.agentKey !== undefined && (typeof value.agentKey !== "string" || !value.agentKey.trim() || value.agentKey.length > 256)) return "invalid_args";
   if (typeof value.message !== "string" || !value.message.trim()) return "invalid_args";
   if (value.message.length > WEBAPP_ASSISTANT_MESSAGE_MAX_CHARS) return "assistant_message_too_long";
   const schema = value.outputSchema;

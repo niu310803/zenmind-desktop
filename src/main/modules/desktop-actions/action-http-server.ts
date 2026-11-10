@@ -119,7 +119,7 @@ export function startDesktopActionBridge(options: DesktopActionBridgeOptions) {
         }
         const body = await readBody(req, upload ? 88 * 1024 * 1024 : MAX_BODY_BYTES);
         const parsed = JSON.parse(body) as DesktopActionCallRequest;
-        if (upload && parsed.action !== "assistant.upload") { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
+        if (upload && !["assistant.upload", "agent.upload"].includes(parsed.action)) { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
         const authorization = authorizeWebappActionToken(
           readBearerToken(req),
           parsed.action,
@@ -158,7 +158,7 @@ export function startDesktopActionBridge(options: DesktopActionBridgeOptions) {
         }
         const body = await readBody(req, upload ? 88 * 1024 * 1024 : MAX_BODY_BYTES);
         const parsed = JSON.parse(body) as DesktopActionCallRequest;
-        if (upload && parsed.action !== "assistant.upload") { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
+        if (upload && !["assistant.upload", "agent.upload"].includes(parsed.action)) { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
         const authorization = authorizeWebappActionToken(
           readBearerToken(req),
           parsed.action,

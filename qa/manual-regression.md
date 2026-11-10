@@ -1831,3 +1831,15 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - [ ] macOS/Windows 分别用 Bridge Lab 页面和托管后端上传文本附件，检查无本机路径；用返回 chatId + uploadIds 聊天，并读取上传文件原文。
 - [ ] 上传恰好 64 MiB 成功并返回 Platform 创建的 chatId，超过 64 MiB 拒绝；普通 Action 原有限额仍生效；上传专用入口拒绝其他 action；跨应用、重启后旧身份、外部 URL、绝对路径和父目录资源读取拒绝。
 - [ ] 后台 Run 分别执行 steer/send/submit（真实 awaiting）与 stop/interrupt，检查固定根 agentKey 和 Primary 控制身份；跨应用 Run 拒绝。
+
+
+### Bridge Lab 智能体与菜单说明
+
+- [ ] macOS / Windows 各验证一次：菜单按 00 总览、01 准备、02 智能体、03 连接器顺序展示；悬停或键盘聚焦出现感叹号，点击打开对应 bridge 列表与参数 dialog，关闭或 Escape 后恢复焦点，窄屏无横向溢出。
+- [ ] 页面和托管后端读取实际智能体列表及默认值；选择后新聊天、execute、upload 和技能目录使用该 agentKey，默认项不发送覆盖值；无效选择拒绝，不自动换 Agent；已有 Run 控制 owner 保持不变。
+
+### Agent Lab 与规范 agent namespace
+
+- macOS / Windows 分别导入独立 Agent Lab ZIP，聊天页选择 Agent、上传附件、query 后保持 canonical Chat；Executor 页独立验证结构化交卷和取消。
+- 后台 query→observe→解除→游标续读→interrupt：解除不停止运行；过期不重发。steer/send/submit 只操作本实例根 Agent，send 不自动替换观察 Run。
+- 新 namespace 无 chat/stop/image；旧 Bridge Lab 的 assistant 兼容调用仍可用。上传图片/蒙版不作为图像编辑通过证据，必须核对真实工具能力和产物。

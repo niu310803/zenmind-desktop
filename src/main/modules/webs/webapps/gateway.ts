@@ -498,7 +498,7 @@ async function handleDesktopBridgeRequest(
       args?: unknown;
     };
     action = typeof parsed.action === "string" ? parsed.action : "";
-    if ((upload && action !== "assistant.upload") || !isWebappActionAllowed(options.item, "localPageGateway", action)) {
+    if ((upload && !["assistant.upload", "agent.upload"].includes(action)) || !isWebappActionAllowed(options.item, "localPageGateway", action)) {
       writeBridgeError(
         res,
         403,

@@ -101,3 +101,14 @@ test('dedicated upload routes carry files above Action limits and enforce page/b
   const denied=await fetch(new URL(route,f.backendURL),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({action:'assistant.upload',args})});assert.equal(denied.status,403);
  }
 });
+
+test('canonical agent actions cross real gateway, scoped tokens and host handlers',async t=>{
+ const f=await fixture(t);const origin=new URL(f.gateway.webUrl).origin;
+ const send=(route,action,args)=>fetch(new URL(route,f.gateway.webUrl),{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({action,args})});
+ const result=await send('/__desktop/actions/call','agent.execute',input);assert.equal(result.status,200);assert.equal((await result.json()).action,'agent.execute');
+ const backend=createBackendClient({url:f.backendURL,token:f.backend});assert.equal((await backend.agent.execute(input)).status,'success');
+ const uploaded=await backend.agent.upload({file:new Blob([new Uint8Array(80*1024)]),name:'fixture.txt'});assert.equal(uploaded.chatId,'platform-upload-chat');
+ const resource=await backend.agent.resource.read({chatId:uploaded.chatId,file:'fixture.txt'});assert.equal(await new Response(resource).text(),'uploaded bytes');
+ const pageUpload=await send('/__desktop/assistant/uploads','agent.upload',{name:'fixture.txt',dataBase64:Buffer.alloc(80*1024).toString('base64')});assert.equal(pageUpload.status,200);
+ for(const action of ['agent.stop','agent.image','agent.chat'])assert.equal((await send('/__desktop/actions/call',action,{})).status,403);
+});

@@ -85,7 +85,7 @@ export async function executeAction(
   switch (action) {
     case "desktop.assistant.chat": {
       const isWebappInvocation = invocation.kind === "webappPage" || invocation.kind === "webappBackend";
-      const allowedWebappArgs = new Set(["message", "skillIds", "background", "chatId", "uploadIds"]);
+      const allowedWebappArgs = new Set(["message", "skillIds", "background", "chatId", "uploadIds", "agentKey"]);
       if (isWebappInvocation) {
         const rejectedKeys = Object.keys(args).filter((key) => !allowedWebappArgs.has(key));
         if (rejectedKeys.length > 0) {
@@ -121,7 +121,7 @@ export async function executeAction(
           }
           references = [...new Set(args.skillIds as string[])].map(id => ({type:"skill",id}));
         }
-        try { agentKey = await selectWebappAssistantAgent(options, item); }
+        try { agentKey = await selectWebappAssistantAgent(options, item, args.agentKey); }
         catch (error) { return fail(action, error instanceof ConnectorError ? error.code : "assistant_unavailable", "Assistant agent is unavailable."); }
       }
       if (message.length > MAX_ASSISTANT_PROMPT_CHARS) {

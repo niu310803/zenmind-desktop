@@ -224,3 +224,9 @@ test('execution identity probes coalesce across sequential callers in the same s
  for(let i=0;i<8;i++)assert.equal((await api.probeWebappExecutionIdentity(f.options)).subject,'desktop-app');
  assert.equal(states,1);assert.equal(tokens,1);
 });
+
+test('explicit agent overrides the configured default only when present in the current directory',async()=>{
+ const f=fixture();let calls=0;fetcher=async(_url,options)=>{calls++;assert.equal(JSON.parse(options.body).agentKey,'chosen');return json({chatId:'chat-1',status:'success',output:{ok:true}})};
+ assert.equal((await run(f,{...input,agentKey:'chosen'})).ok,true);
+ assert.equal((await run(f,{...input,agentKey:'missing'})).error.code,'assistant_agent_unavailable');assert.equal(calls,1);
+});

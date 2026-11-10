@@ -7,7 +7,7 @@ Manifest v2 的 `target` 包含 `linux-x64`，供 Linux Compose 包表达目标�
 浏览器：
 
 ```js
-import { connector, desktop, assistant, skill, artifact, kanban, automation }
+import { connector, desktop, agent, skill, artifact, kanban, automation }
   from '/__desktop/bridge.js';
 
 // 安装即信任，可直接调用；连接器账号仍需登录。
@@ -35,7 +35,7 @@ Node 后端将生成的 `bridge.mjs` 随应用复制到后端目录：
 
 ```js
 import { createBackendClient } from './bridge.mjs';
-const { connector, assistant, skill, artifact, kanban } = createBackendClient({
+const { connector, agent, skill, artifact, kanban } = createBackendClient({
   url: process.env.DESKTOP_ACTION_BRIDGE_URL,
   token: process.env.DESKTOP_ACTION_BRIDGE_TOKEN
 });
@@ -45,9 +45,9 @@ const { connector, assistant, skill, artifact, kanban } = createBackendClient({
 
 | 能力 | 当前接口与约束 |
 | --- | --- |
-| Agent | `assistant.chat(message)` 或 `assistant.chat({message,skillIds?,background?})`；默认返回 `{text,agentKey,chatId,runId}`，后台返回 `{accepted,chatId,runId}` |
-| 结构化执行 | `assistant.execute({message,input?,outputSchema},{signal?})`；页面/后端共用，同步返回 `{chatId,status,output|reason}` |
-| 运行 | `assistant.subscribe({runId,cursor?},{signal?})` 异步迭代精简事件；`assistant.stop({runId})`，只操作本应用后台运行 |
+| Agent | `agent.query(message)` 或 `agent.query({message,skillIds?,background?})`；默认返回 `{text,agentKey,chatId,runId}`，后台返回 `{accepted,chatId,runId}` |
+| 结构化执行 | `agent.execute({message,input?,outputSchema},{signal?})`；页面/后端共用，同步返回 `{chatId,status,output|reason}` |
+| 运行 | `agent.observe({runId,cursor?},{signal?})` 异步迭代精简事件；`agent.interrupt({runId})`，只操作本应用后台运行 |
 | 技能 | `skill.list()`、`skill.describe({skillId})`；读取 Platform 实际技能目录的安全元数据，`agentHasSkill` 按当前宿主选定 Agent 返回；不要求固定 Copilot 或包内技能声明 |
 | 产物 | `artifact.list({chatId,runId?,cursor?,limit?})`；`get/read/open/saveAs({chatId,runId?,artifactId})`；只允许当前应用实例发起的 Chat |
 | 看板 | 安装后直接调用；`kanban.boards.list()`、`kanban.issues.list({projectId?,cursor?,limit?})`、`kanban.issues.get({issueId})` |
@@ -70,20 +70,20 @@ await desktop.locale.set({ locale: 'en-US' }); // zh-CN | en-US
 后台运行示例：
 
 ```js
-const { chatId, runId } = await assistant.chat({
+const { chatId, runId } = await agent.query({
   message: '生成报告', background: true, skillIds: ['report-writer']
 });
 const controller = new AbortController();
-for await (const event of assistant.subscribe({ runId }, { signal: controller.signal })) {
+for await (const event of agent.observe({ runId }, { signal: controller.signal })) {
   if (event.type === 'text.delta') renderText(event.text);
 }
 const { items } = await artifact.list({ chatId, runId });
 if (items.length) await artifact.open({ chatId, runId, artifactId: items[0].artifactId });
 ```
 
-技能 id 必须在应用固定 `copilot.references` 的 `type:"skill"` 引用中，未传时使用声明的技能集；Agent 由固定 Copilot、用户配置或 Desktop 默认助手选择，页面不能传 agentKey。事件含单调 `cursor`；当前缓存最多 256 条、128 个运行、保留 30 分钟。游标过期返回 `event_cursor_expired`，不要据此重新提交 Agent 请求。订阅停止不等于停止运行。当前产物 Chat 归属只保留当前应用实例，尚不恢复历史 Chat。
+技能 id 必须在应用固定 `copilot.references` 的 `type:"skill"` 引用中，未传时使用声明的技能集；Agent 由固定 Copilot、用户配置或 Desktop 默认助手选择，页面可通过可选 agentKey 选择当前目录中的智能体。事件含单调 `cursor`；当前缓存最多 256 条、128 个运行、保留 30 分钟。游标过期返回 `event_cursor_expired`，不要据此重新提交 Agent 请求。订阅停止不等于停止运行。当前产物 Chat 归属只保留当前应用实例，尚不恢复历史 Chat。
 
-上述技能引用限制仅针对 `assistant.chat` 的附加 `skillIds`，不限制 `skill.list/describe` 的目录读取。技能目录对本机页面与受管后端同样开放，只返回 `skillId/name/description?/agentHasSkill`；不返回安装路径、正文、凭据或任意执行入口。挂载状态与 chat/execute 共用现有用户配置、固定 Copilot、Desktop 默认助手的选择机制；调用方不能传 Agent key。列表为空是正常结果，非法目录响应或实例/身份在读取期间失效时拒绝交付。
+上述技能引用限制仅针对 `agent.query` 的附加 `skillIds`，不限制 `skill.list/describe` 的目录读取。技能目录对本机页面与受管后端同样开放，只返回 `skillId/name/description?/agentHasSkill`；不返回安装路径、正文、凭据或任意执行入口。挂载状态与 chat/execute 共用现有用户配置、固定 Copilot、Desktop 默认助手的选择机制；调用方可传可选 agentKey，宿主校验当前目录。列表为空是正常结果，非法目录响应或实例/身份在读取期间失效时拒绝交付。
 
 `artifact.read()` 返回 `ReadableStream<Uint8Array>`，内部是最多 1 MiB 的有界缓冲；`saveAs` 同样受此上限约束。超限返回 `artifact_too_large`。预览成功为 `{opened:true}`；另存为返回 `{saved:true}` 或 `{cancelled:true}`，不返回绝对文件路径。Platform 不存在全局产物列表时，SDK 不模拟全局列表。
 
@@ -95,7 +95,7 @@ if (items.length) await artifact.open({ chatId, runId, artifactId: items[0].arti
 
 ```js
 const controller = new AbortController();
-const result = await assistant.execute({
+const result = await agent.execute({
   message: '提取订单金额，无法识别时提交 failure。',
   input: { text: '订单总额 128 元' },
   outputSchema: {
@@ -110,7 +110,7 @@ else showReason(result.reason);
 
 受管后端使用 createBackendClient 返回的同名方法。目标必须是有效工具带 result_submit 的 Native Agent；EXECUTOR 模板通常符合，但不按 mode 授权。沿用现有用户 Agent 选择、固定 Copilot 和 Desktop helper 选择机制；默认 helper 未必支持执行，宿主不自动换 Agent。execute 只用 Agent 自身挂载的技能，不注入 Manifest copilot.references。
 
-仅接受 message、input、outputSchema；拒绝 agentKey、skillIds、references、accessLevel、background、chatId 和任意路由。权限固定 default，不提供问答或审批 UI。审批返回 approval_required；Agent 主动提问可能等待直至取消/超时。input 为标准 JSON，不支持 Blob、multipart、$file、自定义 toJSON、循环或非有限数；input/schema 各从自身根节点计数，最多 64 层。显式 input:undefined 视为省略，嵌套 undefined 仍拒绝。
+仅接受 message、input、outputSchema 和可选 agentKey；拒绝 skillIds、references、accessLevel、background、chatId 和任意路由。权限固定 default，不提供问答或审批 UI。审批返回 approval_required；Agent 主动提问可能等待直至取消/超时。input 为标准 JSON，不支持 Blob、multipart、$file、自定义 toJSON、循环或非有限数；input/schema 各从自身根节点计数，最多 64 层。显式 input:undefined 视为省略，嵌套 undefined 仍拒绝。
 
 message 最多 12,000 个 UTF-16 code unit；outputSchema 根为 object，序列化最多 64 KiB。完整页面请求体最多 64 KiB，完整后端请求体最多 256 KiB，因此页面实际可用 schema 大小还需扣除其他字段。Platform 完整响应最多 1 MiB。Main 执行期限十分钟，传输层留十五秒余量；全局最多八个在途执行，同一 WebApp 最多两个，两入口共享额度，不排队。
 
@@ -118,7 +118,7 @@ message 最多 12,000 个 UTF-16 code unit；outputSchema 根为 object，序列
 
 status:failure 是正常业务结果，不抛异常。请求失败抛 DesktopBridgeError：unsupported Agent 为 assistant_agent_unsupported，Agent 不可用为 assistant_agent_unavailable，缺失/非法交卷为 output_missing/output_invalid，超时为 assistant_timeout，超大结果为 assistant_result_too_large，主动取消为 cancelled。无执行路由为 assistant_execute_unavailable，不回退到 chat。
 
-AbortSignal 仅控制本次执行，包含响应体读取阶段。Main 获取当前同主体、同 endpoint 的新 token，使用与本次 requestId/Agent 关联的 canonical Run 经独立 HTTP /api/interrupt 主动中断，并始终 abort execute；还没收到 Run 标识时由断开连接触发 Platform 中断。assistant.stop/subscribe 仍只用于原 chat 后台 Run。页面刷新、应用停止、实例失效和 Desktop 退出同样取消；隐藏或展示转移不主动取消，页面关闭也不取消独立后端调用。
+AbortSignal 仅控制本次执行，包含响应体读取阶段。Main 获取当前同主体、同 endpoint 的新 token，使用与本次 requestId/Agent 关联的 canonical Run 经独立 HTTP /api/interrupt 主动中断，并始终 abort execute；还没收到 Run 标识时由断开连接触发 Platform 中断。agent.interrupt/subscribe 仍只用于原 chat 后台 Run。页面刷新、应用停止、实例失效和 Desktop 退出同样取消；隐藏或展示转移不主动取消，页面关闭也不取消独立后端调用。
 
 连接拒绝和 Platform 明确的参数/Agent 准入拒绝在 details.executionState 标为 not_started，无法确认是否执行的异常标 unknown。日志只记关联标识、阶段、耗时和稳定错误码，不记任务/结果正文或 token；interrupt 非成功 HTTP/业务 ack 记录 assistant_interrupt_failed。
 
@@ -136,7 +136,7 @@ credentialRevision 是不含凭据的账号状态版本，可在连续业务调�
 
 ## 网站认证：`auth.createSession`
 
-`auth` 是第八个顶层作用域，与 `assistant`、`connector`、`desktop` 并列。页面可先用 `auth.isAvailable()` 检测宿主认证传输是否存在，再在启动时或用户点击时调用。该检测不代表已登录或获准；Main 仍验证真实 Surface 并请求原生同源授权：
+`auth` 是第八个顶层作用域，与 `agent`、`connector`、`desktop` 并列。页面可先用 `auth.isAvailable()` 检测宿主认证传输是否存在，再在启动时或用户点击时调用。该检测不代表已登录或获准；Main 仍验证真实 Surface 并请求原生同源授权：
 
 ```js
 import { auth } from '/__desktop/bridge.js';
@@ -158,7 +158,7 @@ Cookie 要求：host-only（不得声明 Domain）、`Path=/`、`HttpOnly`、`Sa
 
 ```js
 import { desktop } from '/__desktop/bridge.js';
-await desktop.chat.open({ chatId }); // 例如 assistant.execute/chat 返回的 chatId
+await desktop.chat.open({ chatId }); // 例如 agent.execute/chat 返回的 chatId
 await desktop.copilot.open();
 await desktop.copilot.close();
 ```
@@ -170,10 +170,30 @@ await desktop.copilot.close();
 
 ### 附件、资源和运行控制（Desktop）
 
-- `assistant.upload({file: Blob, name?, chatId?}, {signal?})`：单文件最多 64 MiB（67,108,864 字节）。省略 chatId 时由 Platform 在上传时创建 Chat，SDK 返回该 canonical chatId；传入本实例已有 chatId 则上传到原 Chat，返回 `{chatId, upload:{type,id,name,url,mimeType,sizeBytes}}`，不返回本机路径。
-- `assistant.chat({message, chatId?, uploadIds?, skillIds?, background?})`：在本实例拥有的 Chat 续聊；uploadIds 最多 16 个，必须属于同一 Chat 和实例，上传句柄 30 分钟有效。
-- `assistant.resource.read({chatId,file}, {signal?})`：file 是 Chat 相对路径，返回 `ReadableStream<Uint8Array>`，有界读取最多 16 MiB；不接受 URL、绝对路径或隐藏内部文件。已发布产物下载仍用 artifact.read/saveAs。
-- `assistant.steer({runId,message,requestId?,steerId?})`、`assistant.send({runId,message,requestId?})`、`assistant.submit({runId,awaitingId,submitId?,param?|params?})`：仅本实例后台 Run，根 Agent 由宿主固定。send 返回 mailbox 回执，不自动订阅回执中的新 Run；调用方应保留 requestId 防止重复投递。submit 的 param 与 params 必须二选一。
-- `assistant.interrupt({runId})` 与 `assistant.stop({runId})` 等价，走 Primary WebSocket 控制通道。
+- `agent.upload({file: Blob, name?, chatId?}, {signal?})`：单文件最多 64 MiB（67,108,864 字节）。省略 chatId 时由 Platform 在上传时创建 Chat，SDK 返回该 canonical chatId；传入本实例已有 chatId 则上传到原 Chat，返回 `{chatId, upload:{type,id,name,url,mimeType,sizeBytes}}`，不返回本机路径。
+- `agent.query({message, chatId?, uploadIds?, skillIds?, background?})`：在本实例拥有的 Chat 续聊；uploadIds 最多 16 个，必须属于同一 Chat 和实例，上传句柄 30 分钟有效。
+- `agent.resource.read({chatId,file}, {signal?})`：file 是 Chat 相对路径，返回 `ReadableStream<Uint8Array>`，有界读取最多 16 MiB；不接受 URL、绝对路径或隐藏内部文件。已发布产物下载仍用 artifact.read/saveAs。
+- `agent.steer({runId,message,requestId?,steerId?})`、`agent.send({runId,message,requestId?})`、`agent.submit({runId,awaitingId,submitId?,param?|params?})`：仅本实例后台 Run，根 Agent 由宿主固定。send 返回 mailbox 回执，不自动订阅回执中的新 Run；调用方应保留 requestId 防止重复投递。submit 的 param 与 params 必须二选一。
+- `agent.interrupt({runId})` 走 Primary WebSocket 控制通道。
 
 上传使用独立的 88 MiB JSON 传输限额入口（容纳 64 MiB 文件的 Base64 与元数据），普通页面 Action 仍为 64 KiB，后端仍为 256 KiB。页面与托管后端均支持这些数据方法。Compose 宿主须另外实现对应处理器和上传入口，不能仅复制 SDK 认定可用。
+
+
+### 智能体目录与默认值（Desktop）
+
+`agent.list()` 返回 `{items:[{agentKey,name,role}],defaultAgentKey}`，页面与托管后端均可调用，响应不包含提示词、路径或凭据。`agent.query/execute/upload`、`skill.list/describe` 可传可选 agentKey，显式选择必须仍在当前目录。省略时使用宿主已有配置；列表失败不伪造目录，显式选择不可用时直接报错。已有 Run 的 steer/send/submit/interrupt 继续使用创建时固定的根 Agent，不接受重新指定。execute 资格由 Platform 判定，不能因所选 Agent 不支持 result_submit 自动切换。Compose 托管桥尚未实现这项选择能力。
+
+## Agent 规范命名（Desktop）
+
+新应用使用 `agent`：`list()`、`query(message | {message,agentKey?,chatId?,uploadIds?,skillIds?,background?})`、`execute(...)`、`observe({runId,cursor?},{signal?})`、`interrupt`、`steer`、`send`、`submit`、`upload`、`resource.read`。页面具名导出和 `createBackendClient().agent` 同名。`agent.query` 默认等待文本结果，background:true 返回受理身份；当前不返回流。`agent.observe` 异步迭代文本/状态，内部调用 `agent.events`，仅有界缓存续读，不是持久 attach，不因解除观察而停止运行。资源、附件与控制的参数及限额沿用上述 Desktop 契约；已有 Run 始终使用创建时根 Agent。
+
+`agent` 不提供 chat、stop、subscribe 或 image。旧 `assistant.*` 继续作为废弃兼容入口，包含旧 stop/image；既有应用无需立即迁移。旧 image 固定 zenmi，是 Image Studio 适配，不能用作通用 Agent 或图像模型能力。新应用通过 upload→query→resource/artifact 完成文件闭环；蒙版上传只形成附件，原生编辑需要具体图像工具和模型支持，不提供通用 mask 参数。Compose 独立宿主尚未同步这些规范 Action 与新增数据/控制能力，不可仅更新 SDK 即宣称可用。
+
+```js
+import { agent } from '/__desktop/bridge.js';
+const { items, defaultAgentKey } = await agent.list();
+const accepted = await agent.query({ message: '生成报告', background: true });
+for await (const event of agent.observe({ runId: accepted.runId })) {
+  if (event.type === 'text.delta') renderText(event.text);
+}
+```

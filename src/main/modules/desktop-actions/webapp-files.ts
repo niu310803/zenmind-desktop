@@ -30,7 +30,7 @@ export async function executeWebappFiles(options: DesktopActionBridgeOptions, ac
       await context.check();
       return { ok: true, action, result };
     }
-    if (Object.keys(args).some(key => !["chatId", "name", "mimeType", "dataBase64"].includes(key)) || typeof args.name !== "string" || !args.name || args.name.length > 255 || /[\\/\x00-\x1f\x7f]/u.test(args.name) || [".", ".."].includes(args.name) || typeof args.dataBase64 !== "string" || args.dataBase64.length > Math.ceil(MAX_UPLOAD_BYTES / 3) * 4) throw new ConnectorError("invalid_arguments");
+    if (Object.keys(args).some(key => !["chatId", "name", "mimeType", "dataBase64", "agentKey"].includes(key)) || typeof args.name !== "string" || !args.name || args.name.length > 255 || /[\\/\x00-\x1f\x7f]/u.test(args.name) || [".", ".."].includes(args.name) || typeof args.dataBase64 !== "string" || args.dataBase64.length > Math.ceil(MAX_UPLOAD_BYTES / 3) * 4) throw new ConnectorError("invalid_arguments");
     if (args.mimeType !== undefined && (typeof args.mimeType !== "string" || !/^[\w.+-]+\/[\w.+-]+$/u.test(args.mimeType))) throw new ConnectorError("invalid_arguments");
     if (args.chatId !== undefined) assertWebappChat(context.key, args.chatId);
     for (const [id, item] of uploads) if (item.expires < Date.now()) uploads.delete(id);
@@ -44,7 +44,7 @@ export async function executeWebappFiles(options: DesktopActionBridgeOptions, ac
       // Platform creates the canonical Chat when the caller has no existing one.
       if (typeof args.chatId === "string") form.set("chatId", args.chatId);
       form.set("requestId", randomUUID());
-      form.set("agentKey", await selectWebappAssistantAgent(options, context.item));
+      form.set("agentKey", await selectWebappAssistantAgent(options, context.item, args.agentKey));
       form.set("file", new Blob([bytes], { type: args.mimeType as string || "application/octet-stream" }), args.name);
       await context.check();
       const result = await request(context.baseUrl, context.token, "/api/upload", "POST", form, false, context.signal);

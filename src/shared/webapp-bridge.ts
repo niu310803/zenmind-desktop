@@ -2,6 +2,8 @@ export const WEBAPP_BRIDGE_VERSION = 2 as const;
 
 export const WEBAPP_BRIDGE_AVAILABLE_CAPABILITIES = [
   "auth.session",
+  "agent.query",
+  "agent.execute",
   "assistant.chat",
   "assistant.execute",
   "assistant.image",
@@ -102,7 +104,9 @@ export const WEBAPP_BRIDGE_CAPABILITY_ACTIONS: Readonly<Record<WebappBridgeCapab
     "desktop.locale": Object.freeze([WEBAPP_BRIDGE_ACTIONS.localeGet, WEBAPP_BRIDGE_ACTIONS.localeSet]),
     "connector.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorList,WEBAPP_BRIDGE_ACTIONS.connectorDescribe,WEBAPP_BRIDGE_ACTIONS.connectorInvoke]),
     "desktop.connector.authenticate": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorAuthenticate]),
-    "assistant.chat": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit", "assistant.upload", "assistant.resource.read"]),
+    "agent.query": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.agents.list", "assistant.events", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit", "assistant.upload", "assistant.resource.read"]),
+    "agent.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantExecute]),
+    "assistant.chat": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.agents.list", "assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit", "assistant.upload", "assistant.resource.read"]),
     "assistant.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantExecute]),
     "assistant.image": Object.freeze([
       WEBAPP_BRIDGE_ACTIONS.assistantImage,
@@ -137,7 +141,17 @@ export const WEBAPP_PUBLIC_ACTIONS: Readonly<Record<string, string>> = Object.fr
   ]))
 );
 
+// Explicit migration map: no prefix-based admission of arbitrary actions.
+export const WEBAPP_AGENT_ACTIONS: Readonly<Record<string, string>> = Object.freeze({
+  "agent.list": "assistant.agents.list", "agent.query": "assistant.chat",
+  "agent.execute": "assistant.execute", "agent.events": "assistant.events",
+  "agent.upload": "assistant.upload", "agent.resource.read": "assistant.resource.read",
+  "agent.interrupt": "assistant.interrupt", "agent.steer": "assistant.steer",
+  "agent.send": "assistant.send", "agent.submit": "assistant.submit"
+});
+
 export function resolveWebappAction(action: string): string {
+  action = Object.hasOwn(WEBAPP_AGENT_ACTIONS, action) ? WEBAPP_AGENT_ACTIONS[action] : action;
   return Object.prototype.hasOwnProperty.call(WEBAPP_PUBLIC_ACTIONS, action)
     ? WEBAPP_PUBLIC_ACTIONS[action]
     : action;

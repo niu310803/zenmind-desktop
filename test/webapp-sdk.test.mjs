@@ -124,3 +124,28 @@ test('file SDK routes upload separately and exposes resource bytes in page and b
  await assert.rejects(sdk.assistant.upload({file:new Blob([new Uint8Array(64*1024*1024+1)])}),{code:'invalid_args'});
  for(const action of ['steer','send','submit','interrupt']){await sdk.assistant[action]({runId:'r'});assert.equal(seen.at(-1).body.action,'assistant.'+action)}
 });
+
+test('agent listing and explicit request selection are shared by page and managed backend SDKs',async t=>{
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});const sdk=await import('../contracts/webapp/bridge.mjs');const calls=[];
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(init.body);calls.push(body);return new Response(JSON.stringify({ok:true,result:body.action==='assistant.execute'?{chatId:'c',status:'success',output:{}}:{items:[{agentKey:'chosen',name:'Chosen'}],defaultAgentKey:'chosen'}}))};
+ for(const client of [sdk,sdk.createBackendClient({url:'http://127.0.0.1:1234/webapps',token:'backend'})]){
+  assert.equal((await client.assistant.agents.list()).defaultAgentKey,'chosen');assert.equal(calls.at(-1).action,'assistant.agents.list');
+  await client.assistant.chat({message:'hello',agentKey:'chosen'});assert.equal(calls.at(-1).args.agentKey,'chosen');
+  if(client===sdk){await client.assistant.execute({message:'extract',outputSchema:{type:'object'},agentKey:'chosen'});assert.equal(calls.at(-1).args.agentKey,'chosen');}
+ }
+});
+
+test('canonical agent surface uses explicit names and preserves query and observation semantics',async t=>{
+ const {agent}=await import('../contracts/webapp/bridge.mjs');const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});const calls=[];
+ globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);calls.push({url,body});return new Response(JSON.stringify({ok:true,result:body.action==='agent.events'?{events:[{cursor:1,type:'run.finished'}],cursor:1,terminal:true}:body.action==='agent.resource.read'?{dataBase64:btoa('bytes')}:{chatId:'canonical',runId:'r',accepted:true}}));};
+ assert.ok(Object.isFrozen(agent));for(const old of ['chat','stop','subscribe','image','agents'])assert.equal(agent[old],undefined);
+ await agent.list();await agent.query({message:'hello',background:true});await agent.upload({file:new Blob(['file']),name:'file.txt'});const events=[];for await(const event of agent.observe({runId:'r'}))events.push(event);await agent.interrupt({runId:'r'});
+ assert.deepEqual(calls.map(c=>c.body.action),['agent.list','agent.query','agent.upload','agent.events','agent.interrupt']);assert.equal(calls[2].url,'/__desktop/assistant/uploads');assert.equal(events.length,1);
+ const backend=createBackendClient({url:'http://127.0.0.1:17070/webapps',token:'scoped'});await backend.agent.list();assert.equal(calls.at(-1).body.action,'agent.list');
+});
+
+test('canonical agent.execute posts canonical action and keeps cancellation',async t=>{
+ const {agent}=await import('../contracts/webapp/bridge.mjs');const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});
+ globalThis.fetch=async(_url,options)=>{assert.equal(JSON.parse(options.body).action,'agent.execute');return new Response(JSON.stringify({ok:true,result:{chatId:'c',status:'success',output:{}}}));};
+ await agent.execute({message:'task',outputSchema:{type:'object'}});const controller=new AbortController();controller.abort();await assert.rejects(agent.execute({message:'task',outputSchema:{type:'object'}},{signal:controller.signal}),{code:'cancelled'});
+});
