@@ -28,7 +28,7 @@ test('session exchange protects sender, consent, redirect, identity and cookie o
  let register;try{delete require.cache[require.resolve('../dist-electron/main/modules/webs/auth-session.js')];register=require('../dist-electron/main/modules/webs/auth-session.js').registerWebappAuth;}finally{Module._load=old;}
  const frame={url:'https://notes.test/app'},guest=new EventEmitter();Object.assign(guest,{id:1,mainFrame:frame,session:target,isDestroyed:()=>false});
  let surface={surfaceKind:'website',registrationId:'r1',surfaceId:'site'};
- register({registry:{resolveWebviewSurfaceTarget:()=>surface,waitForWebviewSurfaceTarget:async()=>{waits++;return surface}},webs:{webappWindowManager:{resolveAuthGuest:()=>null}},readToken:()=>revoked?'':token()});
+ register({registry:{resolveWebviewSurfaceTarget:()=>surface,waitForWebviewSurfaceTarget:async()=>{waits++;return surface}},webs:{webappWindowManager:{resolveAuthGuest:()=>null},webappRuntime:{isRunningGatewayOrigin:()=>false}},readToken:()=>revoked?'':token()});
  const invoke=(input={exchangePath:'/api/session'},senderFrame=frame)=>handler({sender:guest,senderFrame},input);
  assert.equal((await invoke(undefined,{})).error.code,'forbidden');assert.equal(fetches,0);
  revoked=true;assert.equal((await invoke()).error.code,'sign_in_required');assert.equal(prompts,0);assert.equal(fetches,0);revoked=false;
@@ -49,4 +49,41 @@ test('session exchange protects sender, consent, redirect, identity and cookie o
  reply=async()=>{revoked=true;revoke();return new Response('',{headers:{'Set-Cookie':'notes=old-account; HttpOnly; Secure; SameSite=Lax; Path=/'}});};
  assert.equal((await invoke()).error.code,'context_changed');await new Promise(resolve=>setImmediate(resolve));assert.equal(jar.size,0);
  revoked=false;reply=undefined;jar.set('notes',{value:'unmanaged'});assert.equal((await invoke()).error.code,'cookie_conflict');assert.equal(jar.get('notes').value,'unmanaged');
+});
+
+test('Desktop browser and WorkPanel pages exchange visitor identity in their own session', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'browser-auth-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const jar=()=>{const values=new Map();return {values,cookies:{get:async({name,url})=>values.get(name)?.url===new URL(url).origin+'/'?[values.get(name)]:[],set:async d=>{values.set(d.name,d);},remove:async(_url,n)=>{values.delete(n);},flushStore:async()=>{}}};};
+ const normal=jar(),browser=jar();let handler,revoke,prompts=0,fetches=0,liveGateway=false,afterConsent,afterFetch;
+ const frame={url:'https://notes.test/'},guest=new EventEmitter();Object.assign(guest,{id:42,mainFrame:frame,session:browser,isDestroyed:()=>false});
+ let surface={surfaceKind:'browser',surfaceRole:'browser',registrationId:'browser-1',surfaceId:'browser'};
+ const token='e30.'+Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+600})).toString('base64url')+'.sig';
+ const transport={fetch:async(url,init)=>{fetches++;assert.equal(init.headers.Authorization,'Bearer '+token);assert.equal(init.credentials,'omit');assert.equal(init.redirect,'manual');afterFetch?.();return new Response('{}',{headers:{'Set-Cookie':'visitor=opaque; Path=/; HttpOnly; SameSite=Lax'+(url.startsWith('https:')?'; Secure':'')}});}};
+ const old=Module._load;Module._load=function(name,parent,...args){
+  if(parent?.filename.endsWith('/webs/auth-session.js')){
+   if(name==='electron')return {app:{whenReady:()=>Promise.resolve()},ipcMain:{handle:(_name,fn)=>handler=fn},session:{defaultSession:normal,fromPartition:name=>name==='webapp-auth-exchange'?transport:browser},BrowserWindow:{fromWebContents:()=>null,getFocusedWindow:()=>null},dialog:{showMessageBox:async()=>{prompts++;afterConsent?.();return {response:1}}}};
+   if(name==='../identity')return {getDesktopSsoBusinessToken:()=>token,getDesktopSsoStatus:()=>({authenticated:true,user:{issuer:'issuer',sub:'visitor'}}),subscribeDesktopSsoCredentialRevocation:fn=>{revoke=fn}};
+   if(name.includes('user-paths'))return {getDesktopStateRoot:()=>root};
+   if(name.includes('i18n'))return {t:key=>key};
+  }return old.call(this,name,parent,...args);
+ };
+ let register;try{delete require.cache[require.resolve('../dist-electron/main/modules/webs/auth-session.js')];register=require('../dist-electron/main/modules/webs/auth-session.js').registerWebappAuth;}finally{Module._load=old;}
+ register({registry:{resolveWebviewSurfaceTarget:()=>surface,waitForWebviewSurfaceTarget:async()=>surface},webs:{webappWindowManager:{resolveAuthGuest:()=>null},webappRuntime:{isRunningGatewayOrigin:()=>liveGateway}},readToken:()=>token});
+ const invoke=()=>handler({sender:guest,senderFrame:frame},{exchangePath:'/api/session'});
+ assert.deepEqual(await invoke(),{ok:true});assert.equal(browser.values.get('visitor').value,'opaque');assert.equal(normal.values.size,0);
+ surface={...surface,surfaceKind:'chat-work-panel',surfaceRole:'workpanel-web',surfaceId:'workpanel'};guest.session=normal;
+ assert.deepEqual(await invoke(),{ok:true});assert.equal(normal.values.get('visitor').value,'opaque');
+ const ledger=JSON.parse(fs.readFileSync(path.join(root,'web-auth-cookies.json'),'utf8'));assert.deepEqual(new Set(ledger.map(x=>x.partition)),new Set(['persist:desktop-browser','']));
+ afterConsent=()=>{surface={...surface,surfaceRole:'workpanel-file'}};let sent=fetches;
+ assert.equal((await invoke()).error.code,'context_changed');assert.equal(fetches,sent);afterConsent=undefined;surface={...surface,surfaceRole:'workpanel-web'};
+ let before=prompts;guest.session=browser;assert.equal((await invoke()).error.code,'forbidden');assert.equal(prompts,before);guest.session=normal;
+ for(const [surfaceKind,surfaceRole] of [['chat-work-panel','workpanel-file'],['service','main-chat'],['help','help']]){
+  surface={...surface,surfaceKind,surfaceRole};before=prompts;assert.equal((await invoke()).error.code,'forbidden');assert.equal(prompts,before);
+ }
+ surface={...surface,surfaceKind:'browser',surfaceRole:'browser'};guest.session=browser;frame.url='http://127.0.0.1:4567/';
+ before=prompts;assert.equal((await invoke()).error.code,'insecure_origin');assert.equal(prompts,before);
+ liveGateway=true;assert.deepEqual(await invoke(),{ok:true});
+ afterConsent=()=>{liveGateway=false};before=fetches;assert.equal((await invoke()).error.code,'context_changed');assert.equal(fetches,before);afterConsent=undefined;
+ liveGateway=true;afterFetch=()=>{liveGateway=false};assert.equal((await invoke()).error.code,'context_changed');afterFetch=undefined;
+ revoke();await new Promise(resolve=>setImmediate(resolve));assert.equal(normal.values.size,0);assert.equal(browser.values.size,0);
 });

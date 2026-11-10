@@ -202,17 +202,17 @@ HTTP 请求与 WS upgrade 校验精确 Host、Origin、会话及有效期；写�
 
 本机服务设置允许用户显式复制含 Platform App access token 的调用示例，复用现有 Agent Auth 签发能力，不导出 canonical SSO token。页面默认只显示占位符；点击复制时获取当前有效 token，校验到期时间并生成命令，完成后仅反馈到期时间，不将 token 保存到页面状态、配置或日志。剪贴板中的命令是固定快照，过期后用户需重新复制；此入口不为外部程序提供自动续期。
 
-## WebApp / Website 会话交换
+## 网页与 WebApp 会话交换
 
 `auth` SDK 提供页面发起的原子会话交换。网站拥有交换路径、服务端 token 验证、Cookie 会话与业务授权；Desktop 不实现网站用户系统，也不向页面返回凭据。
 
-本地 WebApp 与远端 Website 的顶层 guest 经专用 sandbox preload 调用独立 IPC。Main 以真实 sender、live Registry 或独立 WebApp 窗口、实际 session 和当前 origin 校验，不接受调用方自报目标。页面可在启动时自动尝试，也可由用户点击发起；原生确认展示精确同源交换地址，仅授权这次凭据提交。未登录 Desktop 时直接返回需登录状态，不弹出凭据提交确认。页面早于 Surface 登记时仅有界等待真实登记，来源变化即拒绝。该授权不由添加网址、安装包字段或同源本身推导，不创建通用 HTTP/WS Action 能力。
+本地 WebApp、Website、Desktop 内置 Browser 与普通 WorkPanel 网页的顶层 guest 可经受限 sandbox preload 调用独立 IPC。访问者只需在自己的 Desktop 打开网站地址，不需要安装发布者的 WebApp，也不需要把网址登记成 Website。WorkPanel 仅开放语义角色为普通网络网页的页面，文档、文件、服务和 Help 不获得此权限。Main 以真实 sender、live Registry 或独立 WebApp 窗口、实际 session 和当前 origin 校验，不接受调用方自报目标。页面可在启动时自动尝试，也可由用户点击发起；原生确认展示精确同源交换地址，仅授权这次凭据提交。未登录 Desktop 时直接返回需登录状态，不弹出凭据提交确认。页面早于 Surface 登记时仅有界等待真实登记，来源变化即拒绝。该授权不由添加网址、安装包字段或同源本身推导，不创建通用 HTTP/WS Action 能力。
 
-Main 在独立网络 session 中提交当前 canonical SSO Bearer，省略 Cookie 并拒绝重定向；成功后先校验 Cookie 范围，再复验页面与已确认账号，将 Cookie 写到调用页面使用的 session。HTTP 只允许已登记本地 WebApp 的 loopback；远端必须 HTTPS。Cookie 生命周期受 token 有效期约束，网站不得通过本能力写父域 Cookie 或覆盖未登记的现有 Cookie。响应正文、token 与 Cookie 值不进入 guest 返回或日志。
+Main 在独立网络 session 中提交当前 canonical SSO Bearer，省略 Cookie 并拒绝重定向；成功后先校验 Cookie 范围，再复验页面与已确认账号，将 Cookie 写到调用页面使用的 session。Browser 使用原有独立浏览器 partition，Website 与普通 WorkPanel 使用原有默认 session，不因这项能力合并 Cookie 容器。HTTP 只允许本机正在运行的已安装 WebApp gateway；从 Browser 或 WorkPanel 打开同一 gateway 时，Main 必须在提交前及异步完成后复验运行时归属，不能仅凭 localhost URL 放行。远端必须 HTTPS。Cookie 生命周期受 token 有效期约束，网站不得通过本能力写父域 Cookie 或覆盖未登记的现有 Cookie。响应正文、token 与 Cookie 值不进入 guest 返回或日志。
 
 Identity 清空 canonical 凭据时同步通知会话交换模块取消在途请求，异步清理本能力拥有的 Cookie；新交换等待清理完成。Cookie 名、origin 和受控 partition 写入清理 journal，不写 Cookie 值；启动先清理遗留记录以避免跨进程账号串用。网站后端仍负责会话撤销及其他设备的退出。正常 token 续期不因 token 字符串变化主动撤销网站 Cookie。
 
-发布后的 SDK 由访问者自己的 preload 执行，禁止向发布者 gateway 请求访问者凭据。独立浏览器不拥有此能力；Help、Service、普通 WorkPanel 和子 frame 也不获得会话交换权限。Windows/macOS 使用相同 Chromium Cookie 和网络语义，preload 的平台路径由既有 bundle path 规则提供。
+发布后的 SDK 由访问者自己的 preload 执行，禁止向发布者 gateway 请求访问者凭据。系统外部浏览器不拥有此能力；Help、Service、文档预览、本地文件和子 frame 也不获得会话交换权限。WorkPanel 复用既有预览 preload 时，只为 HTTP(S) 顶层页面安装同一受限认证 transport，不为文件协议安装。Windows/macOS 使用相同 Chromium Cookie 和网络语义，preload 的平台路径由既有 bundle path 规则提供。
 
 ## 同账号手机访问 Desktop
 
@@ -225,3 +225,5 @@ Hub 验证官网证明和目标归属后，手机取回所选电脑的原 App To
 旧随机路由票据、JTI 消费/轮询验证与配对码生成 UI/IPC 已移除。Hub 不签发业务 Token，不将其写入数据库。Desktop 普通退出停止 Tunnel 并清理 SSO 与账号派生缓存，不撤销设备，本地任务与 Platform 主体保持原生命周期。
 
 Tunnel 设备 ID 首次读取缺失时生成并持久化；普通退出、重启、账号切换及切回都保留该 ID，Hub 按账号与设备 ID 复用原记录。退出仅清理公网地址与注册时间缓存，保留开启意愿与本地 Platform 身份。注册响应必须匹配请求设备并返回账号；停止 Tunnel 会取消在途请求，迟到响应复验取消信号、canonical token、设备和 relay 后才写入设置。
+
+页面认证 preload 只暴露当前构建品牌的全局（ZenMind/CuteJ 分别独立命名），不注入其他品牌别名。统一 SDK 发现访问者 transport，使任一品牌发布的 WebApp 可在另一品牌 Desktop 登录；存在多个 transport 时拒绝选择。品牌名不参与服务端用户身份或授权判定。

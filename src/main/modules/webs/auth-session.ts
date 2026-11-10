@@ -78,19 +78,27 @@ export function registerWebappAuth(options: {
         throw new WebappAuthError("context_changed", "The application page changed.");
       }
       const local = surface?.surfaceKind === "webapp" || Boolean(detached);
-      if (!detached && surface?.surfaceKind !== "webapp" && surface?.surfaceKind !== "website") {
-        throw new WebappAuthError("forbidden", "Authentication requires a registered Website or WebApp.");
+      const browser = surface?.surfaceKind === "browser";
+      const workPanelWeb = surface?.surfaceKind === "chat-work-panel" && surface.surfaceRole === "workpanel-web";
+      if (!detached && !local && !browser && !workPanelWeb && surface?.surfaceKind !== "website") {
+        throw new WebappAuthError("forbidden", "Authentication requires a registered application or browser page.");
       }
-      const expectedSession = local ? session.fromPartition(DESKTOP_BROWSER_WEBVIEW_PARTITION) : session.defaultSession;
+      const partition = local || browser ? DESKTOP_BROWSER_WEBVIEW_PARTITION : "";
+      const expectedSession = partition ? session.fromPartition(partition) : session.defaultSession;
       if (guest.session !== expectedSession) throw new WebappAuthError("forbidden", "Unexpected application session.");
-      const url = resolveSessionExchangeUrl(frame.url, input, local);
+      // HTTP is never granted just because a Browser URL says localhost. It must
+      // be this Desktop's live WebApp gateway; visitors of remote apps use HTTPS.
+      const localGateway = local || options.webs.webappRuntime.isRunningGatewayOrigin(frame.url);
+      const url = resolveSessionExchangeUrl(frame.url, input, localGateway);
       const startEpoch = epoch;
       const originalUrl = frame.url;
       const validate = () => {
         const live = options.registry.resolveWebviewSurfaceTarget(guest.id);
-        if (controller.signal.aborted || epoch !== startEpoch || guest.isDestroyed() || guest.mainFrame !== frame || frame.url !== originalUrl ||
+        if (controller.signal.aborted || epoch !== startEpoch || guest.isDestroyed() || guest.mainFrame !== frame || frame.url !== originalUrl || guest.session !== expectedSession ||
+            (!local && url.protocol === "http:" && !options.webs.webappRuntime.isRunningGatewayOrigin(frame.url)) ||
             (detached ? options.webs.webappWindowManager.resolveAuthGuest(guest) !== detached :
-              !live || live.registrationId !== surface?.registrationId || live.surfaceId !== surface?.surfaceId)) {
+              !live || live.registrationId !== surface?.registrationId || live.surfaceId !== surface?.surfaceId ||
+              live.surfaceKind !== surface?.surfaceKind || live.surfaceRole !== surface?.surfaceRole || live.ownerWebContentsId !== surface?.ownerWebContentsId)) {
           throw new WebappAuthError("context_changed", "The page or Desktop account changed. Sign in again.");
         }
       };
@@ -150,7 +158,6 @@ export function registerWebappAuth(options: {
       // independently verifies its signature, issuer, audience and permissions.
       const exp = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).exp;
       const details = parseSessionCookies(lines, url, typeof exp === "number" ? exp * 1000 : NaN);
-      const partition = local ? DESKTOP_BROWSER_WEBVIEW_PARTITION : "";
       for (const detail of details) {
         const existing = await guest.session.cookies.get({ url: detail.url, name: detail.name });
         const managed = cookies.some(record => record.partition === partition && record.url === detail.url && record.name === detail.name);

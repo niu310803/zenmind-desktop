@@ -80,6 +80,10 @@ export class WebappRuntime {
   }
 
   allowsLocalPageCapability(rawUrl: string, _capability: WebappBridgeCapability) {
+    return this.isRunningGatewayOrigin(rawUrl);
+  }
+
+  isRunningGatewayOrigin(rawUrl: string) {
     let origin = "";
     try {
       origin = new URL(rawUrl).origin;

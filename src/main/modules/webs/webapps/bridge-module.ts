@@ -235,12 +235,18 @@ async function getUserConfig() {
 
 // Uses the visitor's preload, including when this module is served by Tunnel.
 // Never call the publisher's HTTP action bridge to obtain a visitor identity.
+// Resolve the visiting Desktop, independently of the publishing gateway's brand.
+function visitorAuthBridge() {
+  const candidates = [globalThis.__ZENMIND_AUTH__, globalThis.__CUTEJ_AUTH__]
+    .filter(bridge => typeof bridge?.createSession === "function");
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
 export const auth = Object.freeze({
   isAvailable() {
-    return typeof globalThis.__ZENMIND_AUTH__?.createSession === "function";
+    return Boolean(visitorAuthBridge());
   },
   async createSession(input) {
-    const bridge = globalThis.__ZENMIND_AUTH__;
+    const bridge = visitorAuthBridge();
     if (!bridge || typeof bridge.createSession !== "function") {
       throw new DesktopBridgeError("auth.createSession", "unavailable", "Open this application in Desktop to sign in.");
     }

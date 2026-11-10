@@ -17,6 +17,19 @@ test('auth SDK uses the visitor preload, never an HTTP action or backend client'
  await assert.rejects(auth.createSession({exchangePath:'/api/session'}),{code:'cancelled'});
  assert.equal(createBackendClient({url:'http://127.0.0.1:1234/webapps',token:'backend'}).auth,undefined);
 });
+test('one publisher SDK accepts either visiting brand and rejects ambiguous transports',async t=>{
+ const oldZ=globalThis.__ZENMIND_AUTH__,oldC=globalThis.__CUTEJ_AUTH__;
+ t.after(()=>{globalThis.__ZENMIND_AUTH__=oldZ;globalThis.__CUTEJ_AUTH__=oldC;});
+ delete globalThis.__ZENMIND_AUTH__;delete globalThis.__CUTEJ_AUTH__;
+ for(const key of ['__ZENMIND_AUTH__','__CUTEJ_AUTH__']) {
+   globalThis[key]={createSession:async()=>({ok:true})};
+   assert.equal(auth.isAvailable(),true);assert.deepEqual(await auth.createSession({exchangePath:'/api/session'}),{ok:true});
+   delete globalThis[key];
+ }
+ globalThis.__ZENMIND_AUTH__={createSession(){throw Error('ambiguous')}};
+ globalThis.__CUTEJ_AUTH__={createSession(){throw Error('ambiguous')}};
+ assert.equal(auth.isAvailable(),false);await assert.rejects(auth.createSession({exchangePath:'/api/session'}),{code:'unavailable'});
+});
 test('exchange target stays same origin; HTTP is only allowed for a registered local WebApp',()=>{
  assert.equal(resolveSessionExchangeUrl('https://notes.test/page',{exchangePath:'/api/login'},false).href,'https://notes.test/api/login');
  for(const exchangePath of ['https://evil.test/login','//evil.test','/\\evil.test','/api/login?token=x','/api/login#x','/api/../login','/%2f%2fevil.test','/__desktop/actions/call'])assert.throws(()=>resolveSessionExchangeUrl('https://notes.test',{exchangePath},false));

@@ -9,9 +9,10 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'zenmind-auth-smoke-'));
 app.setPath('userData', path.join(temp, 'profile'));
-let revoke, active = true, win, server;
+let revoke, active = true, win, server, liveGateway = false;
+const workPanel = process.argv.includes('--workpanel');
 const token = 'e30.' + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now()/1000) + 600 })).toString('base64url') + '.synthetic';
-const identity = { getDesktopSsoAccessToken: () => active ? token : '', getDesktopSsoStatus: () => ({ authenticated: active, user: { issuer: 'smoke', sub: 'alice' } }), subscribeDesktopSsoCredentialRevocation: fn => { revoke = fn; } };
+const identity = { getDesktopSsoBusinessToken: () => active ? token : '', getDesktopSsoStatus: () => ({ authenticated: active, user: { issuer: 'smoke', sub: 'alice' } }), subscribeDesktopSsoCredentialRevocation: fn => { revoke = fn; } };
 const old = Module._load;
 Module._load = function(name, parent, ...args) {
   if (parent?.filename.endsWith('/webs/auth-session.js')) {
@@ -42,11 +43,17 @@ app.whenReady().then(async () => {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  win = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'dist-electron/preload/webapp-auth.js'), partition: 'persist:desktop-browser', sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  win = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'dist-electron/preload', workPanel ? 'work-panel-preview.js' : 'webapp-auth.js'), partition: workPanel ? '' : 'persist:desktop-browser', sandbox: true, contextIsolation: true, nodeIntegration: false } });
   win.webContents.on('preload-error', (_e,_p,error)=>console.error(error));
-  registerWebappAuth({ registry: { resolveWebviewSurfaceTarget: id => id === win.webContents.id ? { surfaceKind: 'webapp', registrationId: 'smoke', surfaceId: 'smoke' } : null }, webs: { webappWindowManager: { resolveAuthGuest: () => null } }, refreshToken: async () => token });
+  registerWebappAuth({ registry: { resolveWebviewSurfaceTarget: id => id === win.webContents.id ? { surfaceKind: workPanel ? 'chat-work-panel' : 'browser', surfaceRole: workPanel ? 'workpanel-web' : 'browser', registrationId: 'smoke', surfaceId: 'smoke' } : null }, webs: { webappWindowManager: { resolveAuthGuest: () => null }, webappRuntime: { isRunningGatewayOrigin: url => liveGateway && new URL(url).origin === origin } }, readToken: () => active ? token : '' });
   await win.loadURL(origin);
   for(let i=0;i<100;i++){if(await win.webContents.executeJavaScript('window.ready === true'))break;await new Promise(r=>setTimeout(r,20));}
+  await win.webContents.executeJavaScript('document.querySelector("button").click()');
+  for(let i=0;i<100;i++){if(await win.webContents.executeJavaScript('Boolean(window.result)'))break;await new Promise(r=>setTimeout(r,20));}
+  assert.equal((await win.webContents.executeJavaScript('window.result')).error, 'insecure_origin');
+  assert.equal(exchanges, 0);
+  liveGateway = true;
+  await win.webContents.executeJavaScript('window.result=undefined');
   await win.webContents.executeJavaScript('document.querySelector("button").click()');
   let result;
   for(let i=0;i<200;i++){result=await win.webContents.executeJavaScript('window.result');if(result)break;await new Promise(r=>setTimeout(r,20));}
@@ -57,6 +64,16 @@ app.whenReady().then(async () => {
   active=false;revoke();
   for(let i=0;i<100;i++){if(!(await win.webContents.session.cookies.get({url:origin})).length)break;await new Promise(r=>setTimeout(r,20));}
   assert.equal(await win.webContents.executeJavaScript('fetch("/api/me").then(r=>r.status)'),401);
-  console.log('PASS: real sandbox preload → IPC → Bearer exchange → HttpOnly Cookie → logout cleanup');
-  win.destroy();await new Promise(resolve=>server.close(resolve));clearTimeout(timeout);app.exit(0);
+  // Keep a window alive while loading the file probe; the default Electron
+  // launcher may otherwise quit as soon as its last window is destroyed.
+  const previousWindow = win;
+  const document = path.join(temp, 'document.html');fs.writeFileSync(document, '<html><body>Local document</body></html>');
+  win = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'dist-electron/preload/work-panel-preview.js'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  await win.loadFile(document);
+  assert.equal(await win.webContents.executeJavaScript('typeof (globalThis.__ZENMIND_AUTH__ || globalThis.__CUTEJ_AUTH__)'), 'undefined');
+  console.log(`PASS: ${workPanel ? 'WorkPanel' : 'Browser'} sandbox preload → IPC → Bearer exchange → HttpOnly Cookie → logout cleanup; arbitrary loopback and local files denied`);
+  previousWindow.destroy();win.destroy();await new Promise(resolve=>server.close(resolve));
+  // Windows keeps Chromium profile files open until process exit.
+  if(process.platform !== 'win32')fs.rmSync(temp,{recursive:true,force:true});
+  clearTimeout(timeout);app.exit(0);
 }).catch(error=>{console.error(error);clearTimeout(timeout);app.exit(1);});

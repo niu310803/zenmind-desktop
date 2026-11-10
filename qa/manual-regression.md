@@ -1320,14 +1320,16 @@
 - 默认关联改为 WPS 时主按钮显示 WPS，手动选择 Microsoft Office 时仍打开所选程序；卸载所选程序后明确失败，不偷偷改用其他程序。
 - 独立浏览器或不支持该能力的旧 Desktop 不展示新原生动作，现有下载和预览保持可用。
 
-## WebApp / Website SSO 会话交换
+## WebApp / Website / 内置浏览器 SSO 会话交换
 
 - macOS / Windows 分别导入 sso-notes ZIP；未配置公钥时应用健康启动但拒绝登录。填写 RSA 公钥、issuer、audience 后重启。
 - 从本地 WebApp 主区和独立窗口点击登录，确认原生提示显示精确同源交换地址；取消不发送 token，成功后 `/api/me` 使用 HttpOnly Cookie。页面、URL、存储和日志中没有 SSO token。
 - 将发布地址设置为应用的 publicOrigin；另一位员工在自己的 Desktop 中添加 HTTPS Website，登录后只看到自己的便签。该网站不获得发布者的连接器或 Assistant 权限。
 - 关闭/导航页面、切换账号或退出 Desktop 登录期间使交换响应迟到，确认不写入旧会话。重启清理已登记 Cookie，不清空无关网站 Cookie。
-- 错误公钥、issuer、audience、过期 token、跨域交换路径、HTTP 远端网站、重定向、宽域 Cookie 均失败。普通浏览器、Help、Service、WorkPanel、iframe 和后台 SDK 无认证能力。
-- 原生 Cookie 行为自动冒烟：`node_modules/.bin/electron qa/webapp-auth-smoke.cjs`；使用临时身份和临时 profile，不读真实 SSO 凭据。
+- 在自己的 Desktop 内置浏览器直接打开 HTTPS 应用地址，不添加 Website、不导入 WebApp，确认可使用自己的 OneID 建立网站会话。普通 WorkPanel 的网络网页重复同一流程；开启网页预览/批注时仍可登录。两者仍使用各自原有 Cookie partition。
+- 在内置浏览器和 WorkPanel 打开本机正在运行的 Auth Lab loopback 地址，确认可交换；任意其他 HTTP loopback 服务、远端 HTTP、已停止的 gateway 不能提交身份。授权等待或换票期间停止应用，迟到结果不得写 Cookie。
+- 错误公钥、issuer、audience、过期 token、跨域交换路径、HTTP 远端网站、重定向、宽域 Cookie 均失败。系统外部浏览器、Help、Service、WorkPanel 文档/文件预览、iframe 和后台 SDK 无认证能力。
+- 原生 Cookie 行为自动冒烟：`node_modules/.bin/electron qa/webapp-auth-smoke.cjs` 验证内置 Browser，追加 `--workpanel` 验证普通网页预览 preload；使用临时身份和临时 profile，不读真实 SSO 凭据。
 
 ## 网页应用局域网访问
 
@@ -1820,3 +1822,5 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - 圈选元素填写批注并交给智能体，确认所属 Chat 的 Composer 收到正文摘要、开头片段及修改要求；只追加草稿，不自动发送；AI 回复新版代码后需再次点预览。
 - 刷新来源聊天页面，确认草稿标签与批注立即消失、临时文件清理；预览打开途中刷新同样不留下迟到标签。关闭标签、关闭来源页面、刷新 Desktop 与正常退出均清理。
 - Standalone 与旧 Desktop 保留 blob 侧栏预览；无 Chat 的新对话不尝试创建原生草稿；超 4 MiB、错误摘要和权限拒绝明确失败，不自动回落。
+
+- 分别构建 ZenMind/CuteJ：HTTP(S) 顶层页仅有对应品牌认证 transport；同一 WebApp 的 auth SDK 可被两个品牌访问者使用，身份始终来自访问者。更新运行中 Desktop 的 preload 与 SDK 后应重启整个进程，避免新旧模块混用。
