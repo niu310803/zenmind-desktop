@@ -166,3 +166,14 @@ await desktop.copilot.close();
 这三个方法仅供主工作区当前 WebApp 的本机页面使用，不需要额外 Manifest 声明；后台应用或独立窗口调用返回 `webapp_ui_unavailable`，应先在主工作区打开该应用。后端、局域网、发布页面和通用 Desktop Action 不能调用。SDK capability ID 为 `desktop.chat`、`desktop.copilot`。历史弹窗仅接受 Chat ID，不接受 URL、Agent 或 Run 控制参数；关闭或切换应用后释放预览。弹窗期间让出 Copilot 的活动观察者，关闭后恢复已有 Dock。Copilot 被页面设置禁用时，open 返回 `copilot_disabled`；重复 open 不新建或重置会话，close 不停止后台 Run。
 
 认证 SDK 的 `auth` 接口与品牌无关，自动发现访问者自己的 ZenMind/CuteJ preload；不要由 WebApp 直接读取品牌全局，也不要用发布者品牌判断登录能力。
+
+
+### 附件、资源和运行控制（Desktop）
+
+- `assistant.upload({file: Blob, name?, chatId?}, {signal?})`：单文件最多 64 MiB（67,108,864 字节）。省略 chatId 时由 Platform 在上传时创建 Chat，SDK 返回该 canonical chatId；传入本实例已有 chatId 则上传到原 Chat，返回 `{chatId, upload:{type,id,name,url,mimeType,sizeBytes}}`，不返回本机路径。
+- `assistant.chat({message, chatId?, uploadIds?, skillIds?, background?})`：在本实例拥有的 Chat 续聊；uploadIds 最多 16 个，必须属于同一 Chat 和实例，上传句柄 30 分钟有效。
+- `assistant.resource.read({chatId,file}, {signal?})`：file 是 Chat 相对路径，返回 `ReadableStream<Uint8Array>`，有界读取最多 16 MiB；不接受 URL、绝对路径或隐藏内部文件。已发布产物下载仍用 artifact.read/saveAs。
+- `assistant.steer({runId,message,requestId?,steerId?})`、`assistant.send({runId,message,requestId?})`、`assistant.submit({runId,awaitingId,submitId?,param?|params?})`：仅本实例后台 Run，根 Agent 由宿主固定。send 返回 mailbox 回执，不自动订阅回执中的新 Run；调用方应保留 requestId 防止重复投递。submit 的 param 与 params 必须二选一。
+- `assistant.interrupt({runId})` 与 `assistant.stop({runId})` 等价，走 Primary WebSocket 控制通道。
+
+上传使用独立的 88 MiB JSON 传输限额入口（容纳 64 MiB 文件的 Base64 与元数据），普通页面 Action 仍为 64 KiB，后端仍为 256 KiB。页面与托管后端均支持这些数据方法。Compose 宿主须另外实现对应处理器和上传入口，不能仅复制 SDK 认定可用。

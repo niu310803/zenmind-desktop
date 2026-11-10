@@ -1,3 +1,6 @@
+import type { AssistantStartRunRequest } from "../../../shared/contracts";
+import { resolveWebappUploads } from "./webapp-files";
+import { assertWebappChat } from "./webapp-connector";
 import { executeSkinAction } from "./skin-actions";
 import { type DesktopActionBridgeOptions, type DesktopActionInvocationContext } from "./action-contracts";
 import { type DesktopActionCallRequest, type DesktopActionCallResponse } from "../../../shared/desktop-actions";
@@ -82,7 +85,7 @@ export async function executeAction(
   switch (action) {
     case "desktop.assistant.chat": {
       const isWebappInvocation = invocation.kind === "webappPage" || invocation.kind === "webappBackend";
-      const allowedWebappArgs = new Set(["message", "skillIds", "background"]);
+      const allowedWebappArgs = new Set(["message", "skillIds", "background", "chatId", "uploadIds"]);
       if (isWebappInvocation) {
         const rejectedKeys = Object.keys(args).filter((key) => !allowedWebappArgs.has(key));
         if (rejectedKeys.length > 0) {
@@ -99,7 +102,7 @@ export async function executeAction(
       }
       const settings = options.getAssistantSettings(options.app);
       let agentKey = settings.desktopHelperAgentKey;
-      let references: {type:"skill";id:string}[] | undefined;
+      let references: AssistantStartRunRequest["references"];
       if (isWebappInvocation) {
         const item = options.webs.webappManager.list(options.app)
           .find((candidate) => candidate.id === invocation.webappId) ?? null;
@@ -129,13 +132,20 @@ export async function executeAction(
         );
       }
       const webappContext = isWebappInvocation ? await captureWebappContext(options, invocation.webappId, invocation.signal) : null;
+      if (webappContext && args.chatId !== undefined) assertWebappChat(webappContext.key, args.chatId);
+      if (webappContext && args.uploadIds !== undefined) {
+        assertWebappChat(webappContext.key, args.chatId);
+        references = [...(references ?? []), ...resolveWebappUploads(webappContext, args.chatId, args.uploadIds)];
+      }
+      const chat = webappContext && typeof args.chatId === "string" ? { chatId: args.chatId } : {};
       if (isWebappInvocation && args.background !== undefined && typeof args.background !== "boolean") return fail(action, "invalid_args", "background must be boolean.");
       if (webappContext && args.background === true) {
-        const result = await startWebappAssistant(options, webappContext, { agentKey, source: "copilot", action: "chat", message, ...(references?.length ? { references } : {}) });
+        const result = await startWebappAssistant(options, webappContext, { agentKey, ...chat, source: "copilot", action: "chat", message, ...(references?.length ? { references } : {}) });
         return ok(action, result);
       }
       const completion = await options.assistantBridge.completeText({
         agentKey,
+        ...chat,
         source: "copilot",
         action: "chat",
         message,

@@ -4,7 +4,7 @@ import {build} from 'esbuild';
 let fetcher;let confirm;
 const electron={net:{fetch:(...args)=>fetcher(...args)},dialog:{showMessageBox:(...args)=>confirm(...args)},BrowserWindow:class{constructor(){throw Error('unexpected browser')}},shell:{openExternal:()=>{throw Error('unexpected system browser')}}};
 globalThis.__webappConnectorElectron=electron;
-const {outputFiles}=await build({stdin:{contents:`export * from './src/main/modules/desktop-actions/webapp-connector'; export * from './src/main/modules/desktop-actions/webapp-assistant'; export * from './src/main/modules/desktop-actions/webapp-platform-client'; export * from './src/main/modules/desktop-actions/webapp-kanban';`,resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',banner:{js:'import {createRequire} from "node:module"; const require=createRequire('+JSON.stringify(process.cwd()+'/test/webapp-connector.test.mjs')+');'},plugins:[{name:'ports',setup(b){b.onResolve({filter:/^\.\.\/artifacts$/},()=>({path:process.cwd()+'/src/main/modules/artifacts/actions.ts'}));b.onResolve({filter:/^electron$/},()=>({path:'electron',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const {net,dialog,BrowserWindow,shell,session}=globalThis.__webappConnectorElectron;'}));b.onResolve({filter:/agent-platform$/},()=>({path:'auth',namespace:'mock-auth'}));b.onLoad({filter:/.*/,namespace:'mock-auth'},()=>({contents:'export function readEmbeddedAuthorization(){throw Error("unexpected UI")}'}));b.onResolve({filter:/main-i18n$/},()=>({path:'i18n',namespace:'mock-i18n'}));b.onLoad({filter:/.*/,namespace:'mock-i18n'},()=>({contents:'export const t=(key)=>key; export const getMainLocale=()=>"en";'}));}}]});
+const {outputFiles}=await build({stdin:{contents:`export * from './src/main/modules/desktop-actions/webapp-connector'; export * from './src/main/modules/desktop-actions/webapp-assistant'; export * from './src/main/modules/desktop-actions/webapp-files'; export * from './src/main/modules/desktop-actions/webapp-platform-client'; export * from './src/main/modules/desktop-actions/webapp-kanban';`,resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',banner:{js:'import {createRequire} from "node:module"; const require=createRequire('+JSON.stringify(process.cwd()+'/test/webapp-connector.test.mjs')+');'},plugins:[{name:'ports',setup(b){b.onResolve({filter:/^\.\.\/artifacts$/},()=>({path:process.cwd()+'/src/main/modules/artifacts/actions.ts'}));b.onResolve({filter:/^electron$/},()=>({path:'electron',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const {net,dialog,BrowserWindow,shell,session}=globalThis.__webappConnectorElectron;'}));b.onResolve({filter:/agent-platform$/},()=>({path:'auth',namespace:'mock-auth'}));b.onLoad({filter:/.*/,namespace:'mock-auth'},()=>({contents:'export function readEmbeddedAuthorization(){throw Error("unexpected UI")}'}));b.onResolve({filter:/main-i18n$/},()=>({path:'i18n',namespace:'mock-i18n'}));b.onLoad({filter:/.*/,namespace:'mock-i18n'},()=>({contents:'export const t=(key)=>key; export const getMainLocale=()=>"en";'}));}}]});
 const api=await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`);
 const subject='desktop-app';
 const token='header.'+Buffer.from(JSON.stringify({sub:subject})).toString('base64url')+'.signature';
@@ -171,7 +171,7 @@ test('background runs expose bounded safe events and cannot be stopped by anothe
  options.assistantBridge={
   startRun:async()=>({ok:true,chatId:'owned-chat',runId:'owned-run'}),
   observeRun:async(input)=>{observer=input;return {ready:Promise.resolve(),unsubscribe:()=>{detached++}}},
-  stopRun:async()=>{stops++;return {ok:true}}
+  stopMainRun:async()=>{stops++;return {ok:true}}
  };
  const context=await api.captureWebappContext(options,'one',controller.signal);
  const accepted=await api.startWebappAssistant(options,context,{agentKey:'writer',message:'hello'});
@@ -357,4 +357,43 @@ test('artifact.saveAs fetches bytes through Chat API after the native picker',as
   assert.equal(result.result.saved,true);assert.equal(await fs.readFile(target,'utf8'),'saved report');
   assert.deepEqual(calls,['/api/chat/artifacts/get','/api/chat/artifacts/read']);
  } finally {await fs.rm(folder,{recursive:true,force:true})}
+});
+
+for (const kind of ['webappPage','webappBackend']) test(`${kind}: upload and resource bytes stay within the owning Chat`,async()=>{
+ const options=fixture();options.getAssistantSettings=()=>({desktopHelperAgentKey:'writer'});options.webs.webappManager.readUserConfig=()=>({});
+ const invocation={kind,webappId:'one'};const calls=[];
+ fetcher=async(url,init)=>{
+  calls.push(new URL(url));
+  if(new URL(url).pathname==='/api/upload'){
+   assert.ok(init.body instanceof FormData);assert.equal(init.headers['Content-Type'],undefined);
+   assert.equal(await init.body.get('file').text(),'hello');assert.equal(init.body.get('agentKey'),'writer');
+   return response({chatId:init.body.get('chatId')||'platform-created-'+kind,upload:{id:'file-'+kind,type:'file',name:'hello.txt',url:'@chat/hello.txt',sizeBytes:5,path:'/private/secret'}});
+  }
+  assert.equal(new URL(url).searchParams.get('file').endsWith('/hello.txt'),true);return new Response('hello');
+ };
+ const uploaded=await api.executeWebappFiles(options,'assistant.upload',{name:'hello.txt',dataBase64:Buffer.from('hello').toString('base64')},invocation);
+ assert.equal(uploaded.ok,true);assert.equal(JSON.stringify(uploaded).includes('/private'),false);
+ const chatId=uploaded.result.chatId;assert.equal(chatId,'platform-created-'+kind);
+ const context=await api.captureWebappContext(options,'one');
+ assert.equal(api.resolveWebappUploads(context,chatId,[uploaded.result.upload.id])[0].url,'@chat/hello.txt');
+ assert.throws(()=>api.resolveWebappUploads(context,'other',[uploaded.result.upload.id]));
+ assert.equal((await api.executeWebappFiles(options,'assistant.resource.read',{chatId,file:'hello.txt'},invocation)).result.dataBase64,Buffer.from('hello').toString('base64'));
+ const before=calls.length;
+ assert.equal((await api.executeWebappFiles(options,'assistant.resource.read',{chatId,file:'hello.txt'},{...invocation,webappId:'two'})).error.code,'app_grant_required');
+ for(const file of ['../secret','C:/secret','/etc/passwd','https://evil','a\\b','.tools/result','a//b','a?file=x']) assert.equal((await api.executeWebappFiles(options,'assistant.resource.read',{chatId,file},invocation)).ok,false);
+ assert.equal(calls.length,before);
+});
+test('controls freeze the root Agent, reject foreign runs and keep stop on Primary',async()=>{
+ const options=fixture();const controller=new AbortController();let calls=[];
+ options.assistantBridge={startRun:async()=>({ok:true,chatId:'control-chat',runId:'control-run'}),observeRun:async()=>({ready:Promise.resolve(),unsubscribe(){}}),stopMainRun:async(...args)=>{calls.push(args);return {ok:true}},controlWebappRun:async(...args)=>{calls.push(args);return {accepted:true}}};
+ await api.startWebappAssistant(options,await api.captureWebappContext(options,'one',controller.signal),{agentKey:'root',message:'hello'});
+ const invocation={kind:'webappPage',webappId:'one'};
+ for(const action of ['assistant.steer','assistant.send']) {
+  assert.equal((await api.executeWebappAssistant(options,action,{runId:'control-run',message:'next'},invocation)).ok,true);
+  assert.equal(calls.at(-1)[1].agentKey,'root');assert.equal(calls.at(-1)[1].chatId,'control-chat');
+  assert.equal((await api.executeWebappAssistant(options,action,{runId:'control-run',message:'next'},{...invocation,webappId:'two'})).error.code,'app_grant_required');
+  assert.equal((await api.executeWebappAssistant(options,action,{runId:'control-run',message:'next',agentKey:'member'},invocation)).error.code,'invalid_arguments');
+ }
+ assert.equal((await api.executeWebappAssistant(options,'assistant.submit',{runId:'control-run',awaitingId:'a',param:{ok:true}},invocation)).ok,true);
+ assert.equal((await api.executeWebappAssistant(options,'assistant.interrupt',{runId:'control-run'},invocation)).ok,true);assert.deepEqual(calls.at(-1),['control-run','root']);controller.abort();
 });

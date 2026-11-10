@@ -19,13 +19,13 @@ export const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 
 export const MAX_BODY_BYTES = 256 * 1024;
 
-export async function readBody(req: http.IncomingMessage) {
+export async function readBody(req: http.IncomingMessage, maxBytes = MAX_BODY_BYTES) {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_BODY_BYTES) {
+    if (total > maxBytes) {
       throw new Error("request body too large");
     }
     chunks.push(buffer);
@@ -106,15 +106,20 @@ export function startDesktopActionBridge(options: DesktopActionBridgeOptions) {
       }
       return;
     }
-    if (req.method === "POST" && url.pathname === "/webapps/actions/call") {
+    if (req.method === "POST" && ["/webapps/actions/call", "/webapps/uploads"].includes(url.pathname)) {
       if (!hasJsonContentType(req)) {
         writeJSON(res, 415, fail("unknown", "unsupported_media_type", "Content-Type must be application/json."));
         return;
       }
       const lifetime = createHttpRequestLifetime(req, res);
       try {
-        const body = await readBody(req);
+        const upload = url.pathname.endsWith("/uploads");
+        if (upload && !authorizeWebappActionToken(readBearerToken(req), "assistant.upload", url.pathname.includes("/pages/") ? "localPageGateway" : "backendActionToken").ok) {
+          writeJSON(res, 403, fail("assistant.upload", "forbidden", "Upload authorization is required.")); return;
+        }
+        const body = await readBody(req, upload ? 88 * 1024 * 1024 : MAX_BODY_BYTES);
         const parsed = JSON.parse(body) as DesktopActionCallRequest;
+        if (upload && parsed.action !== "assistant.upload") { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
         const authorization = authorizeWebappActionToken(
           readBearerToken(req),
           parsed.action,
@@ -140,15 +145,20 @@ export function startDesktopActionBridge(options: DesktopActionBridgeOptions) {
       } finally { lifetime.dispose(); }
       return;
     }
-    if (req.method === "POST" && url.pathname === "/webapps/pages/actions/call") {
+    if (req.method === "POST" && ["/webapps/pages/actions/call", "/webapps/pages/uploads"].includes(url.pathname)) {
       if (!hasJsonContentType(req)) {
         writeJSON(res, 415, fail("unknown", "unsupported_media_type", "Content-Type must be application/json."));
         return;
       }
       const lifetime = createHttpRequestLifetime(req, res);
       try {
-        const body = await readBody(req);
+        const upload = url.pathname.endsWith("/uploads");
+        if (upload && !authorizeWebappActionToken(readBearerToken(req), "assistant.upload", url.pathname.includes("/pages/") ? "localPageGateway" : "backendActionToken").ok) {
+          writeJSON(res, 403, fail("assistant.upload", "forbidden", "Upload authorization is required.")); return;
+        }
+        const body = await readBody(req, upload ? 88 * 1024 * 1024 : MAX_BODY_BYTES);
         const parsed = JSON.parse(body) as DesktopActionCallRequest;
+        if (upload && parsed.action !== "assistant.upload") { writeJSON(res, 403, fail(parsed.action, "forbidden", "Upload endpoint only accepts assistant.upload.")); return; }
         const authorization = authorizeWebappActionToken(
           readBearerToken(req),
           parsed.action,

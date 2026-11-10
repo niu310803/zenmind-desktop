@@ -1824,3 +1824,10 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - Standalone 与旧 Desktop 保留 blob 侧栏预览；无 Chat 的新对话不尝试创建原生草稿；超 4 MiB、错误摘要和权限拒绝明确失败，不自动回落。
 
 - 分别构建 ZenMind/CuteJ：HTTP(S) 顶层页仅有对应品牌认证 transport；同一 WebApp 的 auth SDK 可被两个品牌访问者使用，身份始终来自访问者。更新运行中 Desktop 的 preload 与 SDK 后应重启整个进程，避免新旧模块混用。
+
+
+### WebApp Platform 数据桥补齐
+
+- [ ] macOS/Windows 分别用 Bridge Lab 页面和托管后端上传文本附件，检查无本机路径；用返回 chatId + uploadIds 聊天，并读取上传文件原文。
+- [ ] 上传恰好 64 MiB 成功并返回 Platform 创建的 chatId，超过 64 MiB 拒绝；普通 Action 原有限额仍生效；上传专用入口拒绝其他 action；跨应用、重启后旧身份、外部 URL、绝对路径和父目录资源读取拒绝。
+- [ ] 后台 Run 分别执行 steer/send/submit（真实 awaiting）与 stop/interrupt，检查固定根 agentKey 和 Primary 控制身份；跨应用 Run 拒绝。

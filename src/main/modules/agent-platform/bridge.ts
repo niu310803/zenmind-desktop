@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { App } from "electron";
 import type {
   AgentAuthIssueResult,
@@ -156,6 +157,23 @@ export class AgentPlatformAssistantBridge {
       if (!closed) console.warn("[webapp-execute]", { requestId, stage: "push", elapsedMs: Date.now() - startedAt, code: "assistant_push_unavailable" });
     });
     return cleanup;
+  }
+
+  /** Fixed Main control routes retain the Primary lane and root Agent identity. */
+  async controlWebappRun(type: "/api/steer" | "/api/send" | "/api/submit", payload: Record<string, unknown>) {
+    const available = await this.platform.resolvePlatform();
+    if (!available.ok) throw new Error("Agent Platform is unavailable");
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      void this.realtimeBroker.forwardRequest({
+        baseUrl: available.baseUrl, token: available.token, lane: "primary",
+        localId: `webapp-control:${randomUUID()}`, consumerId: "webapp-control",
+        type, payload, stream: false,
+        onFrame(frame) {
+          if (frame.frame !== "response" || frame.code !== 0) { reject(new Error("Platform control failed")); return; }
+          resolve((frame.data ?? {}) as Record<string, unknown>);
+        }, onError: reject
+      }).catch(reject);
+    });
   }
 
   async stopRun(runId: string): Promise<AssistantStopRunResult> { return this.runs.stopRun(runId); }

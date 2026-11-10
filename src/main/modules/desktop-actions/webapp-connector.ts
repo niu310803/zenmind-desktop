@@ -41,6 +41,9 @@ export function prepareWebappChat(key: string) {
     }
   };
 }
+export function assertWebappChat(key: string, chatId: unknown): asserts chatId is string {
+  if (typeof chatId !== "string" || !applicationChats.get(key)?.has(chatId)) throw new ConnectorError("app_grant_required");
+}
 const chatReservations = new Map<string, number>();
 
 async function wait(ms: number, signal: AbortSignal) {

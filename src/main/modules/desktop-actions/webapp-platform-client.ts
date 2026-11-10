@@ -17,17 +17,17 @@ export async function platform(options: DesktopActionBridgeOptions) {
   // here only detects identity changes; it does not authenticate a page token.
   return { baseUrl, token: issued.token, subject };
 }
-export async function request(baseUrl: string, token: string, path: string, method: string, body?: unknown, binary = false, signal?: AbortSignal): Promise<any> {
+export async function request(baseUrl: string, token: string, path: string, method: string, body?: unknown, binary = false, signal?: AbortSignal, maxBytes = 1024 * 1024): Promise<any> {
   const response = await net.fetch(new URL(path, baseUrl).href, {
-    method, headers: { "X-Locale": getMainLocale(), Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    method, headers: { "X-Locale": getMainLocale(), Authorization: `Bearer ${token}`, ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }) },
+    ...(body === undefined ? {} : { body: body instanceof FormData ? body : JSON.stringify(body) }),
     credentials: "omit", redirect: "error", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(35_000)]) : AbortSignal.timeout(35_000)
   });
   const reader = response.body?.getReader();
   if (!reader) throw new ConnectorError("invalid_platform_response");
   const chunks: Uint8Array[] = []; let total = 0;
   try {
-    for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.length; if (total > 1024 * 1024) throw new ConnectorError(binary ? "artifact_too_large" : "invalid_platform_response"); chunks.push(value); }
+    for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.length; if (total > maxBytes) throw new ConnectorError(binary ? "artifact_too_large" : "invalid_platform_response"); chunks.push(value); }
   } finally { await reader.cancel(); }
   if (binary && response.ok) return { dataBase64: Buffer.concat(chunks).toString("base64") };
   let payload: any;

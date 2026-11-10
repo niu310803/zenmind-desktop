@@ -585,7 +585,7 @@ export interface AssistantPastedImageInput {
 export type AssistantAccessLevel = "default" | "ask_for_approval" | "auto_approve" | "full_access";
 
 export interface AssistantStartRunRequest {
-  references?: {type: "skill" | "kbase" | "chat"; id: string}[];
+  references?: ({type: "skill" | "kbase" | "chat"; id: string} | {type: "file"; id: string; name: string; url: string; mimeType: string; sizeBytes: number})[];
   chatId?: string | null;
   runId?: string | null;
   requestId?: string | null;

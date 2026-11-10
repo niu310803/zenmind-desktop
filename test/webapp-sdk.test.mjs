@@ -107,3 +107,20 @@ test('page UI helpers use only history identity and explicit Copilot commands', 
   { action: 'desktop.copilot.close', args: {} }
  ]);
 });
+
+test('file SDK routes upload separately and exposes resource bytes in page and backend',async(t)=>{
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});
+ const sdk=await import('../contracts/webapp/bridge.mjs');const seen=[];
+ globalThis.fetch=async(url,init)=>{
+  const body=JSON.parse(init.body);seen.push({url,body});
+  return new Response(JSON.stringify({ok:true,result:body.action==='assistant.upload'?{chatId:'owned',upload:{id:'u'}}:{dataBase64:btoa('hello')}}));
+ };
+ await sdk.assistant.upload({file:new Blob(['hello'],{type:'text/plain'}),name:'hello.txt'});
+ assert.equal(seen.at(-1).url,'/__desktop/assistant/uploads');assert.equal(seen.at(-1).body.args.dataBase64,btoa('hello'));
+ const backend=sdk.createBackendClient({url:'http://127.0.0.1:1234/webapps',token:'backend'});
+ await backend.assistant.upload({file:new Blob(['hello']),chatId:'owned'});
+ assert.equal(seen.at(-1).url,'http://127.0.0.1:1234/webapps/uploads');
+ assert.equal(await new Response(await backend.assistant.resource.read({chatId:'owned',file:'hello.txt'})).text(),'hello');
+ await assert.rejects(sdk.assistant.upload({file:new Blob([new Uint8Array(64*1024*1024+1)])}),{code:'invalid_args'});
+ for(const action of ['steer','send','submit','interrupt']){await sdk.assistant[action]({runId:'r'});assert.equal(seen.at(-1).body.action,'assistant.'+action)}
+});

@@ -476,7 +476,8 @@ async function handleDesktopBridgeRequest(
     integrationPorts?: WebsIntegrationPorts;
   },
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  upload = false
 ) {
   if (req.method !== "POST") {
     res.writeHead(405, { "Allow": "POST", "Cache-Control": "no-store" });
@@ -492,12 +493,12 @@ async function handleDesktopBridgeRequest(
   const deadline = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const parsed = JSON.parse(await readRequestBody(req, DESKTOP_ACTION_BODY_LIMIT)) as {
+    const parsed = JSON.parse(await readRequestBody(req, upload ? 88 * 1024 * 1024 : DESKTOP_ACTION_BODY_LIMIT)) as {
       action?: unknown;
       args?: unknown;
     };
     action = typeof parsed.action === "string" ? parsed.action : "";
-    if (!isWebappActionAllowed(options.item, "localPageGateway", action)) {
+    if ((upload && action !== "assistant.upload") || !isWebappActionAllowed(options.item, "localPageGateway", action)) {
       writeBridgeError(
         res,
         403,
@@ -510,7 +511,7 @@ async function handleDesktopBridgeRequest(
     const execute = action === WEBAPP_BRIDGE_ACTIONS.assistantExecute;
     timer = setTimeout(() => deadline.abort(), execute ? WEBAPP_EXECUTE_TRANSPORT_TIMEOUT_MS : 120_000);
     timer.unref();
-    const actionUrl = `http://${HOST}:${requireWebsIntegrationPorts(options.integrationPorts).getConfiguredDesktopActionBridgePort(options.app)}/webapps/pages/actions/call`;
+    const actionUrl = `http://${HOST}:${requireWebsIntegrationPorts(options.integrationPorts).getConfiguredDesktopActionBridgePort(options.app)}/webapps/pages/${upload ? "uploads" : "actions/call"}`;
     const upstream = {
         method: "POST",
         headers: {
@@ -603,6 +604,10 @@ export async function startWebappGateway(options: {
         "X-Content-Type-Options": "nosniff"
       });
       res.end(body);
+      return;
+    }
+    if (requestPath === "/__desktop/assistant/uploads") {
+      void handleDesktopBridgeRequest(options, req, res, true);
       return;
     }
     if (requestPath === DESKTOP_ACTION_PATH) {

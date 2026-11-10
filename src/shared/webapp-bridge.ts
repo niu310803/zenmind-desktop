@@ -102,7 +102,7 @@ export const WEBAPP_BRIDGE_CAPABILITY_ACTIONS: Readonly<Record<WebappBridgeCapab
     "desktop.locale": Object.freeze([WEBAPP_BRIDGE_ACTIONS.localeGet, WEBAPP_BRIDGE_ACTIONS.localeSet]),
     "connector.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorList,WEBAPP_BRIDGE_ACTIONS.connectorDescribe,WEBAPP_BRIDGE_ACTIONS.connectorInvoke]),
     "desktop.connector.authenticate": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorAuthenticate]),
-    "assistant.chat": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.events", "assistant.stop"]),
+    "assistant.chat": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit", "assistant.upload", "assistant.resource.read"]),
     "assistant.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantExecute]),
     "assistant.image": Object.freeze([
       WEBAPP_BRIDGE_ACTIONS.assistantImage,

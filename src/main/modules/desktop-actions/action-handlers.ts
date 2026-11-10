@@ -1,3 +1,4 @@
+import { executeWebappFiles } from "./webapp-files";
 import { executeWebappExecute } from "./webapp-execute";
 import {
   type DesktopActionBridgeOptions,
@@ -171,10 +172,11 @@ export async function handleActionCall(
   request: DesktopActionCallRequest,
   invocation: DesktopActionInvocationContext = { kind: "desktop" }
 ): Promise<DesktopActionCallResponse> {
+  if (request.action === "assistant.upload" || request.action === "assistant.resource.read") return executeWebappFiles(options, request.action, asRecord(request.args), invocation);
   if (request.action === "assistant.execute") return executeWebappExecute(options, request.args, invocation);
   const isWebapp = invocation.kind === "webappPage" || invocation.kind === "webappBackend";
   if (["kanban.boards.list", "kanban.issues.list", "kanban.issues.get"].includes(request.action)) return executeWebappKanban(options, request.action, asRecord(request.args), invocation);
-  if (request.action === "assistant.events" || request.action === "assistant.stop") return executeWebappAssistant(options, request.action, asRecord(request.args), invocation);
+  if (["assistant.events", "assistant.stop", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit"].includes(request.action)) return executeWebappAssistant(options, request.action, asRecord(request.args), invocation);
   if (isWebappConnectorAction(request.action)) return executeWebappConnector(options, request.action, asRecord(request.args), invocation);
   const action = isWebapp ? resolveWebappAction(request.action) : request.action;
   if (isWebapp && WEBAPP_PAGE_METHODS.has(action)) {

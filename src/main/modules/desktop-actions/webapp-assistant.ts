@@ -4,8 +4,8 @@ import { type DesktopActionBridgeOptions, type DesktopActionInvocationContext } 
 import { captureWebappContext, ConnectorError, type WebappContext } from "./webapp-platform-client";
 import { rememberWebappChat } from "./webapp-connector";
 
-type Event = { cursor: number; type: string; text?: string; reason?: string };
-type Run = { context: WebappContext; chatId: string; runId: string; events: Event[]; cursor: number; terminal: boolean; release(): void };
+type Event = { cursor: number; type: string; text?: string; reason?: string; awaitingId?: string; mode?: string };
+type Run = { context: WebappContext; chatId: string; runId: string; events: Event[]; cursor: number; terminal: boolean; agentKey: string; release(): void };
 const runs = new Map<string, Run>();
 const MAX_EVENTS = 256;
 const MAX_RUNS = 128;
@@ -20,7 +20,7 @@ export async function startWebappAssistant(options: DesktopActionBridgeOptions, 
   await context.check();
   if (!accepted.ok || !accepted.chatId || !accepted.runId) throw new ConnectorError("assistant_failed");
   rememberWebappChat(context.key, accepted.chatId);
-  const run: Run = { context, chatId: accepted.chatId, runId: accepted.runId, events: [], cursor: 0, terminal: false, release() {} };
+  const run: Run = { context, chatId: accepted.chatId, runId: accepted.runId, events: [], cursor: 0, terminal: false, agentKey: request.agentKey || "", release() {} };
   runs.set(run.runId, run);
   append(run, { type: "run.accepted" });
   let detach = () => {};
@@ -53,6 +53,8 @@ export async function startWebappAssistant(options: DesktopActionBridgeOptions, 
         if (event.type === "content.delta") {
           const text = typeof event.text === "string" ? event.text : typeof event.delta === "string" ? event.delta : "";
           for (let offset = 0; offset < text.length; offset += 4096) append(run, { type: "text.delta", text: text.slice(offset, offset + 4096) });
+        } else if (event.type === "awaiting.asking" && typeof event.awaitingId === "string") {
+          append(run, { type: event.type, awaitingId: event.awaitingId, ...(typeof event.mode === "string" ? { mode: event.mode } : {}) });
         } else if (["run.start", "run.complete", "run.error", "run.interrupted", "artifact.publish", "artifact.published"].includes(event.type)) {
           append(run, { type: event.type });
         }
@@ -76,13 +78,25 @@ export async function executeWebappAssistant(options: DesktopActionBridgeOptions
   try {
     if (invocation.kind !== "webappPage" && invocation.kind !== "webappBackend") throw new ConnectorError("forbidden");
     const context = await captureWebappContext(options, invocation.webappId, invocation.signal);
-    const allowed = action === "assistant.events" ? ["runId", "cursor"] : ["runId"];
+    const allowed = action === "assistant.events" ? ["runId", "cursor"] : action === "assistant.steer" || action === "assistant.send" ? ["runId", "message", "requestId", "steerId"] : action === "assistant.submit" ? ["runId", "awaitingId", "submitId", "param", "params"] : ["runId"];
     if (Object.keys(args).some(key => !allowed.includes(key)) || typeof args.runId !== "string") throw new ConnectorError("invalid_arguments");
     const run = runs.get(args.runId);
     if (!run || run.context.key !== context.key) throw new ConnectorError("app_grant_required");
     await run.context.check();
-    if (action === "assistant.stop") {
-      const stopped = await options.assistantBridge.stopRun(run.runId);
+    if (["assistant.steer", "assistant.send", "assistant.submit"].includes(action)) {
+      if (run.terminal) throw new ConnectorError("run_finished");
+      if (action !== "assistant.submit" && (typeof args.message !== "string" || !args.message.trim() || args.message.length > 12000)) throw new ConnectorError("invalid_arguments");
+      if (action === "assistant.submit" && (typeof args.awaitingId !== "string" || !args.awaitingId || ("param" in args) === ("params" in args))) throw new ConnectorError("invalid_arguments");
+      const { runId: _, ...input } = args;
+      if (action === "assistant.send" && "steerId" in input) throw new ConnectorError("invalid_arguments");
+      const result = await options.assistantBridge.controlWebappRun(action === "assistant.steer" ? "/api/steer" : action === "assistant.send" ? "/api/send" : "/api/submit", {
+        ...input, ...(action === "assistant.send" ? { requestId: args.requestId || randomUUID() } : { runId: run.runId }), chatId: run.chatId, agentKey: run.agentKey
+      });
+      await context.check();
+      return { ok: true, action, result };
+    }
+    if (action === "assistant.stop" || action === "assistant.interrupt") {
+      const stopped = await options.assistantBridge.stopMainRun(run.runId, run.agentKey);
       await context.check();
       if (!stopped.ok) throw new ConnectorError("assistant_stop_failed");
       return { ok: true, action, result: { stopped: true } };

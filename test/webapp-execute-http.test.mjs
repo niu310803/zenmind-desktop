@@ -8,6 +8,9 @@ import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { createBackendClient } from '../contracts/webapp/bridge.mjs';
 const require=createRequire(import.meta.url);
+// HTTP integration uses Node fetch for Electron's network port; all host routing is real.
+const electronModule=require.resolve('electron');require(electronModule);
+require.cache[electronModule].exports={net:{fetch:(...args)=>fetch(...args)}};
 let onRun;
 const {startDesktopActionBridge,stopDesktopActionBridge}=require('../dist-electron/main/modules/desktop-actions/action-http-server.js');
 const {writeDesktopActionBridgeSettingsConfig}=require('../dist-electron/main/modules/desktop-actions/settings.js');
@@ -20,9 +23,16 @@ async function fixture(t) {
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'execute-http-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
  const item={schemaVersion:2,id:'webapp-1234567890abcdef',key:'execute-test',label:'Execute test',version:'1.0.0',target:'any',frontend:{root:'frontend',index:'index.html',routeConfig:{backendPrefixes:[]}},desktopBridge:{version:2}};
  fs.mkdirSync(path.join(home,'frontend'));fs.writeFileSync(path.join(home,'frontend/index.html'),'<p>test</p>');fs.writeFileSync(path.join(home,'webapp.json'),JSON.stringify(item));
- const app={getPath:name=>path.join(home,name)};let mode='success';let started,closed;let interruptBody;let posts=0;
+ const app={getPath:name=>path.join(home,name)};let mode='success';let started,closed;let interruptBody;let posts=0;let uploadBytes=80*1024;
  const platform=http.createServer(async(req,res)=>{
-  const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=JSON.parse(Buffer.concat(chunks));
+  if(req.url.startsWith('/api/resource?')){res.end('uploaded bytes');return}
+  const chunks=[];for await(const chunk of req)chunks.push(chunk);
+  if(req.url==='/api/upload'){
+   const form=await new Response(Buffer.concat(chunks),{headers:{'Content-Type':req.headers['content-type']}}).formData();
+   assert.equal(form.get('file').size,uploadBytes);assert.equal(form.get('agentKey'),'executor');
+   res.end(JSON.stringify({code:0,data:{chatId:form.get('chatId')||'platform-upload-chat',upload:{id:'uploaded',name:'fixture.txt',url:'@chat/fixture.txt',sizeBytes:uploadBytes}}}));return;
+  }
+  const body=JSON.parse(Buffer.concat(chunks));
   assert.match(req.headers.authorization,/^Bearer h\./);
   if(req.url==='/api/interrupt'){interruptBody=body;res.end(JSON.stringify({code:0,data:{accepted:true}}));return}
   assert.equal(req.url,'/api/execute');setImmediate(()=>onRun?.({runId:'run-1',chatId:'chat-1',agentKey:body.agentKey}));posts++;assert.equal(body.agentKey,'executor');assert.equal(body.accessLevel,'ask_for_approval');
@@ -45,7 +55,7 @@ async function fixture(t) {
  const gateway=await startWebappGateway({app,item,webappDir:home,backendUrl:'',pageActionToken:page,integrationPorts:{getConfiguredDesktopActionBridgePort:()=>bridgePort}});
  runtime.webUrl=gateway.webUrl;t.after(()=>gateway.close());
  const backendURL=`http://127.0.0.1:${bridgePort}/webapps`;
- return {gateway,bridge,backendURL,backend,page,get posts(){return posts},get interrupt(){return interruptBody},
+ return {gateway,bridge,backendURL,backend,page,setUploadBytes(value){uploadBytes=value},get posts(){return posts},get interrupt(){return interruptBody},
   block(){mode='blocked';return {started:new Promise(resolve=>{started=resolve}),closed:new Promise(resolve=>{closed=resolve})}}};
 }
 test('real gateway and native Node backend transport deliver equivalent results and deny scope substitution',async t=>{
@@ -72,4 +82,22 @@ for(const kind of ['page','backend','stop'])test(kind+' cancellation reaches the
  await Promise.race([state.closed,new Promise((_,reject)=>setTimeout(()=>reject(Error('Platform connection stayed open')),1500))]);
  for(let i=0;i<50&&!f.interrupt;i++)await new Promise(resolve=>setTimeout(resolve,10));
  assert.equal(f.interrupt?.runId,'run-1');assert.equal(f.interrupt.agentKey,'executor');
+});
+
+test('dedicated upload routes carry files above Action limits and enforce page/backend scopes',async t=>{
+ const f=await fixture(t);const content='x'.repeat(80*1024);
+ const args={name:'fixture.txt',mimeType:'text/plain',dataBase64:Buffer.from(content).toString('base64')};
+ const response=await fetch(new URL('/__desktop/assistant/uploads',f.gateway.webUrl),{method:'POST',headers:{'Content-Type':'application/json',Origin:new URL(f.gateway.webUrl).origin},body:JSON.stringify({action:'assistant.upload',args})});
+ assert.equal(response.status,200);const uploaded=await response.json();assert.equal(uploaded.ok,true,JSON.stringify(uploaded));
+ const backend=createBackendClient({url:f.backendURL,token:f.backend});
+ f.setUploadBytes(64*1024*1024);
+ const large=await backend.assistant.upload({file:new Blob([new Uint8Array(64*1024*1024)],{type:'application/octet-stream'}),name:'fixture.txt'});
+ assert.equal(large.chatId,'platform-upload-chat');assert.equal(large.upload.sizeBytes,64*1024*1024);
+ f.setUploadBytes(80*1024);
+ assert.equal(uploaded.result.chatId,'platform-upload-chat');
+ assert.equal(await new Response(await backend.assistant.resource.read({chatId:uploaded.result.chatId,file:'fixture.txt'})).text(),'uploaded bytes');
+ const wrongAction=await fetch(new URL('/__desktop/assistant/uploads',f.gateway.webUrl),{method:'POST',headers:{'Content-Type':'application/json',Origin:new URL(f.gateway.webUrl).origin},body:envelope});assert.equal(wrongAction.status,403);
+ for(const [route,token] of [['/webapps/uploads',f.page],['/webapps/pages/uploads',f.backend]]){
+  const denied=await fetch(new URL(route,f.backendURL),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({action:'assistant.upload',args})});assert.equal(denied.status,403);
+ }
 });

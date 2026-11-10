@@ -46,7 +46,7 @@ async function call(action, args = {}, transport, signal) {
     signal?.throwIfAborted();
     await refreshCloudBackendToken(transport);
     signal?.throwIfAborted();
-    response = await fetch(transport?.url || ACTION_PATH, {
+    response = await fetch(action === "assistant.upload" ? (transport ? transport.url.replace(/actions\/call$/u, "uploads") : "/__desktop/assistant/uploads") : transport?.url || ACTION_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(transport ? { Authorization: "Bearer " + transport.token } : {}) },
       credentials: "omit", redirect: "error", signal,
@@ -493,6 +493,22 @@ const artifact = Object.freeze({
 });
 const assistant = Object.freeze({
   execute,
+  async upload({ file, chatId, name }, { signal } = {}) {
+    if (!(file instanceof Blob) || file.size > 64 * 1024 * 1024) throw new DesktopBridgeError("assistant.upload", "invalid_args", "Use a Blob up to 64 MiB.");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return call("assistant.upload", { ...(chatId ? { chatId } : {}), name: name || file.name || "attachment.bin", mimeType: file.type || "application/octet-stream", dataBase64: btoa(binary) }, signal);
+  },
+  resource: Object.freeze({ async read(input, { signal } = {}) {
+    const result = await call("assistant.resource.read", input, signal);
+    if (typeof result?.dataBase64 !== "string") throw new DesktopBridgeError("assistant.resource.read", "invalid_response", "Invalid resource response.");
+    return new Blob([Uint8Array.from(atob(result.dataBase64), value => value.charCodeAt(0))]).stream();
+  } }),
+  interrupt: (input) => call("assistant.interrupt", input),
+  steer: (input) => call("assistant.steer", input),
+  send: (input) => call("assistant.send", input),
+  submit: (input) => call("assistant.submit", input),
   stop: (input) => call("assistant.stop", input),
   async *subscribe(input, { signal } = {}) {
     let cursor = input.cursor || 0;
