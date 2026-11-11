@@ -28,23 +28,31 @@ const {
   resolveAgentWebclientWsSource
 } = require("../dist-electron/shared/agent-webclient-routes.js");
 
-test("management Composer handoff preserves prefill and rejects untrusted or ambiguous targets", () => {
+test("management Composer handoff preserves skill-creator and rejects untrusted or ambiguous targets", () => {
   const origin = "http://127.0.0.1:11948";
-  const search = new URLSearchParams({ newChat: "1790000000000", composerSkill: "platform-admin", composerDraft: "修改模型：A & B？" });
+  const search = new URLSearchParams({ newChat: "1790000000000", composerSkill: "skill-creator", composerDraft: "请帮我创建共享技能 A & B" });
   const target = `${origin}/agent/default?${search}`;
   assert.equal(resolveAgentWebclientDesktopComposerRouteFromUrl(target, origin), `/agent/default?${search}`);
   for (const invalid of [
     target.replace(origin, "https://untrusted.example"),
-    `${target}&chatId=existing`, `${target}&composerSkill=skill-creator`,
-    target.replace("platform-admin", "unknown-skill"),
+    `${target}&chatId=existing`, `${target}&composerSkill=platform-admin`,
+    target.replace("skill-creator", "unknown-skill"),
     target.replace("1790000000000", "123"),
     target.replace("/agent/default", "/agents/default"),
     `${target}#unexpected`,
   ]) assert.equal(resolveAgentWebclientDesktopComposerRouteFromUrl(invalid, origin), "");
-  for (const composerSkill of ["platform-automation", "skill-creator"]) {
+});
+
+test("management Composer handoff keeps the draft and drops retired Skill selections", () => {
+  const origin = "http://127.0.0.1:11948";
+  const search = new URLSearchParams({ newChat: "1790000000000", composerDraft: "请帮我修改共享技能 A & B（唯一标识：reports/weekly）。" });
+  for (const composerSkill of ["platform-admin", "platform-automation"]) {
     const query = new URLSearchParams(search);
     query.set("composerSkill", composerSkill);
-    assert.equal(resolveAgentWebclientDesktopComposerRouteFromUrl(`${origin}/agent/default?${query}`, origin), `/agent/default?${query}`);
+    assert.equal(resolveAgentWebclientDesktopComposerRouteFromUrl(`${origin}/agent/default?${query}`, `${origin}/skills`), `/agent/default?${search}`);
+
+    query.set("composerDraft", "");
+    assert.equal(resolveAgentWebclientDesktopComposerRouteFromUrl(`${origin}/agent/default?${query}`, `${origin}/skills`), "");
   }
 });
 
