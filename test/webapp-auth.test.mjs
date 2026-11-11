@@ -50,5 +50,9 @@ test('macOS and Windows network webviews receive only the sandboxed auth preload
   const sep=prefix.startsWith('C:')?'\\':'/';
   const input={webPreferences:{},params:{src:'https://notes.test'},servicePreloadPath:prefix+sep+'service-webview.js',servicePreloadUrl:'file:///service-webview.js',isSafeServiceUrl:()=>false};
   assert.equal(prepareWebviewAttachPreferences(input).ok,true);assert.equal(input.webPreferences.preload,prefix+sep+'webapp-auth.js');assert.equal(input.webPreferences.sandbox,true);assert.equal(input.webPreferences.nodeIntegration,false);
+  // Login forms may sit in iframes: the sandboxed preload also runs there, only to relay Desktop's login scripts.
+  assert.equal(input.webPreferences.nodeIntegrationInSubFrames,true);
+  const service={webPreferences:{preload:prefix+sep+'service-webview.js'},params:{src:'https://service.test'},servicePreloadPath:prefix+sep+'service-webview.js',servicePreloadUrl:'file:///service-webview.js',isSafeServiceUrl:()=>true};
+  assert.equal(prepareWebviewAttachPreferences(service).ok,true);assert.equal(service.webPreferences.nodeIntegrationInSubFrames,undefined,'service pages keep their preload in the top frame');
  }
 });

@@ -92,15 +92,23 @@ export function prepareWebviewAttachPreferences(input: WebviewAttachInput): Webv
       return false;
     }
   })();
+  const isNetworkPage = /^https?:\/\//u.test(src);
   if (usesServicePreload) {
     input.webPreferences.preload = input.servicePreloadPath;
   } else if (usesReviewPreload) {
     input.webPreferences.preload = reviewPreloadPath;
   }
   // Ordinary network guests get only the page-auth transport, never service IPC.
-  if (!requestedPreload && /^https?:\/\//u.test(src)) {
+  if (!requestedPreload && isNetworkPage) {
     input.webPreferences.preload = input.servicePreloadPath.replace(/service-webview\.js$/u, "webapp-auth.js");
     input.webPreferences.sandbox = true;
+  }
+  // Web pages a user signs in to may hold the login form in an iframe. Their sandboxed
+  // preload also runs in iframes, where it only relays Desktop's login scripts; every
+  // other preload feature stays in the top frame.
+  if (isNetworkPage && input.webPreferences.sandbox === true &&
+      (usesReviewPreload || (!requestedPreload && !usesServicePreload))) {
+    input.webPreferences.nodeIntegrationInSubFrames = true;
   }
   return { ok: true };
 }

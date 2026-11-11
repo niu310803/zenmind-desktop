@@ -7,6 +7,13 @@ export const WEBSITE_CREDENTIAL_PASSWORD_MAX_LENGTH = 1024;
 export const WEBSITE_CREDENTIAL_NOTE_MAX_LENGTH = 500;
 export const WEBSITE_CREDENTIAL_BACKUP_PASSWORD_MIN_LENGTH = 8;
 
+/** The isolated world where Desktop's login scripts run in every frame of a web guest; page scripts cannot reach it. */
+export const WEBSITE_CREDENTIAL_SCRIPT_WORLD_ID = 1777;
+/** Main -> one iframe of a web guest: run a login script in that frame's isolated world. */
+export const WEBSITE_CREDENTIAL_FRAME_RUN_CHANNEL = "credentials.frame.run";
+/** That iframe -> Main: the script's result, answered only to the frame that was asked. */
+export const WEBSITE_CREDENTIAL_FRAME_RESULT_CHANNEL = "credentials.frame.result";
+
 export type WebsiteCredentialErrorCode =
   | "vaultUnavailable"
   | "invalidOrigin"

@@ -3770,6 +3770,7 @@ export const enUSMessages = {
   "desktopAction.credentialFillDescription": "Desktop fills the account and password into the page without submitting. The agent never sees the password.",
   "desktopAction.credentialFillSubmitDescription": "Desktop fills the account and password into the page and submits the login. The agent never sees the password.",
   "desktopAction.credentialFillFieldSite": "Site",
+  "desktopAction.credentialFillFieldPage": "Shown on",
   "desktopAction.credentialFillFieldAccount": "Account",
   "desktopAction.credentialFillDetail": "The site address is read from the page by Desktop, not supplied by the agent. The agent's control of this page is paused while the password is filled.",
   "desktopAction.credentialFillConfirm": "Fill",

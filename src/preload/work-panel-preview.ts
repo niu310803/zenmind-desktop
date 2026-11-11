@@ -4,6 +4,8 @@ import { installWorkPanelPageDialogs } from "./work-panel-page-dialog";
 installWorkPanelPageDialogs();
 import { installPageAuth } from "./page-auth";
 installPageAuth();
+import { installLoginFrameRelay } from "./login-frame-relay";
+installLoginFrameRelay();
 import { ipcRenderer } from "electron";
 import {
   WORK_PANEL_PREVIEW_REVIEW_ACTION_CHANNEL,
@@ -659,7 +661,8 @@ function handleAction(value: unknown) {
   }
 }
 
-if (isReviewableDocument()) {
+// Web guests also run this preload in their iframes; review belongs to the top document only.
+if (window.top === window && isReviewableDocument()) {
   installImageSelection();
   installHtmlSelection();
   ipcRenderer.on(WORK_PANEL_PREVIEW_REVIEW_ACTION_CHANNEL, (_event, action: WorkPanelPreviewReviewAction) => {

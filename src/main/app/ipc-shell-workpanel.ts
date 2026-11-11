@@ -42,7 +42,7 @@ export function registerShellWorkPanelIpc(options: MainIpcRegistrationOptions) {
 
   registerWebsiteBridgeIpc(ipcMain, { getMainWindow: options.getMainWindow, browserSurfaces: options.browserSurfaces, platform: options.platform });
 
-  const websiteCredentials = createWebsiteCredentials(app, { platform: options.platform, getMainWindow: options.getMainWindow });
+  const websiteCredentials = createWebsiteCredentials(app, { platform: options.platform, getMainWindow: options.getMainWindow, ipcMain });
   registerWebsiteCredentialIpc(ipcMain, { getMainWindow: options.getMainWindow, ...websiteCredentials });
   options.browserSurfaces.observeWebGuests(websiteCredentials.capture);
 

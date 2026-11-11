@@ -4535,6 +4535,7 @@ test("credential actions serve only a trusted Run, on the page's real site, and 
   store.add({ origin: "https://other.example.com", username: "carol@example.com", password: "another-secret" });
   options.agentCredentials = createAgentCredentialAccess(store);
   let url = "https://accounts.example.com/login";
+  let pageFrames = [];
   const scripts = [];
   const resolved = [];
   options.resolveWebSurface = async (request) => {
@@ -4542,8 +4543,13 @@ test("credential actions serve only a trusted Run, on the page's real site, and 
     if (request.surfaceId !== "page:1") throw Object.assign(new Error("The target does not belong to this Run."), { code: "target_not_in_current_surface" });
     return {
       surfaceId: "page:1", containerId: "container:1", surfaceKind: "chat-work-panel",
-      contents: { id: 7, isDestroyed: () => false, getURL: () => url,
-        executeJavaScriptInIsolatedWorld: async (_world, [{ code }]) => { scripts.push(code); return code.includes("function fillLogin") ? { status: "submitted" } : { document: "replaced", formVisible: false }; } },
+      contents: { id: 7, isDestroyed: () => false, getURL: () => url, mainFrame: { get framesInSubtree() { return pageFrames; } },
+        executeJavaScriptInIsolatedWorld: async (_world, [{ code }]) => {
+          scripts.push(code);
+          // The page shows its iframes.
+          if (code.includes("frameOwnersShown")) return pageFrames.slice(1).map(() => true);
+          return code.includes("function fillLogin") ? { status: "submitted" } : { document: "replaced", formVisible: false };
+        } },
       validate: async () => {},
       holdAutomation: (execute) => execute(() => {})
     };
@@ -4605,6 +4611,29 @@ test("credential actions serve only a trusted Run, on the page's real site, and 
   url = "http://accounts.example.com/login";
   assert.equal((await call("desktop.credentials.list", { surfaceId: "page:1" })).error.code, "page_not_eligible");
   assert.deepEqual(scripts, []);
+
+  // A login form embedded from another site: both the site and the page showing it are named, and only that iframe is written.
+  updateDesktopProfileInRoot(getDesktopConfigRoot(options.app), { general: { desktopActionConfirmationExemptActions: [] } });
+  url = "https://app.example.com/home";
+  store.add({ origin: "https://sso.example.com", username: "dave@example.com", password: "frame-secret" });
+  const pageMain = { parent: null, frameToken: "main", frameTreeNodeId: 1, frames: [] };
+  const frame = { frameToken: "sso", frameTreeNodeId: 2, origin: "https://sso.example.com", parent: pageMain, detached: false, isDestroyed: () => false, send() {} };
+  pageMain.frames.push(frame);
+  pageFrames = [pageMain, frame];
+  const frameScripts = [];
+  options.agentCredentials = createAgentCredentialAccess(store, { run: async (target, code) => {
+    assert.equal(target, frame);
+    if (code.includes("loginFormPresent")) return true;
+    frameScripts.push(code);
+    return code.includes("function fillLogin") ? { status: "submitted" } : { document: "replaced", formVisible: false };
+  } });
+  const embeddedList = await call("desktop.credentials.list", { surfaceId: "page:1" });
+  assert.deepEqual([embeddedList.result.origin, embeddedList.result.embeddedIn], ["https://sso.example.com", "https://app.example.com"]);
+  const embedded = await call("desktop.credentials.fill", { surfaceId: "page:1" });
+  assert.deepEqual(embedded.result, { origin: "https://sso.example.com", embeddedIn: "https://app.example.com", account: "da***@example.com", status: "submitted", loginFormVisible: false });
+  assert.deepEqual(confirmations.at(-1).fields.map((field) => field.value), ["https://sso.example.com", "https://app.example.com", "da***@example.com"]);
+  assert.ok(frameScripts.some((code) => code.includes("frame-secret")));
+  assert.ok(!scripts.some((code) => code.includes("frame-secret")), "nothing is written into the page around the iframe");
 });
 
 test("WebApp history and Copilot methods forward trusted app identity only from page scope", async t => {

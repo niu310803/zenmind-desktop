@@ -4,7 +4,6 @@ import { BorderOutlined, CloseOutlined, MinusOutlined, ShareAltOutlined, Switche
 import { AppSidebar, type AppSidebarChatMenuHandle } from "./navigation/AppSidebar";
 import { HistoryGestureOverlay } from "./navigation/HistoryGestureOverlay";
 import { DesktopChatHeaderNavigation, DESKTOP_CHAT_HEADER_INITIAL_INSET, WINDOWS_CHAT_HEADER_INITIAL_INSET } from "./navigation/DesktopChatHeaderNavigation";
-import { WebappCopilotButton } from "./navigation/WebappCopilotButton";
 import { forwardMainChatAwaitingDigit } from "../services/mainChatAwaitingShortcut";
 import { getActiveServiceSurfaceId, getServiceSurfaceWebview } from "../services/serviceSurfaceWebviewRefs";
 import { MAIN_CHAT_SURFACE_ID } from "../../shared/surface-identity";
@@ -1278,8 +1277,6 @@ export function AppShell() {
     isSingleAgentWebclientRoute(location.pathname);
   const copilotDockAllowed = !isKanbanRoute && !isAgentWebclientMainRoute;
   const assistantLauncherVisible = copilotDockAllowed && currentCopilotPreference?.enabled !== false;
-  const showWebappCopilotButton = usesWebappSurface && assistantLauncherVisible
-    && sidebarMode === "primary" && !workPanelFullscreenOwnerChatId;
   const currentCopilotContextKey = activeWebEntryKey || (
     location.pathname === BUILTIN_BROWSER_ROUTE
       ? BUILTIN_BROWSER_SURFACE_ID
@@ -2228,17 +2225,6 @@ export function AppShell() {
     setAssistantDockOpenRequest(null);
     pendingAssistantDockOpenRequestRef.current = null;
     updateCopilotDockContextSession(currentCopilotContextKey, null);
-  }
-
-  function toggleSystemBarAssistantDock() {
-    if (!copilotDockAllowed) {
-      return;
-    }
-    if (assistantCopilotOpen) {
-      closeAssistantDock();
-    } else {
-      openAssistantDock();
-    }
   }
 
   // Only the foreground app can control its existing Dock or use the shared
@@ -5014,9 +5000,6 @@ export function AppShell() {
         <span className="app-sidebar-resizer-line" aria-hidden="true" />
       </div>
       <div ref={appContentRef} className="app-content">
-        {showWebappCopilotButton ? (
-          <WebappCopilotButton open={assistantCopilotOpen} onToggle={toggleSystemBarAssistantDock} />
-        ) : null}
         <main className="app-main" id="desktop-main-chat-panel">
           <ServiceWebviewSurfaceHost
             headerLayout={mainChatHeaderLayout}

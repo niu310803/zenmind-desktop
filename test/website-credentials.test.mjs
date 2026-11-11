@@ -261,40 +261,61 @@ test('an encrypted backup round-trips and reveals nothing without its password',
 const { EventEmitter } = require('node:events');
 const { createLoginCapture } = require('../dist-electron/main/modules/credentials/capture/controller.js');
 const pageScript = require('../dist-electron/main/modules/credentials/capture/page-script.js');
+const { createLoginFrameRelay } = require('../dist-electron/main/modules/credentials/frames.js');
 
-// A guest whose isolated world is scripted: `emit` plays the page observer, `passwordField` the outcome probe.
-function fakeGuest(url = 'https://accounts.example.com/login') {
-  const guest = new EventEmitter();
+// One frame of a guest page with a scripted isolated world: `emit$` plays its observer, `formState` its answer to the outcome probe.
+function fakeFrame({ origin, node, parent = null }) {
+  const frame = new EventEmitter();
   let waiter = null; const queue = [];
-  Object.assign(guest, { id: 7, url, passwordField: false, installs: 0, worlds: new Set(), isDestroyed: () => false, getURL: () => guest.url,
+  Object.assign(frame, { origin, frameTreeNodeId: node, parent, frameToken: `frame-${node}`, detached: false, destroyed: false, installs: 0, formState: 'none',
+    isDestroyed: () => frame.destroyed, send() {},
     emit$: event => { if (waiter) { const resolve = waiter; waiter = null; resolve(event); } else queue.push(event); },
-    executeJavaScriptInIsolatedWorld: async (world, [{ code }]) => {
-      guest.worlds.add(world);
-      if (code === pageScript.LOGIN_OBSERVER_NEXT_SCRIPT) return queue.length ? queue.shift() : new Promise(resolve => { waiter = resolve; });
-      if (code === pageScript.LOGIN_OBSERVER_PASSWORD_FIELD_SCRIPT) { if (guest.passwordField instanceof Error) throw guest.passwordField; return guest.passwordField; }
-      guest.installs += 1; return undefined;
+    async script(code) {
+      if (code === pageScript.LOGIN_OBSERVER_NEXT_SCRIPT) {
+        // Like the observer: a newer pull ends the older one as idle.
+        if (waiter) { const previous = waiter; waiter = null; previous({ type: 'idle' }); }
+        return queue.length ? queue.shift() : new Promise(resolve => { waiter = resolve; });
+      }
+      if (code === pageScript.LOGIN_OBSERVER_FORM_STATE_SCRIPT) { if (frame.formState instanceof Error) throw frame.formState; return frame.formState; }
+      frame.installs += 1; return undefined;
     } });
+  return frame;
+}
+// A guest page: its main frame runs scripts through executeJavaScriptInIsolatedWorld, iframes through the relay.
+function fakeGuest(url = 'https://accounts.example.com/login', id = 7) {
+  const guest = new EventEmitter();
+  const main = fakeFrame({ origin: new URL(url).origin, node: 1 });
+  Object.assign(guest, { id, url, main, frames: [main], worlds: new Set(), mainFrame: main, isDestroyed: () => false, getURL: () => guest.url,
+    emit$: event => guest.mainFrame.emit$(event),
+    executeJavaScriptInIsolatedWorld: async (world, [{ code }]) => { guest.worlds.add(world); return guest.mainFrame.script(code); },
+    addFrame(origin, node) { const frame = fakeFrame({ origin, node, parent: guest.mainFrame }); guest.frames.push(frame); return frame; },
+    removeFrame(frame) { frame.detached = true; guest.frames = guest.frames.filter(item => item !== frame); } });
+  Object.defineProperty(main, 'framesInSubtree', { get: () => guest.frames });
   return guest;
 }
-function captureSetup(t, { enabled = true } = {}) {
+const relayed = [];
+const fakeRelay = { run: async (frame, code) => { relayed.push(frame.frameTreeNodeId); return frame.script(code); } };
+function captureSetup(t, { enabled = true, relay = fakeRelay } = {}) {
   const context = setup(t);
   if (enabled) context.store.setCaptureEnabled(true);
   const pending = []; const shown = []; const withdrawn = [];
   const timers = { set: (callback, ms) => { const timer = { callback, ms }; pending.push(timer); return timer; }, clear: timer => { const index = pending.indexOf(timer); if (index >= 0) pending.splice(index, 1); } };
-  const capture = createLoginCapture({ store: context.store, timers, presentOffer: offer => { shown.push(offer); return true; }, withdrawOffer: id => withdrawn.push(id) });
+  let clock = 1_700_000_000_000;
+  const capture = createLoginCapture({ store: context.store, timers, relay, now: () => clock, presentOffer: offer => { shown.push(offer); return true; }, withdrawOffer: id => withdrawn.push(id) });
   const tick = () => new Promise(resolve => setImmediate(resolve));
-  // Runs the outcome probes (2.5s/1.5s timers) but not the two-minute offer expiry.
-  const settle = async () => { await tick(); for (let i = 0; i < 8; i++) { const timer = pending.find(item => item.ms < 10_000); if (!timer) break; timers.clear(timer); await timer.callback(); await tick(); } };
+  // Runs the outcome probes (each a second or so apart, the clock moving with them) but not the two-minute offer expiry.
+  const settle = async (rounds = 8) => { await tick(); for (let i = 0; i < rounds; i++) { const timer = pending.find(item => item.ms < 10_000); if (!timer) break; timers.clear(timer); clock += timer.ms; await timer.callback(); await tick(); } };
   const expire = async () => { for (const timer of [...pending]) { timers.clear(timer); await timer.callback(); } };
-  return { ...context, capture, shown, withdrawn, settle, expire, tick };
+  return { ...context, capture, shown, withdrawn, settle, expire, tick, advance: ms => { clock += ms; } };
 }
-const login = (username = 'alice@example.com', password = 'hunter2!') => ({ type: 'credential', origin: 'https://accounts.example.com', username, password });
+const login = (username = 'alice@example.com', password = 'hunter2!', origin = 'https://accounts.example.com') => ({ type: 'credential', origin, username, password });
 
 test('a successful login is offered for saving without exposing the password', async t => {
   const { capture, store, shown, settle, tick } = captureSetup(t);
   const guest = fakeGuest(); capture.attach(guest); await tick();
-  assert.equal(guest.installs, 1);
+  assert.equal(guest.main.installs, 1);
   assert.deepEqual([...guest.worlds], [pageScript.LOGIN_OBSERVER_WORLD_ID], 'only the isolated world is used');
+  guest.emit$({ type: 'idle' }); await tick();
   guest.emit$(login()); await settle();
   assert.equal(shown.length, 1);
   assert.deepEqual({ ...shown[0], offerId: 'id' }, { offerId: 'id', origin: 'https://accounts.example.com', username: 'alice@example.com', kind: 'save', verified: true });
@@ -314,13 +335,51 @@ test('a successful login is offered for saving without exposing the password', a
   assert.equal(store.resolveForOrigin('https://accounts.example.com', { agentOnly: false }).password, 'hunter2!', 'dismissing keeps the saved password');
 });
 
-test('a rejected login is not offered and an unknown outcome is marked unverified', async t => {
+test('the outcome stays open while the submitted form is shown, a returning form is a refusal, and an unknown one is unverified', async t => {
   const { capture, shown, settle, tick } = captureSetup(t);
   const guest = fakeGuest(); capture.attach(guest); await tick();
-  guest.passwordField = true; guest.emit$(login()); await settle();
-  assert.equal(shown.length, 0, 'the password form is still showing');
-  guest.passwordField = new Error('navigating'); guest.emit$(login()); await settle();
-  assert.equal(shown.length, 1); assert.equal(shown[0].verified, false);
+  // A login nobody answers keeps the submitted form until the window closes.
+  guest.main.formState = 'submitted'; guest.emit$(login()); await settle(120);
+  assert.equal(shown.length, 0, 'the submitted form is still showing');
+  // The page comes back with the form in a new document: refused, and leaving the page later does not make it a success.
+  guest.emit$(login('mallory', 'wrong')); await settle(2);
+  guest.main.formState = 'form'; await settle(2);
+  guest.main.formState = 'none'; await settle();
+  assert.equal(shown.length, 0, 'a refused login is never offered');
+  // A slider check over the form: the login moves on long after the old few-second limit.
+  guest.main.formState = 'submitted'; guest.emit$(login('bob', 'after-check')); await settle(10);
+  assert.equal(shown.length, 0);
+  guest.emit$({ type: 'activity', origin: 'https://accounts.example.com' }); await tick();
+  guest.main.formState = 'none'; await settle();
+  assert.deepEqual([shown[0].username, shown[0].verified], ['bob', true], 'working on a check over the form does not count against the login');
+  // A page that cannot answer at all.
+  guest.main.formState = new Error('navigating'); guest.emit$(login()); await settle(12);
+  assert.equal(shown.length, 2); assert.equal(shown[1].verified, false);
+});
+
+test('a field emptied in place is offered unverified only when the page moves on by itself', async t => {
+  const { capture, shown, settle, tick } = captureSetup(t);
+  const guest = fakeGuest(); capture.attach(guest); await tick();
+  const emptied = async (username) => { guest.main.formState = 'submitted'; guest.emit$(login(username, `${username}-secret`)); await settle(1); guest.main.formState = 'cleared'; await settle(2); };
+
+  // The page clears the field and goes to its home page a few seconds later.
+  await emptied('alice');
+  assert.equal(shown.length, 0, 'still open while the emptied form is shown');
+  guest.main.formState = 'none'; await settle();
+  assert.deepEqual([shown[0].username, shown[0].verified], ['alice', false]);
+
+  // Refused and emptied, then the user clicks a link away: nothing to ask.
+  await emptied('bob');
+  guest.emit$({ type: 'activity', origin: 'https://accounts.example.com' }); await tick();
+  guest.main.formState = 'none'; await settle();
+  // Refused and emptied, then the user types another address.
+  await emptied('carol');
+  guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false, initiator: null });
+  guest.main.formState = 'none'; await settle();
+  // Refused and emptied, then the user closes the page.
+  await emptied('dave');
+  capture.detach(guest.id); await settle();
+  assert.equal(shown.length, 1, 'a refusal the user walked away from is not offered');
 });
 
 test('two-step logins, missing identifiers and never-save sites', async t => {
@@ -344,17 +403,107 @@ test('two-step logins, missing identifiers and never-save sites', async t => {
   guest.emit$(login()); await settle(); assert.equal(shown.length, 2);
 });
 
+test('an identifier carries over to another site only along the navigation it started', async t => {
+  const { capture, shown, settle, tick, advance } = captureSetup(t);
+  const guest = fakeGuest('https://app.example.com/start'); capture.attach(guest); await tick();
+  const toSite = (origin, initiator) => {
+    guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false, initiator, frame: guest.main });
+    guest.main.origin = origin; guest.emit('did-navigate'); guest.emit('dom-ready');
+  };
+  // The app asks for the email, then hands over to its identity provider, whose password page shows no account field.
+  guest.emit$({ type: 'username', origin: 'https://app.example.com', username: 'carol@example.com' }); await tick();
+  toSite('https://sso.example.com', guest.main); await tick();
+  guest.emit$(login('', 'idp-secret', 'https://sso.example.com')); await settle();
+  assert.deepEqual([shown[0].origin, shown[0].username], ['https://sso.example.com', 'carol@example.com']);
+
+  // The user typed another address in between: the earlier site's account must not be paired with this password.
+  toSite('https://app.example.com', guest.main); await tick();
+  guest.emit$({ type: 'username', origin: 'https://app.example.com', username: 'dave@example.com' }); await tick();
+  toSite('https://other.example.org', null); await tick();
+  guest.emit$(login('', 'unrelated', 'https://other.example.org')); await settle();
+  assert.equal(shown.length, 1);
+  // An event from a document that no longer holds the frame is dropped.
+  guest.emit$(login('erin', 'stale', 'https://app.example.com')); await settle();
+  assert.equal(shown.length, 1);
+
+  // Two iframes with no navigation between them: one form's account is not another form's account.
+  const accounts = guest.addFrame('https://a.example.net', 2); const vault = guest.addFrame('https://sso.example.com', 3);
+  capture.refresh(); await tick();
+  accounts.emit$({ type: 'username', origin: 'https://a.example.net', username: 'frank@example.com' }); await tick();
+  vault.emit$(login('', 'other-frame', 'https://sso.example.com')); await settle();
+  assert.equal(shown.length, 1);
+  // The identifier step's own navigation can reach Main before the step does.
+  advance(5_000);
+  guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false, initiator: guest.main, frame: guest.main });
+  guest.main.origin = 'https://app.example.com'; guest.emit('dom-ready'); await tick();
+  guest.emit$({ type: 'username', origin: 'https://app.example.com', username: 'henry@example.com' }); await tick();
+  guest.main.origin = 'https://sso.example.com'; guest.emit('dom-ready'); await tick();
+  guest.emit$(login('', 'navigation-first', 'https://sso.example.com')); await settle();
+  assert.deepEqual([shown[1].origin, shown[1].username], ['https://sso.example.com', 'henry@example.com']);
+  // The same iframe going on to its identity provider by itself carries the account along.
+  accounts.emit$({ type: 'username', origin: 'https://a.example.net', username: 'grace@example.com' }); await tick();
+  guest.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false, initiator: accounts, frame: accounts });
+  accounts.origin = 'https://sso.example.com'; accounts.emit('dom-ready'); await tick();
+  accounts.emit$(login('', 'in-frame-handover', 'https://sso.example.com')); await settle();
+  assert.deepEqual([shown[2].origin, shown[2].username], ['https://sso.example.com', 'grace@example.com']);
+});
+
+test('a login form inside an iframe belongs to the iframe site', async t => {
+  relayed.length = 0;
+  const { capture, shown, settle, tick } = captureSetup(t);
+  const guest = fakeGuest('https://app.example.com/home');
+  const sso = guest.addFrame('https://sso.example.com', 2);
+  const plain = guest.addFrame('http://ads.example.net', 3);
+  capture.attach(guest); await tick();
+  assert.equal(sso.installs, 1, 'HTTPS iframes are observed through the relay');
+  assert.equal(plain.installs, 0, 'non-HTTPS iframes are not');
+  assert.ok(relayed.every(node => node === 2));
+
+  sso.emit$(login('frank', 'in-frame', 'https://sso.example.com')); await settle();
+  assert.deepEqual([shown[0].origin, shown[0].username, shown[0].verified], ['https://sso.example.com', 'frank', true]);
+  // A frame cannot claim another site.
+  sso.emit$(login('frank', 'forged', 'https://app.example.com')); await settle();
+  assert.equal(shown.length, 1);
+
+  // The login dialog's iframe is removed with the page unchanged: maybe the user closed it, so the outcome is unknown.
+  sso.formState = 'submitted'; sso.emit$(login('grace', 'closed-dialog', 'https://sso.example.com')); await settle(2);
+  guest.removeFrame(sso); await settle();
+  assert.deepEqual([shown[1].username, shown[1].verified], ['grace', false]);
+
+  // The page re-creates its login iframe with the form again: refused, even though the frame is a new one.
+  const retry = guest.addFrame('https://sso.example.com', 5); retry.formState = 'submitted';
+  capture.refresh(); await tick();
+  retry.emit$(login('ivy', 'refused-in-frame', 'https://sso.example.com')); await settle(2);
+  guest.removeFrame(retry); const again = guest.addFrame('https://sso.example.com', 6); again.formState = 'form'; await settle();
+  assert.equal(shown.length, 2, 'a re-created login iframe means the login was refused');
+  guest.removeFrame(again);
+
+  // An iframe created later is observed from its own dom-ready; the page moving on after its login is a success.
+  const later = guest.addFrame('https://sso.example.com', 4);
+  guest.emit('frame-created', {}, { frame: later }); later.emit('dom-ready'); await tick();
+  assert.equal(later.installs, 1);
+  later.formState = 'submitted'; later.emit$(login('heidi', 'then-home', 'https://sso.example.com')); await settle(2);
+  guest.removeFrame(later); guest.emit('did-navigate'); await settle();
+  assert.deepEqual([shown[2].username, shown[2].verified], ['heidi', true]);
+
+  // Without the relay only the page itself is observed.
+  const bare = captureSetup(t, { relay: null });
+  const other = fakeGuest('https://app.example.com/home', 8); const hidden = other.addFrame('https://sso.example.com', 2);
+  bare.capture.attach(other); await bare.tick();
+  assert.deepEqual([other.main.installs, hidden.installs], [1, 0]);
+});
+
 test('capture is off by default, HTTPS only, and forgets pending passwords', async t => {
   const off = captureSetup(t, { enabled: false });
   const idle = fakeGuest(); off.capture.attach(idle); await off.tick();
-  assert.equal(idle.installs, 0, 'nothing is injected until the user opts in');
+  assert.equal(idle.main.installs, 0, 'nothing is injected until the user opts in');
   off.store.setCaptureEnabled(true); off.capture.refresh(); await off.tick();
-  assert.equal(idle.installs, 1, 'open pages are observed once recording is switched on');
+  assert.equal(idle.main.installs, 1, 'open pages are observed once recording is switched on');
 
   const { capture, store, shown, withdrawn, settle, expire, tick } = captureSetup(t);
   for (const url of ['http://accounts.example.com/login', 'file:///tmp/login.html', 'about:blank']) {
-    const plain = Object.assign(fakeGuest(url), { id: url.length }); capture.attach(plain); await tick();
-    assert.equal(plain.installs, 0, url);
+    const plain = fakeGuest(url, url.length); capture.attach(plain); await tick();
+    assert.equal(plain.main.installs, 0, url);
   }
   const guest = fakeGuest(); capture.attach(guest); await tick();
   guest.emit$({ ...login(), origin: 'http://accounts.example.com' }); await settle();
@@ -368,12 +517,9 @@ test('capture is off by default, HTTPS only, and forgets pending passwords', asy
   guest.emit$(login()); await settle(); await expire();
   assert.equal(capture.pendingOfferCount(), 0, 'unanswered offers expire');
   assert.equal(store.state().credentials.length, 0);
-
-  guest.emit$(login()); await tick(); capture.detach(guest.id); await settle();
-  assert.equal(shown.length, 2, 'a closed page does not produce an offer');
 });
 
-test('lock and page close drop every unsaved candidate', async t => {
+test('lock drops every unsaved candidate; closing the page leaves the decision to the user', async t => {
   const { capture, store, shown, withdrawn, settle, tick } = captureSetup(t);
   const guest = fakeGuest(); capture.attach(guest); await tick();
 
@@ -385,19 +531,47 @@ test('lock and page close drop every unsaved candidate', async t => {
   capture.clearPending(); guest.emit$(login('')); await settle();
   assert.equal(shown.length, 0);
   // Locked while the page probe is in flight.
-  let release; guest.executeJavaScriptInIsolatedWorld = (original => async (world, scripts) =>
-    scripts[0].code === pageScript.LOGIN_OBSERVER_PASSWORD_FIELD_SCRIPT ? new Promise(resolve => { release = () => resolve(false); }) : original(world, scripts))(guest.executeJavaScriptInIsolatedWorld);
-  guest.emit$(login()); const settled = settle(); await tick(); await tick(); capture.clearPending(); release(); await settled;
+  let release; const original = guest.main.script;
+  guest.main.script = async code => code === pageScript.LOGIN_OBSERVER_FORM_STATE_SCRIPT ? new Promise(resolve => { release = () => resolve('none'); }) : original(code);
+  guest.emit$(login()); await tick(); const settled = settle(1); await tick(); await tick(); capture.clearPending(); release(); await settled;
   assert.equal(shown.length, 0, 'a probe that finishes after the lock offers nothing');
+  guest.main.script = original;
 
-  // Closing the page withdraws a prompt that is already showing.
-  const other = Object.assign(fakeGuest(), { id: 8 }); capture.attach(other); await tick();
+  // A login popup or tab that closes itself after signing in: the prompt already showing stays.
+  const other = fakeGuest('https://accounts.example.com/login', 8); capture.attach(other); await tick();
   other.emit$(login('carol')); await settle();
   assert.equal(shown.length, 1);
-  capture.detach(guest.id); assert.deepEqual(withdrawn, [], 'another page closing leaves it alone');
-  capture.detach(other.id); assert.deepEqual(withdrawn, [shown[0].offerId]);
-  assert.equal(capture.resolveOffer(shown[0].offerId, 'save'), false);
-  assert.equal(store.state().credentials.length, 0);
+  capture.detach(other.id);
+  assert.deepEqual(withdrawn, [], 'closing the page does not withdraw its prompt');
+  // Closed before the outcome could be seen: the user decides, told it is unverified.
+  guest.main.formState = 'submitted'; guest.emit$(login('dave')); await settle(2);
+  capture.detach(guest.id);
+  assert.deepEqual([shown[1].username, shown[1].verified], ['dave', false]);
+  assert.equal(capture.resolveOffer(shown[0].offerId, 'save'), true);
+  assert.equal(store.state().credentials.length, 1);
+});
+
+test('the iframe relay answers only to the frame that was asked and fails frames that never answer', async () => {
+  const handlers = new Map();
+  const timers = []; const fakeTimers = { set: (callback, ms) => { const timer = { callback, ms }; timers.push(timer); return timer; }, clear: timer => { const index = timers.indexOf(timer); if (index >= 0) timers.splice(index, 1); } };
+  const relay = createLoginFrameRelay({ on: (channel, handler) => handlers.set(channel, handler) }, fakeTimers);
+  const sent = [];
+  const frame = { frameToken: 'tok-a', frameTreeNodeId: 2, origin: 'https://sso.example.com', parent: {}, detached: false, isDestroyed: () => false, send: (channel, payload) => sent.push({ channel, payload }) };
+  const answer = (token, reply) => handlers.get('credentials.frame.result')({ senderFrame: { frameToken: token } }, reply);
+  const running = relay.run(frame, 'probe()', 1500);
+  assert.equal(sent[0].channel, 'credentials.frame.run');
+  assert.equal(sent[0].payload.code, 'probe()');
+  answer('tok-other', { id: sent[0].payload.id, ok: true, value: 'forged' });
+  assert.equal(relay.pendingCount(), 1, 'another frame cannot settle it');
+  answer('tok-a', { id: sent[0].payload.id, ok: true, value: true });
+  assert.equal(await running, true);
+  assert.equal(relay.pendingCount(), 0);
+
+  const silent = relay.run(frame, 'next()', 1500);
+  timers.shift().callback();
+  await assert.rejects(silent);
+  await assert.rejects(relay.run({ ...frame, detached: true }, 'probe()', 1500));
+  assert.equal(relay.pendingCount(), 0);
 });
 
 const { createAgentCredentialAccess } = require('../dist-electron/main/modules/credentials/fill/agent-access.js');
@@ -495,6 +669,61 @@ test('fill writes the chosen account, pauses page automation, and reports only a
   const closed = loginPage(23, `${origin}/login`);
   assert.deepEqual(await access.fill(closed, { origin, accountId: id, submit: true, sleep }), { status: 'account_unavailable' });
   assert.deepEqual(closed.ran, []);
+});
+
+test('a login form embedded from another site is filled in its iframe and nowhere else', async t => {
+  const { store } = setup(t);
+  const id = store.add(account('alice@example.com', 'https://sso.example.com/login')).credentials[0].id;
+  const top = loginPage(31, 'https://app.example.com/home');
+  const inFrame = loginPage(32, 'https://sso.example.com/login');
+  const main = { parent: null, frameToken: 'main', frameTreeNodeId: 1, frames: [] };
+  const frame = { frameToken: 'sso', frameTreeNodeId: 2, origin: 'https://sso.example.com', parent: main, detached: false, isDestroyed: () => false, send() {} };
+  const ads = { ...frame, frameToken: 'ads', frameTreeNodeId: 3, origin: 'https://ads.example.net' };
+  main.frames.push(frame, ads);
+  top.contents.mainFrame = { framesInSubtree: [main, frame, ads] };
+  // The page itself shows no login form; only the identity provider's iframe does. It shows both iframes.
+  let shownByPage = [true, true];
+  const topScript = top.contents.executeJavaScriptInIsolatedWorld;
+  top.contents.executeJavaScriptInIsolatedWorld = async (world, scripts) => scripts[0].code.includes('loginFormPresent') ? false
+    : scripts[0].code.includes('frameOwnersShown') ? shownByPage : topScript(world, scripts);
+  let formsIn = [frame];
+  // Answers as directly as the page does: the fill's no-op sleep makes any extra hop lose to its probe timeout.
+  const relay = { run: (target, code) => {
+    if (code.includes('loginFormPresent')) return Promise.resolve(formsIn.includes(target));
+    assert.equal(target, frame, 'nothing runs in another frame');
+    return inFrame.contents.executeJavaScriptInIsolatedWorld(1777, [{ code }]);
+  } };
+  const access = createAgentCredentialAccess(store, relay);
+  const location = await access.locateLogin(top.contents);
+  assert.deepEqual(location, { origin: 'https://sso.example.com', frame, embeddedIn: 'https://app.example.com' });
+  assert.deepEqual(access.list(location.origin).map(item => item.username), ['al***@example.com']);
+  const result = await access.fill({ ...top, frame }, { origin: location.origin, embeddedIn: location.embeddedIn, accountId: id, submit: true, sleep });
+  assert.deepEqual(result, { status: 'submitted', loginFormVisible: false });
+  assert.deepEqual(top.ran, [], 'the page around the iframe receives nothing');
+  assert.ok(inFrame.ran.includes('fill') && inFrame.contents.filledWith.includes('"correct horse battery staple"'));
+
+  // The iframe moving to another site, or going away, voids the fill before anything is written.
+  inFrame.ran.length = 0;
+  frame.origin = 'https://evil.example.net';
+  assert.deepEqual(await access.fill({ ...top, frame }, { ...location, accountId: id, submit: true, sleep }), { status: 'page_changed' });
+  frame.origin = 'https://sso.example.com'; frame.detached = true;
+  assert.deepEqual(await access.fill({ ...top, frame }, { ...location, accountId: id, submit: true, sleep }), { status: 'page_changed' });
+  assert.deepEqual(inFrame.ran, []);
+  frame.detached = false;
+
+  // Login forms of two sites at once, or no relay to reach iframes: the page itself is the login page.
+  formsIn = [frame, ads];
+  assert.deepEqual(await access.locateLogin(top.contents), { origin: 'https://app.example.com', frame: null });
+  // Unless the page hides one of them, e.g. a background sign-in iframe made transparent.
+  shownByPage = [true, false];
+  assert.deepEqual(await access.locateLogin(top.contents), { origin: 'https://sso.example.com', frame, embeddedIn: 'https://app.example.com' });
+  // An answer that does not line up with the frames Main sees counts as hidden.
+  shownByPage = [true];
+  assert.deepEqual(await access.locateLogin(top.contents), { origin: 'https://app.example.com', frame: null });
+  shownByPage = [true, true];
+  formsIn = [frame];
+  assert.deepEqual(await createAgentCredentialAccess(store).locateLogin(top.contents), { origin: 'https://app.example.com', frame: null });
+  assert.equal(await access.locateLogin(loginPage(33, 'http://app.example.com/').contents), null);
 });
 
 test('permission is re-checked after waiting in the page queue, right before writing', async t => {

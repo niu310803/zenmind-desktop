@@ -1,6 +1,8 @@
 // Verifies login recognition against real pages in a real Chromium: the observer script runs in
-// an isolated world of pages served for https://login.test, and the capture controller decides
-// whether to offer saving. Run after `npm run build:main:prepared`:
+// an isolated world of every frame of pages served for https://login.test (and an identity
+// provider at https://sso.test, in an iframe or after a hand-over), and the capture controller
+// decides whether to offer saving. Iframes are reached through the web guest preload's relay.
+// Run after `npm run build:main:prepared`:
 //   node qa/website-credentials-capture-smoke.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,11 +15,15 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'website-credentials-capture-
 const modulePath = name => JSON.stringify(path.join(repo, 'dist-electron/main/modules/credentials', name));
 
 fs.writeFileSync(path.join(temp, 'main.cjs'), `
-const {app,BrowserWindow,protocol,session}=require('electron');const path=require('node:path'),assert=require('node:assert/strict');
+const {app,BrowserWindow,ipcMain,protocol,session}=require('electron');const path=require('node:path'),assert=require('node:assert/strict');
 app.setPath('userData',path.join(__dirname,'profile')); app.on('window-all-closed',()=>{});
 const {createWebsiteCredentialStore}=require(${modulePath('store.js')});
 const {createLoginCapture}=require(${modulePath('capture/controller.js')});
 const {createAgentCredentialAccess}=require(${modulePath('fill/agent-access.js')});
+const {createLoginFrameRelay}=require(${modulePath('frames.js')});
+const relay=createLoginFrameRelay(ipcMain);
+// The sandboxed web guest preload, running in iframes too, as Desktop attaches it to Website and WorkPanel pages.
+const guestPreferences={contextIsolation:true,nodeIntegration:false,sandbox:true,nodeIntegrationInSubFrames:true,preload:${JSON.stringify(path.join(repo, 'dist-electron/preload/webapp-auth.js'))}};
 const queue=require(${modulePath('../web-surfaces/cdp/command-queue.js')});
 const page=body=>new Response('<!doctype html><meta charset="utf-8"><body>'+body,{headers:{'content-type':'text/html'}});
 const pages={
@@ -51,16 +57,43 @@ const pages={
   '/signup-noform':'<div><input id="email" type="email"><input id="pw" type="password"><button id="go">Create account</button></div>',
   // Not a login: a search box must never produce anything.
   '/search':'<form action="/home"><input name="q" type="text"><button>Search</button></form>',
+  // A styled <div> drawn as the login button, labelled in Chinese.
+  '/div-button':'<div id="view"><input id="account" autocomplete="username"><input id="secret" type="password"><div id="go" style="cursor:pointer;display:inline-block;padding:4px 12px">登 录</div></div><script>go.onclick=()=>{setTimeout(()=>{view.innerHTML="<h1>Dashboard</h1>"},50)}</script>',
+  // A link inside the form that leaves for another page: not a login attempt.
+  '/forgot':'<form method="post" action="/home"><input name="email" type="email"><input name="pw" type="password"><a id="forgot" href="/home">Forgot password?</a><button>Sign in</button></form>',
+  // A slider check over the form after "log in"; the user takes longer than a few seconds.
+  '/captcha':'<div id="view"><input id="account" autocomplete="username"><input id="secret" type="password"><button id="go">登录</button><div id="check" hidden>slide to verify</div></div><script>go.onclick=()=>{check.hidden=false};window.pass=()=>{view.innerHTML="<h1>Welcome</h1>"}</script>',
+  // A refused login: the page empties the password and shows an error; the user then leaves.
+  '/refused':'<div id="view"><input id="account" autocomplete="username"><input id="secret" type="password"><button id="go">Log in</button><p id="err" hidden>Wrong password</p><a id="away" href="/home">Home</a></div><script>go.onclick=()=>{setTimeout(()=>{secret.value="";err.hidden=false},50)}</script>',
+  // The page empties the password on "log in" and reaches its home page by itself a few seconds later.
+  '/clear-then-home':'<div id="view"><input id="account" autocomplete="username"><input id="secret" type="password"><button id="go">Log in</button></div><script>go.onclick=()=>{setTimeout(()=>{secret.value=""},50);setTimeout(()=>{location.href="/home"},3000)}</script>',
+  // Two unrelated iframes: one asks for an email, the other only for a password.
+  '/two-frames':'<iframe src="https://accounts.test/id-frame" style="width:400px;height:120px;border:0"></iframe><iframe src="https://sso.test/pw-frame" style="width:400px;height:120px;border:0"></iframe>',
+  '/id-frame':'<form onsubmit="event.preventDefault()"><input name="email" type="email"><button>Next</button></form>',
+  '/pw-frame':'<form onsubmit="event.preventDefault()"><input name="pw" type="password"><button>Sign in</button></form>',
+  // A web component without autocomplete hints, after an ordinary search box.
+  '/shadow-plain':'<input name="q" placeholder="Search"><login-box></login-box><script>customElements.define("login-box",class extends HTMLElement{constructor(){super();const root=this.attachShadow({mode:"open"});root.innerHTML="<input id=u><input id=p type=password><button id=go>Sign in</button>";root.getElementById("go").onclick=()=>{window.seen=root.getElementById("u").value;setTimeout(()=>{root.innerHTML="<h1>Welcome</h1>"},50)}}})</script>',
+  // A transparent login iframe (a background sign-in) placed before the identity provider in the page but created after it.
+  '/frame-host-hidden':'<h1>App</h1><iframe id="idp" src="https://sso.test/frame-login" style="width:420px;height:240px;border:0"></iframe><script>const hidden=document.createElement("iframe");hidden.src="https://ads.test/frame-login";hidden.style="width:420px;height:240px;border:0;opacity:0";document.body.insertBefore(hidden,idp)</script>',
+  // A web component whose inputs live in an open shadow root.
+  '/shadow':'<login-box></login-box><script>customElements.define("login-box",class extends HTMLElement{constructor(){super();const root=this.attachShadow({mode:"open"});root.innerHTML="<input id=u autocomplete=username><input id=p type=password><button id=go>Sign in</button>";root.getElementById("go").onclick=()=>{setTimeout(()=>{root.innerHTML="<h1>Welcome</h1>"},50)}}})</script>',
+  // An identity provider's login form embedded from another site (served as https://sso.test).
+  '/frame-host':'<h1>App</h1><iframe id="idp" src="https://sso.test/frame-login" style="width:420px;height:240px;border:0"></iframe>',
+  '/frame-login':'<form method="post" action="/frame-done"><input name="user"><input name="pw" type="password"><button>Sign in</button></form>',
+  '/frame-done':'<p>Signed in</p>',
+  // Identifier first: the app asks for the email, then hands over to its identity provider for the password.
+  '/hrd':'<form action="https://sso.test/password"><input name="identifier" type="email"><button>Next</button></form>',
+  '/password':'<form method="post" action="https://login.test/home"><input name="pw" type="password"><button>Sign in</button></form>',
 };
-const timer=setTimeout(()=>{console.error('Capture smoke timed out');app.exit(1)},130000);
+const timer=setTimeout(()=>{console.error('Capture smoke timed out');app.exit(1)},240000);
 (async()=>{await app.whenReady();
 const posts=[];
 session.defaultSession.protocol.handle('https',request=>{const {pathname}=new URL(request.url);if(request.method==='POST')request.text().then(body=>posts.push(body),()=>{});return pages[pathname]?page(pages[pathname]):new Response('missing',{status:404})});
 const store=createWebsiteCredentialStore({vaultDirectory:path.join(__dirname,'vault'),policyFile:path.join(__dirname,'policy.json'),hardenDirectory(){},
   protector:{available:()=>true,protect:key=>Buffer.from(key),unprotect:blob=>Buffer.from(blob)}});
 store.setCaptureEnabled(true);
-const shown=[];const capture=createLoginCapture({store,presentOffer:offer=>{shown.push(offer);return true},withdrawOffer(){}});
-const win=new BrowserWindow({show:false,width:900,height:700,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
+const shown=[];const capture=createLoginCapture({store,relay,presentOffer:offer=>{shown.push(offer);return true},withdrawOffer(){}});
+const win=new BrowserWindow({show:false,width:900,height:700,webPreferences:guestPreferences});
 capture.attach(win.webContents);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const js=code=>win.webContents.executeJavaScript(code,true);
@@ -69,6 +102,13 @@ const fill=(selector,value)=>js('(()=>{const input=document.querySelector('+JSON
 // A click that navigates may never resolve its executeJavaScript promise, so it is not awaited to completion.
 const click=selector=>Promise.race([js('document.querySelector('+JSON.stringify(selector)+').click()').catch(()=>{}),wait(400)]);
 const open=async route=>{await win.loadURL('https://login.test'+route);await wait(150)};
+// An iframe of the page: the page's main world cannot reach into it, so the test types there through Main.
+const frameOf=async(origin,selector='[name=pw]')=>{for(let i=0;i<50;i++){const frame=win.webContents.mainFrame.frames.find(item=>item.origin===origin);if(frame&&await frame.executeJavaScript('Boolean(document.querySelector('+JSON.stringify(selector)+'))').catch(()=>false)){await wait(150);return frame}await wait(100)}throw new Error(origin+' iframe did not load')};
+const idp=()=>frameOf('https://sso.test');
+// A click the user makes, not one a script dispatches.
+const realClick=async selector=>{const at=await js('(()=>{const box=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:Math.round(box.left+box.width/2),y:Math.round(box.top+box.height/2)}})()');
+  for(const type of ['mouseDown','mouseUp'])win.webContents.sendInputEvent({type,x:at.x,y:at.y,button:'left',clickCount:1});await wait(500)};
+const frameFill=(frame,selector,value)=>frame.executeJavaScript('(()=>{const input=document.querySelector('+JSON.stringify(selector)+');input.focus();input.value='+JSON.stringify(value)+';input.dispatchEvent(new Event("input",{bubbles:true}))})()',true);
 // The controller judges the outcome 2.5s after submission, re-probing a few times if the form is still there.
 const outcome=async(expected,label)=>{const before=shown.length;for(let i=0;i<90&&shown.length===before;i++)await wait(100);
   if(expected===null){assert.equal(shown.length,before,label+': unexpected offer '+JSON.stringify(shown[shown.length-1]));console.log('  ok  '+label+' -> no offer');return}
@@ -115,10 +155,68 @@ await outcome({origin,username:'erin@example.com',kind:'save',verified:true},'su
 await open('/search');await fill('[name=q]','alice@example.com');await click('button');
 await outcome(null,'search form');
 
+await open('/div-button');await fill('#account','mia');await fill('#secret','div-secret');await click('#go');
+await outcome({origin,username:'mia',kind:'save',verified:true},'styled <div> as the login button');
+
+await open('/forgot');await fill('[name=email]','kate@example.com');await fill('[name=pw]','typed-then-forgot');await click('#forgot');
+await outcome(null,'link that leaves the login form');
+
+await open('/captcha');await fill('#account','judy');await fill('#secret','slow-check');await click('#go');
+await outcome(null,'slider check still open after nine seconds');
+await js('pass()');
+await outcome({origin,username:'judy',kind:'save',verified:true},'login completed after a slow check');
+
+await open('/refused');await fill('#account','mallory');await fill('#secret','wrong-again');await click('#go');await wait(2500);
+await open('/home');
+await outcome(null,'refused login, then leaving through the address bar');
+await open('/refused');await fill('#account','mallory');await fill('#secret','wrong-again');await click('#go');await wait(2500);
+await realClick('#away');assert.equal(win.webContents.getURL(),origin+'/home','the user followed the link');
+await outcome(null,'refused login, then following a link on the page');
+
+await open('/clear-then-home');await fill('#account','quinn');await fill('#secret','cleared-on-submit');await click('#go');
+await outcome({origin,username:'quinn',kind:'save',verified:false},'field emptied on submit, page moved on by itself');
+
+await open('/two-frames');{const accounts=await frameOf('https://accounts.test','[name=email]');const vault=await idp();
+  await frameFill(accounts,'[name=email]','rita@example.com');await accounts.executeJavaScript('document.querySelector("button").click()',true);await wait(300);
+  await frameFill(vault,'[name=pw]','another-form');await vault.executeJavaScript('document.querySelector("button").click()',true)}
+await outcome(null,'an email in one iframe is not paired with a password in another');
+
+await open('/shadow-plain');await fill('[name=q]','hello');
+await js('(()=>{const root=document.querySelector("login-box").shadowRoot;for(const [id,value] of [["u","paul"],["p","shadow-plain"]]){const input=root.getElementById(id);input.focus();input.value=value;input.dispatchEvent(new Event("input",{bubbles:true}))}})()');
+await js('document.querySelector("login-box").shadowRoot.getElementById("go").click()');
+await outcome({origin,username:'paul',kind:'save',verified:true},'account field in a shadow root without hints, after a search box');
+
+await open('/shadow');
+await js('(()=>{const root=document.querySelector("login-box").shadowRoot;for(const [id,value] of [["u","leo"],["p","shadow-secret"]]){const input=root.getElementById(id);input.focus();input.value=value;input.dispatchEvent(new Event("input",{bubbles:true}))}})()');
+await js('document.querySelector("login-box").shadowRoot.getElementById("go").click()');
+await outcome({origin,username:'leo',kind:'save',verified:true},'login form inside an open shadow root');
+
+await open('/frame-host');{const frame=await idp();await frameFill(frame,'[name=user]','ivan');await frameFill(frame,'[name=pw]','frame-secret');
+  await Promise.race([frame.executeJavaScript('document.querySelector("button").click()',true).catch(()=>{}),wait(400)])}
+await outcome({origin:'https://sso.test',username:'ivan',kind:'save',verified:true},'login form in a cross-origin iframe');
+capture.resolveOffer(shown[shown.length-1].offerId,'save');
+
+await open('/hrd');await fill('[name=identifier]','olga@example.com');await click('button');await wait(500);
+assert.equal(new URL(win.webContents.getURL()).origin,'https://sso.test');
+await fill('[name=pw]','idp-secret');await click('button');
+await outcome({origin:'https://sso.test',username:'olga@example.com',kind:'save',verified:true},'identifier on the app, password at its identity provider');
+await open('/hrd');await fill('[name=identifier]','olga@example.com');await click('button');await wait(500);
+await win.loadURL('https://other.test/password');await wait(150);
+await fill('[name=pw]','unrelated');await click('button');
+await outcome(null,'identifier not carried over a typed address');
+
+// A login tab that closes before its outcome could be seen: the user decides, told it is unverified.
+{const tab=new BrowserWindow({show:false,width:900,height:700,webPreferences:guestPreferences});capture.attach(tab.webContents);
+  await tab.loadURL(origin+'/captcha');await wait(150);
+  for(const [selector,value] of [['#account','nora'],['#secret','closed-tab']])await tab.webContents.executeJavaScript('(()=>{const input=document.querySelector('+JSON.stringify(selector)+');input.focus();input.value='+JSON.stringify(value)+';input.dispatchEvent(new Event("input",{bubbles:true}))})()',true);
+  await tab.webContents.executeJavaScript('document.querySelector("#go").click()',true);await wait(1500);tab.destroy()}
+await outcome({origin,username:'nora',kind:'save',verified:false},'login tab closed before its outcome');
+
 }
 // --- Agent fill: Desktop writes a saved login into the real page; only a status comes back. ---
 store.add({origin,username:'bob',password:'spa-secret'});store.add({origin,username:'carol@example.com',password:'two-step-secret'});
-const access=createAgentCredentialAccess(store);
+if(!store.listForOrigin('https://sso.test',{agentOnly:true}).some(item=>item.maskedUsername.startsWith('i')))store.add({origin:'https://sso.test',username:'ivan',password:'frame-secret'});
+const access=createAgentCredentialAccess(store,relay);
 const target={contents:win.webContents,holdAutomation:execute=>{const release=queue.holdPageAutomation(win.webContents.id);return queue.withCdpCommandQueue(win.webContents.id,()=>execute(release)).catch(error=>{release();throw error})}};
 const accountId=prefix=>access.list(origin).find(item=>item.username.startsWith(prefix)).accountId;
 const filled=(result,expected,label)=>{assert.deepEqual(result,expected,label);assert.ok(!JSON.stringify(result).includes('hunter2'));console.log('  ok  fill: '+label+' -> '+result.status)};
@@ -181,10 +279,26 @@ filled(await access.fill(target,{origin,accountId:accountId('al'),submit:true}),
 await open('/search');
 filled(await access.fill(target,{origin,accountId:accountId('al'),submit:true}),{status:'no_login_form',reason:'no_password_field'},'search box refused');
 assert.equal(await js('document.querySelector("[name=q]").value'),'');
+await open('/classic');
+assert.deepEqual(await access.locateLogin(win.webContents),{origin,frame:null},'a page with its own login form');
+await open('/shadow-plain');
+filled(await access.fill(target,{origin,accountId:accountId('al'),submit:true}),{status:'submitted',loginFormVisible:false},'account field in a shadow root without hints');
+assert.equal(await js('window.seen'),'alice@example.com','the account went into the shadow root field, not the search box');
+assert.equal(await js('document.querySelector("[name=q]").value'),'');
+await open('/frame-host-hidden');await idp();await frameOf('https://ads.test');
+{const located=await access.locateLogin(win.webContents);
+  assert.equal(located.origin,'https://sso.test','a transparent login iframe is not where the user logs in');assert.equal(located.embeddedIn,origin)}
+await open('/frame-host');await idp();posts.length=0;
+{const located=await access.locateLogin(win.webContents);
+  assert.equal(located.origin,'https://sso.test');assert.equal(located.embeddedIn,origin);
+  const ivan=access.list('https://sso.test').find(item=>item.username.startsWith('i')).accountId;
+  filled(await access.fill({...target,frame:located.frame},{origin:located.origin,embeddedIn:located.embeddedIn,accountId:ivan,submit:true}),{status:'submitted',loginFormVisible:false},'login form in a cross-origin iframe');
+  await wait(200);assert.equal(posts[posts.length-1],'user=ivan&pw=frame-secret');
+  assert.equal(queue.isPageAutomationHeld(win.webContents.id),false)}
 await wait(4500);assert.equal(shown.length,offersBefore,'filling a saved login must not prompt to save it again');
 
 clearTimeout(timer);console.log('Login capture smoke passed.');win.destroy();app.exit(0);
 })().catch(e=>{console.error(e);app.exit(1)});`);
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
-const result = spawnSync(require('electron'), [path.join(temp, 'main.cjs')], { env, stdio: 'inherit', timeout: 150000 });
+const result = spawnSync(require('electron'), [path.join(temp, 'main.cjs')], { env, stdio: 'inherit', timeout: 260000 });
 if (result.status !== 0) process.exit(result.status ?? 1);

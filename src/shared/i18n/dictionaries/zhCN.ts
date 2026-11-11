@@ -3770,6 +3770,7 @@ export const zhCNMessages = {
   "desktopAction.credentialFillDescription": "Desktop 会把账号和密码填入页面，不会提交。智能体看不到密码。",
   "desktopAction.credentialFillSubmitDescription": "Desktop 会把账号和密码填入页面并提交登录。智能体看不到密码。",
   "desktopAction.credentialFillFieldSite": "网站",
+  "desktopAction.credentialFillFieldPage": "所在页面",
   "desktopAction.credentialFillFieldAccount": "账号",
   "desktopAction.credentialFillDetail": "网站地址由 Desktop 从页面读取，不来自智能体。填写期间，智能体对该页面的操作会暂停。",
   "desktopAction.credentialFillConfirm": "填入",

@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { WebContents } from "electron";
-import { LOGIN_OBSERVER_WORLD_ID } from "../capture/page-script";
 import {
   buildLoginFillClearScript,
   buildLoginFillScript,
@@ -21,7 +19,10 @@ const ERASE_ATTEMPTS = 3;
 const ERASE_RETRY_MS = 2_000;
 
 export type LoginFillTarget = {
-  contents: Pick<WebContents, "executeJavaScriptInIsolatedWorld" | "isDestroyed">;
+  /** Runs a script in the isolated world of the frame that holds the login form. */
+  run(code: string): Promise<unknown>;
+  /** True once that frame or its page no longer exists, and with it whatever was written there. */
+  isGone(): boolean;
   /** Pauses the page's CDP and AWCP until `release` is called; see the web-surfaces gateway. */
   holdAutomation<T>(execute: (release: () => void) => Promise<T>): Promise<T>;
 };
@@ -55,20 +56,19 @@ export type LoginFillOptions = {
  */
 export function fillLoginForm(target: LoginFillTarget, options: LoginFillOptions): Promise<LoginFillResult> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); }));
-  const { contents } = target;
   const token = randomUUID();
   const inWorld = (code: string) => Promise.race([
-    contents.executeJavaScriptInIsolatedWorld(LOGIN_OBSERVER_WORLD_ID, [{ code }]),
+    target.run(code),
     sleep(PROBE_TIMEOUT_MS).then(() => { throw new Error("probe timeout"); })
   ]);
   /** null when the page could not answer (navigating, hung). */
   const fieldState = async (): Promise<LoginFillFieldState | null> => {
-    if (contents.isDestroyed()) return { document: "replaced", formVisible: false };
+    if (target.isGone()) return { document: "replaced", formVisible: false };
     try { return await inWorld(buildLoginFillStateScript(token)) as LoginFillFieldState; } catch { return null; }
   };
   /** True only when the written field is confirmed empty or its document no longer exists. */
   const erase = async () => {
-    if (contents.isDestroyed()) return true;
+    if (target.isGone()) return true;
     try {
       const state = await inWorld(buildLoginFillClearScript(token)) as LoginFillFieldState;
       return state.document === "replaced" || !state.pending;
@@ -105,7 +105,7 @@ export function fillLoginForm(target: LoginFillTarget, options: LoginFillOptions
     try {
       const secret = await options.prepare();
       if (!secret) return { status: "account_unavailable" };
-      if (contents.isDestroyed() || !options.isPageCurrent()) return { status: "page_changed" };
+      if (target.isGone() || !options.isPageCurrent()) return { status: "page_changed" };
       let outcome: LoginFillOutcome;
       try {
         outcome = await inWorld(buildLoginFillScript({ token, ...secret, submit: options.submit })) as LoginFillOutcome;

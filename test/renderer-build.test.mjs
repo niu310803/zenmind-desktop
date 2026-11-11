@@ -730,7 +730,7 @@ test("navigation omits the right-sidebar launcher while content keeps its own co
     appShell.indexOf('className="app-system-bar-window-controls"'));
   assert.doesNotMatch(systemActions, /toggleSystemBarAssistantDock|sidebar-right-panel-icon/);
   assert.match(appShell, /main-chat-header-action main-chat-work-panel-toggle/);
-  assert.match(appShell, /<WebappCopilotButton open=\{assistantCopilotOpen\}/);
+  assert.doesNotMatch(appShell, /WebappCopilotButton|showWebappCopilotButton/);
 });
 
 test("embedded surfaces use theme-backed host colors instead of hard-coded light fallbacks", () => {

@@ -1,6 +1,6 @@
 /**
- * Fills a login form from an isolated JavaScript world of a guest page (the same world
- * as the login observer). The script text carries the password, so it is built and
+ * Fills a login form from an isolated JavaScript world of the frame that holds it — the
+ * page itself or one of its iframes (the same world as the login observer). The script text carries the password, so it is built and
  * executed in Main only and never logged.
  *
  * The fill remembers the exact password field it wrote, under a per-fill token, in that
@@ -28,6 +28,27 @@ export type LoginFillFieldState =
 type FillRecords = Map<string, HTMLInputElement[]>;
 
 function fillLogin(token: string, username: string, password: string, submit: boolean): LoginFillOutcome {
+  // Inputs inside open shadow roots (web components) belong to the page; closed roots cannot be reached.
+  const deepQuery = (root: ParentNode, selector: string): Element[] => {
+    const found = Array.from(root.querySelectorAll(selector));
+    for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) found.push(...deepQuery(host.shadowRoot, selector));
+    return found;
+  };
+  /** The element, then each shadow host around it, outward. */
+  const hostsOf = (element: Element) => {
+    const path = [element];
+    for (let root = element.getRootNode(); root instanceof ShadowRoot; root = path[path.length - 1].getRootNode()) path.push(root.host);
+    return path;
+  };
+  /** Whether `a` comes first, compared in the innermost tree they share: their own elements in one shadow root, else the hosts around them. */
+  const precedes = (a: Element, b: Element) => {
+    const around = hostsOf(b);
+    for (const mine of hostsOf(a)) {
+      const theirs = around.find(element => element.getRootNode() === mine.getRootNode());
+      if (theirs) return mine !== theirs && Boolean(mine.compareDocumentPosition(theirs) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+    return false;
+  };
   const visible = (element: Element): element is HTMLInputElement => {
     if (!(element instanceof HTMLInputElement) || element.disabled || element.readOnly) return false;
     const rect = element.getBoundingClientRect();
@@ -35,7 +56,7 @@ function fillLogin(token: string, username: string, password: string, submit: bo
     const style = getComputedStyle(element);
     return style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.05;
   };
-  const inputs = (root: ParentNode) => Array.from(root.querySelectorAll("input")).filter(visible);
+  const inputs = (root: ParentNode) => deepQuery(root, "input").filter(visible);
   const isIdentifier = (input: HTMLInputElement) => ["text", "email", "tel", ""].includes(input.type);
   const looksLikeIdentifier = (input: HTMLInputElement) =>
     /username|email|tel/u.test(input.autocomplete) || input.type === "email"
@@ -55,11 +76,11 @@ function fillLogin(token: string, username: string, password: string, submit: bo
     return rect.width >= 2 && rect.height >= 2;
   };
   const submitButton = (form: HTMLFormElement) =>
-    Array.from(form.querySelectorAll("button[type=submit], input[type=submit], button:not([type])")).find(clickable) as HTMLElement | undefined;
+    deepQuery(form, "button[type=submit], input[type=submit], button:not([type])").find(clickable) as HTMLElement | undefined;
   const label = (element: Element | undefined) => element ? (element.textContent || (element as HTMLInputElement).value || "") : "";
   const loginButton = () => {
     const pattern = /^\s*(log\s*in|sign\s*in|continue|next|\u767b\u5f55|\u767b\u5165|\u767b \u5f55|\u4e0b\u4e00\u6b65|\u7ee7\u7eed)\s*$/iu;
-    return Array.from(document.querySelectorAll("button, [role=button], input[type=button]"))
+    return deepQuery(document, "button, [role=button], input[type=button]")
       .filter(clickable).find(element => pattern.test(label(element))) as HTMLElement | undefined;
   };
   const submitFrom = (field: HTMLInputElement) => {
@@ -89,7 +110,7 @@ function fillLogin(token: string, username: string, password: string, submit: bo
       const login = loginButton();
       context = login ? label(login) : [
         document.title,
-        ...Array.from(document.querySelectorAll("h1, h2, button, [role=button], input[type=button], input[type=submit]"))
+        ...deepQuery(document, "h1, h2, button, [role=button], input[type=button], input[type=submit]")
           .filter(element => element.getBoundingClientRect().width >= 2).map(label)
       ].join(" ");
     }
@@ -109,7 +130,7 @@ function fillLogin(token: string, username: string, password: string, submit: bo
   const passwordField = passwords[0];
   if (signupOrReset(passwordField)) return { status: "no_login_form", reason: "signup_or_reset" };
   const candidates = inputs(passwordField.form ?? document).filter(isIdentifier);
-  const before = candidates.filter(input => input.compareDocumentPosition(passwordField) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const before = candidates.filter(input => precedes(input, passwordField));
   const identifier = candidates.find(input => /username|email/u.test(input.autocomplete)) ?? before[before.length - 1];
 
   // Remember the field before writing, so a failure halfway still leaves it to be erased.
@@ -128,10 +149,63 @@ function fillLogin(token: string, username: string, password: string, submit: bo
 }
 
 function visiblePasswordForm() {
-  return Array.from(document.querySelectorAll("input[type=password]")).some(input => {
+  const deepQuery = (root: ParentNode, selector: string): Element[] => {
+    const found = Array.from(root.querySelectorAll(selector));
+    for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) found.push(...deepQuery(host.shadowRoot, selector));
+    return found;
+  };
+  return deepQuery(document, "input[type=password]").some(input => {
     const rect = input.getBoundingClientRect();
     return rect.width >= 2 && rect.height >= 2;
   });
+}
+
+/**
+ * For each child frame of this document, in `window.frames` order, whether its iframe element is on
+ * screen: sized, not hidden or transparent (with its ancestors), not pushed out of the page. A page
+ * inside an iframe cannot tell any of this about itself.
+ */
+function frameOwnersShown() {
+  const deepQuery = (root: ParentNode, selector: string): Element[] => {
+    const found = Array.from(root.querySelectorAll(selector));
+    for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) found.push(...deepQuery(host.shadowRoot, selector));
+    return found;
+  };
+  const parentAcross = (element: Element): Element | null => {
+    if (element.parentElement) return element.parentElement;
+    const root = element.getRootNode();
+    return root instanceof ShadowRoot ? root.host : null;
+  };
+  const shown = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2 || rect.right + scrollX <= 0 || rect.bottom + scrollY <= 0) return false;
+    if (getComputedStyle(element).visibility !== "visible") return false;
+    let opacity = 1;
+    for (let node: Element | null = element; node; node = parentAcross(node)) opacity *= Number(getComputedStyle(node).opacity);
+    return opacity > 0.05;
+  };
+  const owners = deepQuery(document, "iframe, frame") as HTMLIFrameElement[];
+  return Array.from({ length: window.frames.length }, (_, index) => {
+    const owner = owners.find(element => element.contentWindow === window.frames[index]);
+    return owner !== undefined && shown(owner);
+  });
+}
+
+/** Whether this frame shows a login form a fill could use: a password field, or the account field of a first step. */
+function loginFormPresent() {
+  const deepQuery = (root: ParentNode, selector: string): Element[] => {
+    const found = Array.from(root.querySelectorAll(selector));
+    for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) found.push(...deepQuery(host.shadowRoot, selector));
+    return found;
+  };
+  const inputs = deepQuery(document, "input").filter((element): element is HTMLInputElement => {
+    if (!(element instanceof HTMLInputElement) || element.disabled || element.readOnly) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width >= 2 && rect.height >= 2 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.05;
+  });
+  return inputs.some(input => input.type === "password") || inputs.some(input => ["text", "email", "tel", ""].includes(input.type) &&
+    (/username|email|tel/u.test(input.autocomplete) || input.type === "email" || /user|login|account|email|phone|mobile|identifier/iu.test(`${input.name} ${input.id}`)));
 }
 
 function fillFieldState(token: string, formVisible: boolean): LoginFillFieldState {
@@ -174,3 +248,5 @@ export const buildLoginFillScript = (input: { token: string; username: string; p
 export const buildLoginFillStateScript = (token: string) =>
   `(${fillFieldState.toString()})(${JSON.stringify(token)}, (${visiblePasswordForm.toString()})())`;
 export const buildLoginFillClearScript = (token: string) => `(${clearFill.toString()})(${JSON.stringify(token)})`;
+export const LOGIN_FORM_PRESENT_SCRIPT = `(${loginFormPresent.toString()})()`;
+export const FRAME_OWNERS_SHOWN_SCRIPT = `(${frameOwnersShown.toString()})()`;

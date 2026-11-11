@@ -1530,6 +1530,7 @@ test("window manager confines service and review preloads to their trusted webvi
   assert.equal(reviewPreferences.nodeIntegration, false);
   assert.equal(reviewPreferences.contextIsolation, true);
   assert.equal(reviewPreferences.sandbox, true);
+  assert.equal(reviewPreferences.nodeIntegrationInSubFrames, undefined, "local previews keep their preload in the top frame");
 
   const untrustedReview = prepareWebviewAttachPreferences({
     webPreferences: { preload: "file:///app/preload/work-panel-preview.js" },
@@ -1570,6 +1571,8 @@ test("window manager confines service and review preloads to their trusted webvi
   assert.equal(webReviewPreferences.nodeIntegration, false);
   assert.equal(webReviewPreferences.contextIsolation, true);
   assert.equal(webReviewPreferences.sandbox, true);
+  // Login forms may sit in iframes: the sandboxed preload also runs there, only to relay Desktop's login scripts.
+  assert.equal(webReviewPreferences.nodeIntegrationInSubFrames, true);
 
   const isolatedWorkPanelReview = prepareWebviewAttachPreferences({
     webPreferences: { preload: "file:///app/preload/work-panel-preview.js" },

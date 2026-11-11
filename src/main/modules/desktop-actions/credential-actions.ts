@@ -1,7 +1,7 @@
 import { type DesktopActionCallRequest, type DesktopActionCallResponse } from "../../../shared/desktop-actions";
 import { type DesktopActionConfirmationRequest } from "../../../shared/contracts";
 import { WebsiteCredentialError } from "../../../shared/website-credentials";
-import { getAgentCredentialAccess, type AgentCredentialAccess, type AgentCredentialAccount } from "../credentials";
+import { getAgentCredentialAccess, type AgentCredentialAccess, type AgentCredentialAccount, type AgentLoginLocation } from "../credentials";
 import { t } from "../../support/i18n/main-i18n";
 import { type DesktopActionBridgeOptions } from "./action-contracts";
 import { fail, ok } from "./action-values";
@@ -12,20 +12,21 @@ const notStarted = { stage: "arguments", executionState: "not_started" } as cons
 
 type CredentialTarget = Awaited<ReturnType<NonNullable<DesktopActionBridgeOptions["resolveWebSurface"]>>>;
 
-type CredentialPage = {
+type CredentialPage = AgentLoginLocation & {
   access: AgentCredentialAccess;
   target: CredentialTarget;
-  origin: string;
   accounts: AgentCredentialAccount[];
 };
 
-export type PreparedCredentialFill = {
+export type PreparedCredentialFill = AgentLoginLocation & {
   access: AgentCredentialAccess;
   target: CredentialTarget;
-  origin: string;
   account: AgentCredentialAccount;
   submit: boolean;
 };
+
+/** The sites a result names: the login form's, and the page's own when the form is an iframe of another site. */
+const sites = (location: AgentLoginLocation) => ({ origin: location.origin, ...(location.embeddedIn ? { embeddedIn: location.embeddedIn } : {}) });
 
 type Prepared<T> = { ok: true; prepared: T } | { ok: false; response: DesktopActionCallResponse };
 
@@ -42,7 +43,8 @@ function credentialFailure(action: string, error: unknown): DesktopActionCallRes
 /**
  * desktop.credentials.*: saved website passwords for a trusted Run, on the exact page it
  * is authorized to control. The agent names a Surface, never a site; Main reads the
- * page's real origin. Results carry masked account names and a status, never a password.
+ * real origin of the page, or of the iframe that holds its login form. Results carry
+ * masked account names and a status, never a password.
  */
 async function resolveCredentialPage(
   options: DesktopActionBridgeOptions,
@@ -67,9 +69,9 @@ async function resolveCredentialPage(
   try {
     const target = await options.resolveWebSurface({ method: "Surface.getState", surfaceId, ...(request.source ? { source: request.source } : {}) });
     await target.validate();
-    const origin = access.pageOrigin(target.contents);
-    if (!origin) return reject(fail(action, "page_not_eligible", "Saved passwords are used only on HTTPS pages.", notStarted));
-    return { ok: true, prepared: { access, target, origin, accounts: access.list(origin) } };
+    const location = await access.locateLogin(target.contents);
+    if (!location) return reject(fail(action, "page_not_eligible", "Saved passwords are used only on HTTPS pages.", notStarted));
+    return { ok: true, prepared: { ...location, access, target, accounts: access.list(location.origin) } };
   } catch (error) {
     // Nothing has been filled yet, so an unexpected error still reports not_started.
     return reject(credentialFailure(action, error) ??
@@ -83,7 +85,7 @@ export async function listCredentialAccounts(
 ): Promise<DesktopActionCallResponse> {
   const page = await resolveCredentialPage(options, request);
   if (!page.ok) return page.response;
-  return ok(request.action, { origin: page.prepared.origin, accounts: page.prepared.accounts });
+  return ok(request.action, { ...sites(page.prepared), accounts: page.prepared.accounts });
 }
 
 // Resolves the real site and account before the confirmation, so the user approves what will be filled.
@@ -94,7 +96,7 @@ export async function prepareCredentialFill(
   const action = request.action;
   const page = await resolveCredentialPage(options, request);
   if (!page.ok) return page;
-  const { access, target, origin, accounts } = page.prepared;
+  const { accounts, ...location } = page.prepared;
   const args = request.args ?? {};
   const accountId = typeof args.accountId === "string" ? args.accountId.trim() : "";
   // Without a choice the site default is used; an id from another site matches nothing here.
@@ -104,10 +106,10 @@ export async function prepareCredentialFill(
       ok: false,
       response: fail(action, accountId ? "account_not_found" : "no_saved_account",
         accountId ? "That account is not available on this page. List the accounts of this page again." : "No saved password is available to agents for this page. The user must log in.",
-        { ...notStarted, origin })
+        { ...notStarted, ...sites(location) })
     };
   }
-  return { ok: true, prepared: { access, target, origin, account, submit: args.submit !== false } };
+  return { ok: true, prepared: { ...location, account, submit: args.submit !== false } };
 }
 
 export function buildCredentialFillConfirmationRequest(
@@ -121,6 +123,8 @@ export function buildCredentialFillConfirmationRequest(
     description: t(prepared.submit ? "desktopAction.credentialFillSubmitDescription" : "desktopAction.credentialFillDescription"),
     fields: [
       { label: t("desktopAction.credentialFillFieldSite"), value: prepared.origin },
+      // A login form embedded from another site: the user also sees which page shows it.
+      ...(prepared.embeddedIn ? [{ label: t("desktopAction.credentialFillFieldPage"), value: prepared.embeddedIn }] : []),
       { label: t("desktopAction.credentialFillFieldAccount"), value: prepared.account.username }
     ],
     details: t("desktopAction.credentialFillDetail"),
@@ -139,12 +143,13 @@ export async function fillPreparedCredential(
   prepared: PreparedCredentialFill
 ): Promise<DesktopActionCallResponse> {
   const action = request.action;
-  const { access, target, origin, account, submit } = prepared;
+  const { access, target, frame, origin, embeddedIn, account, submit } = prepared;
+  const named = sites(prepared);
   try {
     // The page may have moved while the confirmation was open.
     await target.validate();
-    const result = await access.fill(target, {
-      origin, accountId: account.accountId, submit,
+    const result = await access.fill({ ...target, frame }, {
+      origin, ...(embeddedIn ? { embeddedIn } : {}), accountId: account.accountId, submit,
       // The fill may wait behind other commands on this page: re-check the Run and the page right before writing.
       authorize: async () => { assertActionCanStart(options); await target.validate(); }
     });
@@ -152,17 +157,17 @@ export async function fillPreparedCredential(
       case "filled":
       case "submitted":
       case "username_only":
-        return ok(action, { origin, account: account.username, ...result });
+        return ok(action, { ...named, account: account.username, ...result });
       case "no_login_form":
         return fail(action, "no_login_form", {
           several_password_fields: "The page shows several password fields, which is not a login form.",
           signup_or_reset: "The page creates an account or sets a new password. Saved passwords are only filled into login forms.",
           no_password_field: "The page shows no login form."
-        }[result.reason], { ...notStarted, origin, reason: result.reason });
+        }[result.reason], { ...notStarted, ...named, reason: result.reason });
       case "account_unavailable":
-        return fail(action, "account_not_found", "That account is no longer available to agents.", { ...notStarted, origin });
+        return fail(action, "account_not_found", "That account is no longer available to agents.", { ...notStarted, ...named });
       case "page_changed":
-        return fail(action, "page_changed", "The page left the site before the password could be filled. Nothing was submitted.", { stage: "execution", executionState: "not_started", origin });
+        return fail(action, "page_changed", "The page left the site before the password could be filled. Nothing was submitted.", { stage: "execution", executionState: "not_started", ...named });
     }
   } catch (error) {
     const response = credentialFailure(action, error);
