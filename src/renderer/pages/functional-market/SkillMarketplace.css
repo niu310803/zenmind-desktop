@@ -120,3 +120,13 @@
   border-color: transparent;
   opacity: 1;
 }
+.skill-discovery.is-importing .market-card-use:disabled:not(.is-current) {
+  color: var(--accent-on);
+  background: var(--control-primary-bg);
+  border-color: transparent;
+  opacity: 1;
+}
+.skill-discovery.is-importing .market-card-delete:disabled {
+  color: var(--market-control-muted, var(--ink-muted));
+  opacity: 1;
+}

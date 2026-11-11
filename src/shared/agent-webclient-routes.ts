@@ -539,7 +539,8 @@ export function resolveAgentWebclientDesktopComposerRouteFromUrl(value: string, 
         (composerSkill !== null && (!["platform-automation", "platform-admin", "skill-creator"].includes(composerSkill) || !composerDraft.trim())) ||
         (composerSkill === null && composerDraft !== "" && !composerDraft.trim())) return "";
     const search = new URLSearchParams({ newChat });
-    if (composerSkill !== null) search.set("composerSkill", composerSkill);
+    // Older management pages can send retired Skills. Only forward their draft.
+    if (composerSkill === "skill-creator") search.set("composerSkill", composerSkill);
     search.set("composerDraft", composerDraft);
     return createAgentWebclientAgentPath(agentKey, search);
   } catch {

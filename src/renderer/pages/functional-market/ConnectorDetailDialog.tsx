@@ -1,7 +1,7 @@
 import { ConnectorIcon } from "./ConnectorIcon";
 import { connectorAwaitingVerification, connectorIsUsable, connectorRequiresConfiguration } from "./connectorFlow";
 import { connectorPresentation } from "./connectorPresentation";
-import { Alert, Button, Modal, Tag } from "antd";
+import { Alert, Button, Modal, Tag, type ButtonProps } from "antd";
 import { MessageOutlined } from "@ant-design/icons";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +20,7 @@ export function ConnectorStateTag({ connection, installed, checking = false, sta
   const presentation = connectorPresentation(connection, installed, { checking, stateUnavailable });
   return <><Tag color={presentation.tagColor}>{t(presentation.labelKey)}</Tag>{!stateUnavailable && connection?.authentication.pendingVerification && connection.readiness === "ready" && <Tag color="warning">{t("market.connector.flow.state.pending_verification")}</Tag>}</>;
 }
+
 export function ConnectorDetailDialog({ item, runtime, onClose, onDisconnect, onConfigure, children }: { item: MarketItem | null; runtime: MarketConnectorFlowRuntime; onClose: () => void; onDisconnect: (item: MarketItem) => void; onConfigure: (item: MarketItem) => void; children?: ReactNode }) {
   const { t } = useI18n();
   if (!item) return null;
@@ -29,7 +30,20 @@ export function ConnectorDetailDialog({ item, runtime, onClose, onDisconnect, on
   const usable = connectorIsUsable(connection);
   const noConfiguration = connection && !connectorRequiresConfiguration(connection);
   const error = runtime.getError(item);
-  const blocked = runtime.busy || runtime.loading || !!runtime.stateError || (!installed && item.state === "incompatible");
+  const checking = runtime.mutation?.action === "check";
+  const checkingItem = checking && runtime.mutation?.itemId === item.id;
+  const busy = runtime.busy && !checking;
+  const blocked = busy || runtime.loading || !!runtime.stateError || (!installed && item.state === "incompatible");
+  // Keep the operation lock during a check without dimming the other buttons.
+  const lockDuringCheck = (onClick: () => void): Pick<ButtonProps, "aria-disabled" | "onClick"> => ({
+    "aria-disabled": checking || undefined,
+    onClick: checking ? event => event.preventDefault() : onClick
+  });
+  const checkAction = { ...lockDuringCheck(() => void runtime.mutate(item, "check")), loading: checkingItem, "aria-busy": checkingItem || undefined };
+  const primaryUnavailable = awaitingVerification ? !connection?.capabilities.canCheck
+    : !usable && !noConfiguration && installed && connection?.capabilities.canConnect === false && connection.capabilities.authMode !== "token";
+  const primaryAction = awaitingVerification ? checkAction
+    : { ...lockDuringCheck(() => void runtime.start(item, true, true)), loading: busy && runtime.flow?.item.id === item.id };
   const fallback = ["draftLearn", "draftRead", "draftTask"].map(key => t(`market.connector.flow.${key}` as TranslationKey, { name: item.name }));
   const legacyHint = item.metadata?.usageHint?.trim();
   let suggestions = legacyHint ? [legacyHint] : fallback;
@@ -53,7 +67,7 @@ export function ConnectorDetailDialog({ item, runtime, onClose, onDisconnect, on
       <h2 className="connector-detail-title">{t("market.connector.flow.detailTitle", { name: item.name })}</h2>
       <p className="connector-detail-description">{item.description || t("market.discovery.noDescription")}</p>
       {!runtime.stateError && (awaitingVerification || connection?.authentication.pendingVerification) && <Alert type="info" showIcon message={t("market.connector.flow.pendingVerification")}
-        action={!awaitingVerification && connection?.capabilities.canCheck ? <Button size="small" disabled={blocked} onClick={() => void runtime.mutate(item, "check")}>{t("market.connector.flow.check")}</Button> : undefined} />}
+        action={!awaitingVerification && connection?.capabilities.canCheck ? <Button size="small" disabled={blocked} {...checkAction}>{t("market.connector.flow.check")}</Button> : undefined} />}
       {!error && !runtime.stateError && connection?.readiness === "ready" && connection.authentication.status === "configured" && <Alert type="info" showIcon message={t("market.connector.flow.configuredExplanation")} />}
       {!error && !runtime.stateError && connection?.readiness === "ready" && connection.authentication.status === "delegated" && <Alert type="info" showIcon message={t("market.connector.flow.delegatedExplanation")} />}
       {!error && connection?.authentication.message && (connection.authentication.status === "failed" || connection.authentication.status === "unauthorized") && <Alert type="warning" showIcon message={connection.authentication.message} />}
@@ -64,25 +78,25 @@ export function ConnectorDetailDialog({ item, runtime, onClose, onDisconnect, on
       {runtime.flow?.item.id === item.id && runtime.busy && runtime.flow.session?.authorizationUrl && <div className="connector-detail-actions"><Button disabled={runtime.openingAuth} onClick={() => void runtime.reopenAuth()}>{t("market.connector.flow.reopenAuthorization")}</Button></div>}
       {runtime.stateError && <Alert type="warning" showIcon message={t("market.connector.flow.stateUnavailable")} description={runtime.stateError} action={<Button size="small" onClick={() => void runtime.refresh()}>{t("market.connector.flow.retry")}</Button>} />}
       <div className="connector-detail-actions connector-detail-primary-actions">
-        <Button type="primary" disabled={blocked || awaitingVerification && !connection?.capabilities.canCheck || (!usable && !noConfiguration && installed && connection?.capabilities.canConnect === false && connection.capabilities.authMode !== "token" && !(awaitingVerification && connection.capabilities.canCheck))} loading={runtime.busy && runtime.flow?.item.id === item.id} onClick={() => void (awaitingVerification ? runtime.mutate(item, "check") : runtime.start(item, true, true))}>{t(awaitingVerification ? "market.connector.flow.check" : usable || noConfiguration ? "market.connector.flow.try" : "market.connector.flow.connect")}</Button>
-        {installed && connection?.capabilities.authMode === "token" && <Button disabled={blocked} onClick={() => void runtime.beginCredentialUpdate(item)}>{t("market.connector.flow.updateCredentials")}</Button>}
-        {connection?.configured && connection.capabilities.canDisconnect && <Button disabled={runtime.busy} onClick={() => onDisconnect(item)}>{t("market.connector.flow.disconnect")}</Button>}
+        <Button type="primary" disabled={blocked || primaryUnavailable} {...primaryAction}>{t(awaitingVerification ? "market.connector.flow.check" : usable || noConfiguration ? "market.connector.flow.try" : "market.connector.flow.connect")}</Button>
+        {installed && connection?.capabilities.authMode === "token" && <Button disabled={blocked} {...lockDuringCheck(() => void runtime.beginCredentialUpdate(item))}>{t("market.connector.flow.updateCredentials")}</Button>}
+        {connection?.configured && connection.capabilities.canDisconnect && <Button disabled={busy} {...lockDuringCheck(() => onDisconnect(item))}>{t("market.connector.flow.disconnect")}</Button>}
       </div>
       {!installed && item.state === "incompatible" && <Alert type="warning" message={item.message || t("market.state.incompatible")} />}
       </header>
       <div className="connector-detail-scroll">
       <section className="connector-detail-usage">
         <h3>{t("market.connector.flow.usage")}</h3>
-        <div className="connector-suggestions">{suggestions.map((prompt, index) => <Button key={`${index}-${prompt}`} icon={<MessageOutlined aria-hidden="true" />} iconPosition="end" disabled={blocked} onClick={() => void runtime.start(item, true, true, prompt)}><span className="connector-suggestion-prompt">{prompt}</span></Button>)}</div>
+        <div className="connector-suggestions">{suggestions.map((prompt, index) => <Button key={`${index}-${prompt}`} icon={<MessageOutlined aria-hidden="true" />} iconPosition="end" disabled={blocked} {...lockDuringCheck(() => void runtime.start(item, true, true, prompt))}><span className="connector-suggestion-prompt">{prompt}</span></Button>)}</div>
       </section>
       <details className="connector-detail-more">
         <summary>{t("market.connector.flow.details")}</summary>
         <div className="connector-detail-info">
         <dl><div><dt>{t("market.storefront.detail.version")}</dt><dd>{item.version}</dd></div><div><dt>{t("market.storefront.detail.author")}</dt><dd>{item.author || "—"}</dd></div></dl>
         <div className="connector-detail-actions">
-          {installed && <Button disabled={runtime.busy} onClick={() => onConfigure(item)}>{t("market.connector.flow.configure")}</Button>}
-          {item.state === "update-available" && <Button disabled={blocked} onClick={() => void runtime.mutate(item, "update")}>{t("market.action.update")} · {item.installedVersion} → {item.version}</Button>}
-          {connection?.capabilities.canCheck && <Button className="connector-detail-check" disabled={blocked} loading={runtime.mutation?.itemId === item.id && runtime.mutation.action === "check"} onClick={() => void runtime.mutate(item, "check")}>{t("market.connector.flow.check")}</Button>}
+          {installed && <Button disabled={busy} {...lockDuringCheck(() => onConfigure(item))}>{t("market.connector.flow.configure")}</Button>}
+          {item.state === "update-available" && <Button disabled={blocked} {...lockDuringCheck(() => void runtime.mutate(item, "update"))}>{t("market.action.update")} · {item.installedVersion} → {item.version}</Button>}
+          {connection?.capabilities.canCheck && <Button className="connector-detail-check" disabled={blocked} {...checkAction}>{t("market.connector.flow.check")}</Button>}
         </div>
         </div>
         <p className="connector-detail-scope">{t("market.connector.flow.accountScope")}</p>

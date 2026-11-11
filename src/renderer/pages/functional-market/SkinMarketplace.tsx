@@ -1,5 +1,5 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
-import { Alert, Button, Modal, Tag } from "antd";
+import { Alert, Button, Modal, Switch, Tag } from "antd";
 import { PlusCircleOutlined, ReloadOutlined, SearchOutlined, LoadingOutlined, CheckOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { MarketItem } from "@shared/contracts";
 import type { TranslationKey } from "../../../shared/i18n";
@@ -49,13 +49,16 @@ export function SkinMarketplace(props: Props) {
     const { t } = useI18n();
     const flow = useMarketSkinFlow(props.onChanged), appearance = flow.appearance;
     const [query, setQuery] = useState("");
+    const [showBuiltins, setShowBuiltins] = useState(false);
     const [previewModes, setPreviewModes] = useState<Record<string, ResolvedThemeMode>>({});
     const [remove, setRemove] = useState<InstalledDesktopSkinSummary | null>(null);
     const installed = appearance.skinSettings.installedSkins ?? [], current = appearance.skinSettings.skinId;
     const skinItems = props.items.filter(item => item.type === "skin");
     const installedKeys = new Set(installed.map(skin => packagePreviewKey(skin.packageId, skin.version)));
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const builtins = DESKTOP_SKINS.filter(skin => `${t(builtinSkinNameKeys[skin.id])} ${skin.id}`.toLocaleLowerCase().includes(normalizedQuery));
+    const builtins = showBuiltins
+        ? DESKTOP_SKINS.filter(skin => `${t(builtinSkinNameKeys[skin.id])} ${skin.id}`.toLocaleLowerCase().includes(normalizedQuery))
+        : [];
     const mine = installed.map(skin => ({
         skin, item: skinItems.find(item => item.id === skin.packageId && item.version === skin.version)
     })).filter(({ skin, item }) => {
@@ -74,7 +77,7 @@ export function SkinMarketplace(props: Props) {
         </div>;
     };
     const useButton = (id: DesktopSkinId) => <Button type={current === id ? "default" : "primary"}
-        className={`market-card-action market-card-primary ${current === id ? "is-current" : ""}`}
+        className={`market-card-action market-card-primary market-card-use${current === id ? " is-current" : ""}`}
         disabled={!flow.ready || flow.busy || current === id} loading={flow.busyId === id}
         icon={current === id ? <CheckOutlined /> : undefined} onClick={() => void flow.useSkin(id)}>
         {t(current === id ? "market.skin.current" : "market.skin.use")}
@@ -94,6 +97,10 @@ export function SkinMarketplace(props: Props) {
             <label className="skill-discovery-search"><SearchOutlined /><input type="search"
                 aria-label={t("market.skin.search")} placeholder={t("market.skin.search")} value={query}
                 onChange={event => setQuery(event.target.value)}/></label>
+            <label className="skin-market-builtin-toggle">
+                <Switch size="small" checked={showBuiltins} onChange={setShowBuiltins} />
+                {t("market.skin.showBuiltins")}
+            </label>
             <button type="button" className="skill-discovery-outline" disabled={flow.busy || !flow.ready}
                 onClick={async () => { if (await flow.importSkin()) setQuery(""); }}>
                 {flow.busyId === "import" ? <LoadingOutlined /> : <PlusCircleOutlined />}{t("settings.appearance.importPackage")}
@@ -101,7 +108,7 @@ export function SkinMarketplace(props: Props) {
             <button type="button" className="skill-discovery-outline" aria-label={t("market.skin.refresh")}
                 onClick={refresh} disabled={flow.busy}><ReloadOutlined /></button>
         </div>}>
-        <div className="skill-discovery skin-discovery">
+        <div className={`skill-discovery skin-discovery${flow.activity?.action === "import" ? " is-importing" : ""}`}>
             <SkinMessages runtime={flow}/>{props.feedback}
             <div className="skill-discovery-scroll">
                 {flow.stateError ? <Alert type="warning" showIcon message={flow.stateError}

@@ -1,4 +1,4 @@
-import { createElement, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { BorderOutlined, CloseOutlined, MinusOutlined, ShareAltOutlined, SwitcherOutlined } from "@ant-design/icons";
 import { AppSidebar, type AppSidebarChatMenuHandle } from "./navigation/AppSidebar";
@@ -8,6 +8,7 @@ import { forwardMainChatAwaitingDigit } from "../services/mainChatAwaitingShortc
 import { getActiveServiceSurfaceId, getServiceSurfaceWebview } from "../services/serviceSurfaceWebviewRefs";
 import { MAIN_CHAT_SURFACE_ID } from "../../shared/surface-identity";
 import { ConnectorAuthBrowser } from "../connectors/ConnectorAuthBrowser";
+import { DesktopSsoLoginWebview } from "./DesktopSsoLoginWebview";
 import { WindowsApplicationMenu } from "./WindowsApplicationMenu";
 import { useLocalDocumentWorkspace } from "../work-panel/useLocalDocumentWorkspace";
 import { localDocumentWorkPanelOwnerForRoute, useLocalDocumentsWorkPanel } from "../work-panel/useLocalDocumentsWorkPanel";
@@ -5382,15 +5383,12 @@ export function AppShell() {
                     </button>
                   </div>
                 </div>
-              ) : createElement("webview", {
-                  key: `${desktopSsoLoginDialog.partition}:${desktopSsoLoginDialog.url}`,
-                  src: desktopSsoLoginDialog.url,
-                  title: desktopSsoLoginDialog.label,
-                  className: "desktop-sso-login-webview",
-                  partition: desktopSsoLoginDialog.partition,
-                  useragent: desktopSsoLoginDialog.userAgent,
-                  style: { width: "100%", height: "100%", border: "none" }
-                })}
+              ) : (
+                <DesktopSsoLoginWebview
+                  key={`${desktopSsoLoginDialog.partition}:${desktopSsoLoginDialog.url}`}
+                  request={desktopSsoLoginDialog}
+                />
+              )}
             </div>
           </section>
         </div>
