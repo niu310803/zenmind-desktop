@@ -707,7 +707,6 @@ export const zhCNMessages = {
   "artifactManagement.next": "下一页",
   "artifactManagement.sync": "重新同步",
   "artifactManagement.deleteNotice": "删除来源对话也会删除文件，并移除资料库当前已收录的 {count} 条资料及其收藏、标签。未收录文件同样会被删除。",
-  "artifactManagement.deleteNoticeUnknown": "删除来源对话也会删除其中的资料文件及对应的收藏、标签。",
   "artifactManagement.scope": "仅收录已发布的文件，不保存副本。删除来源对话会同时删除资料；归档期间暂不可读。历史补齐受访问权限限制，不包含首次同步前已归档对话中的未收录资料。",
   "artifactManagement.sync.idle": "等待连接后同步",
   "artifactManagement.sync.offline": "服务未连接，当前显示本地索引",

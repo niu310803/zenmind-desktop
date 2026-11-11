@@ -707,7 +707,6 @@ export const enUSMessages = {
   "artifactManagement.next": "Next",
   "artifactManagement.sync": "Sync again",
   "artifactManagement.deleteNotice": "Deleting this conversation also deletes its files and removes the {count} items currently indexed in the library, including their favorites and tags. Unindexed files are also deleted.",
-  "artifactManagement.deleteNoticeUnknown": "Deleting this conversation also deletes its files and their library favorites and tags.",
   "artifactManagement.scope": "Published files only; no copies are stored. Deleting a source conversation also deletes its files. Archived files are temporarily unreadable. History sync is limited by permissions and cannot discover previously unindexed files in archived conversations.",
   "artifactManagement.sync.idle": "Waiting for connection to sync",
   "artifactManagement.sync.offline": "Disconnected. Showing the local index.",

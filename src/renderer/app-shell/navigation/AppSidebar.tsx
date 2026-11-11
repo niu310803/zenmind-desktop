@@ -6604,7 +6604,10 @@ export function AppSidebar({
           <p className="sidebar-agent-dialog-message">
             {t("sidebar.chat.deleteConfirm", { name: chatLabel })}
           </p>
-          <LibraryDeleteNotice chatId={assistantChatDeleteDialog.chat.chatId} />
+          <LibraryDeleteNotice
+            chatId={assistantChatDeleteDialog.chat.chatId}
+            className="sidebar-agent-dialog-message"
+          />
           {assistantChatDeleteDialog.error ? (
             <div className="sidebar-agent-dialog-error" role="alert">
               {assistantChatDeleteDialog.error}
