@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
-import { t } from "../../support/i18n/main-i18n";
+import { getMainLocale, t } from "../../support/i18n/main-i18n";
 import { BRAND_ID } from "../../../shared/brand";
 import {
   isTunnelHubForbiddenHostname,
@@ -87,6 +87,7 @@ export class ConversationHtmlRenderService {
     try {
       const response = await this.renderInWorker({
         kind: "html",
+        locale: getMainLocale(),
         requestId,
         snapshotUrl: snapshotRequest.snapshotUrl,
         bearerToken: snapshotRequest.bearerToken,
@@ -126,6 +127,7 @@ export class ConversationHtmlRenderService {
     try {
       const response = await this.renderInWorker({
         kind: "snapshot",
+        locale: getMainLocale(),
         limits,
         requestId: randomUUID(),
         snapshotUrl: snapshotRequest.snapshotUrl,

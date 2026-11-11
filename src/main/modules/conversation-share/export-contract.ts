@@ -44,6 +44,7 @@ export type RenderConversationHtmlRequest = {
   requestId: string;
   snapshotUrl: string;
   bearerToken: string;
+  locale: string;
   templateUrl: string;
   templateCacheKey: string;
   assetOrigin: string;
@@ -56,6 +57,7 @@ export type ReadConversationSnapshotRequest = {
   requestId: string;
   snapshotUrl: string;
   bearerToken: string;
+  locale: string;
 };
 
 export type ConversationExportWorkerRequest =

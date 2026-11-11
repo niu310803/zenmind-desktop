@@ -14,6 +14,7 @@ const {
 const {
   ConversationHtmlRenderService
 } = require("../dist-electron/main/modules/conversation-share/html-render-service.js");
+const { getMainLocale, setMainLocaleForCurrentProcess } = require("../dist-electron/main/support/i18n/main-i18n.js");
 
 const SNAPSHOT_MARKER = "__CONVERSATION_EXPORT_SNAPSHOT_JSON_V1__";
 const ASSET_ORIGIN_MARKER = "__CONVERSATION_EXPORT_ASSET_ORIGIN__";
@@ -108,6 +109,9 @@ test("conversation HTML worker aborts a timed-out response with a structured cod
 });
 
 test("conversation HTML render service keeps template fetch and assembly inside one persistent worker", async (t) => {
+  const originalLocale = getMainLocale();
+  setMainLocaleForCurrentProcess("en-US");
+  t.after(() => setMainLocaleForCurrentProcess(originalLocale));
   const snapshot = Buffer.from('{"version":1,"title":"安全 </script>","turns":[],"attachments":[]}');
   const template = templateBytes();
   let templateRequests = 0;
@@ -134,6 +138,7 @@ test("conversation HTML render service keeps template fetch and assembly inside 
     if (url.pathname === "/api/chat/export" && url.searchParams.get("format") === "snapshot") {
       snapshotRequests += 1;
       assert.equal(req.headers.authorization, "Bearer desktop-token");
+      assert.equal(req.headers["x-locale"], getMainLocale());
       if (snapshotMode === "redirect") {
         res.writeHead(302, { Location: `${origin}/redirected` });
         res.end();
@@ -234,6 +239,7 @@ test("conversation HTML render service keeps template fetch and assembly inside 
   assert.equal(maximumActiveSnapshotRequests, 1);
 
   snapshotMode = "normal";
+  setMainLocaleForCurrentProcess("zh-CN");
   const snapshotOnly = await renderer.readChatSnapshot("chat_1", { maxSnapshotBytes: 52428800, maxResourceBytes: 52428800 });
   assert.equal(snapshotOnly.ok, true);
   assert.equal(Buffer.compare(snapshotOnly.bytes, snapshot), 0);

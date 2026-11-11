@@ -11,6 +11,7 @@ const {
   buildZenmiImageGenerateMessage
 } = require("../dist-electron/main/modules/agent-platform/bridge.js");
 const { APP_BRAND } = require("../dist-electron/shared/brand.js");
+const { getMainLocale, setMainLocaleForCurrentProcess } = require("../dist-electron/main/support/i18n/main-i18n.js");
 const { toDesktopPetAgentOptions } = require("../dist-electron/main/modules/pet/agent-options.js");
 const { resolveAssistantChatStoragePaths } = require("../dist-electron/main/modules/assistant/chat-storage-path.js");
 
@@ -1914,6 +1915,8 @@ test("agent platform assistant bridge honors per-chat archive results", async ()
 
 test("agent platform assistant bridge downloads chat export from the current platform endpoint", async () => {
   const originalFetch = globalThis.fetch;
+  const originalLocale = getMainLocale();
+  setMainLocaleForCurrentProcess("en-US");
   const requests = [];
   const { bridge } = makeBridge();
   globalThis.fetch = async (url, init = {}) => {
@@ -1936,10 +1939,12 @@ test("agent platform assistant bridge downloads chat export from the current pla
     assert.equal(requests[0].url, "http://127.0.0.1:18888/api/chat/export?chatId=chat_1&format=markdown");
     assert.equal(requests[0].init.method, "GET");
     assert.equal(requests[0].init.headers.Accept, "text/markdown, application/json");
+    assert.equal(requests[0].init.headers["X-Locale"], "en-US");
     assert.equal(result.filename, "Renamed chat.md");
     assert.equal(result.bytes.toString("utf8"), "# Exported chat\n");
   } finally {
     globalThis.fetch = originalFetch;
+    setMainLocaleForCurrentProcess(originalLocale);
   }
 });
 
