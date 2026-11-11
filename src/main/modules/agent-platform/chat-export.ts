@@ -1,5 +1,5 @@
 import { parseSafeLoopbackWebUrl } from "../../infrastructure/network/loopback-url";
-import { t } from "../../support/i18n/main-i18n";
+import { getMainLocale, t } from "../../support/i18n/main-i18n";
 import {
   AgentPlatformChatExportResult,
   AgentPlatformRawChatJSONLResult,
@@ -37,6 +37,7 @@ export class ChatExportClient {
       method: "GET",
       headers: {
         Accept: "text/markdown, application/json",
+        "X-Locale": getMainLocale(),
         Authorization: `Bearer ${availability.token}`
       }
     });
