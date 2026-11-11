@@ -12,6 +12,7 @@
   .main-chat-work-panel-toggle,
   .chat-work-panel-tab,
   .chat-work-panel-add-button,
+  .chat-work-panel-tabs-scroll-button,
   .desktop-action-confirmation-button,
   .settings-control-primary-button
 ):focus-visible {
@@ -50,7 +51,8 @@
   .app-sidebar-collapse-button,
   .app-system-bar-action,
   .main-chat-work-panel-toggle,
-  .chat-work-panel-add-button
+  .chat-work-panel-add-button,
+  .chat-work-panel-tabs-scroll-button
 ):active:not(:disabled) {
   background: var(--control-active-bg);
 }

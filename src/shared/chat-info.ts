@@ -38,6 +38,20 @@ export function formatTimestamp(value: unknown) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+/** 会话信息的创建/更新时间按本地时区展示为 YYYY-MM-DD HH:mm:ss。 */
+export function formatChatInfoDateTime(value: unknown) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    return undefined;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
 export function buildChatInfoRows(input: {
   summary: ChatInfoSummary;
   detail: AssistantChatInfo | null;
@@ -54,11 +68,11 @@ export function buildChatInfoRows(input: {
     createChatInfoRow("firstAgentName", t("sidebar.chat.infoField.firstAgentName"), detail?.firstAgentName),
     createChatInfoRow("source", t("sidebar.chat.infoField.source"), detail?.source),
     createChatInfoRow("createdAt", t("sidebar.chat.infoField.createdAt"), createdAt, {
-      displayValue: formatTimestamp(createdAt),
+      displayValue: formatChatInfoDateTime(createdAt),
       copyValue: createdAt === undefined ? undefined : String(createdAt),
     }),
     createChatInfoRow("updatedAt", t("sidebar.chat.infoField.updatedAt"), updatedAt, {
-      displayValue: formatTimestamp(updatedAt),
+      displayValue: formatChatInfoDateTime(updatedAt),
       copyValue: updatedAt === undefined ? undefined : String(updatedAt),
     }),
   ].filter((row): row is ChatInfoRow => Boolean(row));

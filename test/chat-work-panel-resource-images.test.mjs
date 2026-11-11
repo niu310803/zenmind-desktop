@@ -447,7 +447,7 @@ function createImageViewportHarness() {
   const helpers = [];
   const effects = [];
   function visit(node) {
-    if (ts.isFunctionDeclaration(node) && ["clamp", "fitZoomFor", "centeredView"].includes(node.name?.text)) helpers.push(node.getText(source));
+    if (ts.isFunctionDeclaration(node) && ["clamp", "fitZoomFor", "centeredView", "clampView"].includes(node.name?.text)) helpers.push(node.getText(source));
     if (ts.isCallExpression(node) && node.expression.getText(source) === "useEffect") {
       const callback = node.arguments[0]?.getText(source) || "";
       if (callback.includes("canvas.setViewportTransform") || callback.includes("imageSizeRef.current =")) effects.push(node.getText(source));
@@ -462,6 +462,7 @@ function createImageViewportHarness() {
   const canvas = {
     width: 320,
     height: 240,
+    viewportTransform: [1, 0, 0, 1, 0, 0],
     elements: {
       setDimensions({ width, height }) {
         dimensionWrites += 1;
@@ -473,6 +474,11 @@ function createImageViewportHarness() {
     getRetinaScaling: () => 1,
     calcOffset() {},
     requestRenderAll() {}, // Deliberately hold the next frame to detect blank pixels before repaint.
+    renderAll() {
+      // Stand-in for Fabric drawing the image: a completed render restores pixels.
+      pixels.fillStyle = "red";
+      pixels.fillRect(0, 0, bitmap.width, bitmap.height);
+    },
     getWidth: StaticCanvas.prototype.getWidth,
     getHeight: StaticCanvas.prototype.getHeight,
     _setDimensionsImpl: StaticCanvas.prototype._setDimensionsImpl,
@@ -541,6 +547,25 @@ test("native image zoom preserves bitmap pixels until the next animation frame",
   } finally { harness.cleanup(); }
 });
 
+test("native image panning reaches every edge of long images at high zoom", () => {
+  const harness = createImageViewportHarness();
+  try {
+    const { clampView } = harness.context;
+    const viewport = { clientWidth: 800, clientHeight: 700 };
+    const longImage = { width: 2880, height: 12308 };
+    const bottom = viewport.clientHeight - longImage.height;
+    const right = viewport.clientWidth - longImage.width;
+    assert.equal(clampView({ x: 0, y: 0 }, viewport, longImage, 100).y, 0, "the top edge must stay reachable");
+    assert.equal(clampView({ x: 0, y: bottom }, viewport, longImage, 100).y, bottom, "the bottom edge must stay reachable");
+    assert.equal(clampView({ x: 0, y: 0 }, viewport, longImage, 100).x, 0, "the left edge must stay reachable");
+    assert.equal(clampView({ x: right, y: 0 }, viewport, longImage, 100).x, right, "the right edge must stay reachable");
+    // Images that fit in the viewport keep the quarter-visible overscroll tolerance.
+    const small = { width: 400, height: 300 };
+    assert.equal(clampView({ x: 0, y: 9_999 }, viewport, small, 100).y, viewport.clientHeight - 75);
+    assert.equal(clampView({ x: 0, y: -9_999 }, viewport, small, 100).y, 75 - small.height);
+  } finally { harness.cleanup(); }
+});
+
 test("native image viewport resizes once per size change and retains fit and crop centering", () => {
   const harness = createImageViewportHarness();
   try {
@@ -550,6 +575,9 @@ test("native image viewport resizes once per size change and retains fit and cro
     harness.notifyResize();
     assert.equal(harness.dimensionWrites(), before + 1);
     assert.equal(harness.canvas.getWidth(), 640);
+    assert.equal(harness.alpha(), 255, "a width resize must repaint before the frame is presented");
+    assert.equal(harness.canvas.viewportTransform[0], 1.92, "resize must apply the new fit transform synchronously");
+    assert.equal(harness.canvas.viewportTransform[4], 128);
     assert.equal(harness.context.fitZoom, 192);
     assert.equal(harness.context.view.x, 128);
     harness.paint();
