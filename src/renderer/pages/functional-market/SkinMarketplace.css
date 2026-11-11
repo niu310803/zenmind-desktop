@@ -1,4 +1,16 @@
 .skin-discovery { flex-direction: column; container-type: inline-size; }
+.skin-market-builtin-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    color: var(--market-control-text);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
 .skin-market-card {
     padding: 0;
     overflow: hidden;
