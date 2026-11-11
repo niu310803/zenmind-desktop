@@ -1,40 +1,31 @@
-import { useId, useState } from "react";
-import { Button, Input } from "antd";
+import { useMemo } from "react";
+import { Input } from "antd";
 import { useI18n } from "../../i18n/useI18n";
 import { decodeJwtPayload } from "./decodeJwtPayload";
 
 export function SsoIdTokenDebugField({ content }: { content: string }) {
   const { t } = useI18n();
-  const id = useId();
-  const [result, setResult] = useState<{ source: string; payload?: string; error?: boolean } | null>(null);
-  const currentResult = result?.source === content ? result : null;
-
-  function handleDecode() {
+  const result = useMemo(() => {
+    if (!content.trim()) return null;
     try {
-      setResult({ source: content, payload: decodeJwtPayload(content) });
+      return { payload: decodeJwtPayload(content), error: false };
     } catch {
-      setResult({ source: content, error: true });
+      return { payload: "", error: true };
     }
-  }
+  }, [content]);
 
   return (
     <>
-      <div className="settings-debug-field">
-        <div className="settings-debug-field-head">
-          <label htmlFor={id}>{t("settings.debug.state.content")}</label>
-          <Button size="small" disabled={!content.trim()} onClick={handleDecode}>
-            {t("settings.debug.state.decodeJwt")}
-          </Button>
-        </div>
-        <Input.TextArea id={id} className="settings-debug-textarea" value={content} readOnly spellCheck={false} />
-      </div>
-      {currentResult?.error ? (
+      <label className="settings-debug-field">
+        <Input.TextArea aria-label={t("settings.debug.state.content")} className="settings-debug-textarea" value={content} readOnly spellCheck={false} />
+      </label>
+      {result?.error ? (
         <div className="feedback-banner warning-banner" role="alert">{t("settings.debug.state.invalidJwt")}</div>
       ) : null}
-      {currentResult?.payload ? (
+      {result?.payload ? (
         <label className="settings-debug-field">
           <span>{t("settings.debug.state.jwtPayload")}</span>
-          <Input.TextArea className="settings-debug-textarea" value={currentResult.payload} readOnly spellCheck={false} autoSize={{ minRows: 6, maxRows: 24 }} />
+          <Input.TextArea className="settings-debug-textarea" value={result.payload} readOnly spellCheck={false} autoSize={{ minRows: 6, maxRows: 24 }} />
         </label>
       ) : null}
     </>

@@ -16,6 +16,33 @@
   gap: 14px;
 }
 
+.desktop-action-workbench-page.is-embedded {
+  --desktop-ui-bg: transparent;
+  --desktop-ui-text: var(--ink);
+  --desktop-ui-muted: var(--ink-soft);
+  --desktop-ui-border: var(--line);
+  --desktop-ui-card: var(--settings-panel-bg);
+  --desktop-ui-card-soft: var(--control-input-bg);
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.desktop-action-workbench-page.is-embedded .desktop-action-workbench-panel {
+  height: auto;
+  min-height: 0;
+}
+
+.desktop-action-workbench-page.is-embedded .desktop-action-workbench-copy h1 {
+  font-size: 14px;
+}
+
+.desktop-action-workbench-page.is-embedded .desktop-action-workbench-field .ant-input {
+  resize: vertical;
+  background: var(--control-input-bg);
+}
+
 .desktop-action-workbench-head {
   display: flex;
   min-width: 0;

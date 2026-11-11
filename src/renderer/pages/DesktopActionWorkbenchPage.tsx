@@ -89,7 +89,7 @@ function parseRequest(
   return request;
 }
 
-export function DesktopActionWorkbenchPage() {
+export function DesktopActionWorkbenchPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const [actions, setActions] = useState<DesktopActionDefinition[]>([]);
   const [selectedAction, setSelectedAction] = useState(DEFAULT_DESKTOP_ACTION_NAME);
@@ -149,15 +149,15 @@ export function DesktopActionWorkbenchPage() {
   }
 
   useEffect(() => {
-    document.title = t("settings.debug.desktopActions.workbenchTitle");
-  }, [t]);
+    if (!embedded) document.title = t("settings.debug.desktopActions.workbenchTitle");
+  }, [t, embedded]);
 
   useEffect(() => {
     void handleLoadActions();
   }, []);
 
   return (
-    <main className="desktop-action-workbench-page">
+    <div className={`desktop-action-workbench-page${embedded ? " is-embedded" : ""}`}>
       <section
         className="desktop-action-workbench-panel"
         aria-labelledby="desktop-action-workbench-title"
@@ -232,6 +232,6 @@ export function DesktopActionWorkbenchPage() {
           </label>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

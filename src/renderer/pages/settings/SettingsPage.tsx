@@ -12,8 +12,11 @@ import { getWebappPublishPresentation } from "./webappPublishPresentation";
 import { getWebappRuntimeLabel, WebappRuntimeSettingsDialog } from "./WebappRuntimeSettingsDialog";
 import { LocalServicesSettings } from "./LocalServicesSettings";
 import { BrowserControlSettings } from "./BrowserControlSettings";
+import { DesktopActionWorkbenchPage } from "../DesktopActionWorkbenchPage";
+import { WebappBridgeDebugCard } from "./WebappBridgeDebugCard";
 import { DebugUpdatePanel } from "../../updates/DebugUpdatePanel";
 import { SsoIdTokenDebugField } from "./SsoIdTokenDebugField";
+import { DebugFactValue } from "./DebugFactValue";
 import { DesktopUpdateCard } from "../../updates/DesktopUpdateCard";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
@@ -110,7 +113,7 @@ import type {
 } from "../../../shared/webapp-manifest";
 
 type KanbanConnectionState = "disabled" | "auth_required" | "connecting" | "open" | "closed" | "error";
-type DebugCategoryId = "device" | "state" | "logs" | "realtime" | "wsServer" | "authTokens" | "updates" | "other";
+type DebugCategoryId = "device" | "state" | "credentials" | "logs" | "desktopActions" | "appBridge" | "wsServer" | "authTokens" | "updates" | "other";
 type UsageHeatmapMode = "day" | "week" | "cumulative";
 type DebugLogDirection = "in" | "out" | "system";
 
@@ -172,6 +175,7 @@ type AboutAppCardProps = {
 
 type SettingsDebugTextAreaFieldProps = {
   label: ReactNode;
+  hideLabel?: boolean;
   value: string;
   readOnly?: boolean;
   onChange?: (value: string) => void;
@@ -179,7 +183,7 @@ type SettingsDebugTextAreaFieldProps = {
 
 const THEME_PREFERENCE_OPTIONS: ThemePreference[] = ["light", "dark", "system"];
 const SETTINGS_NOTICE_AUTO_CLOSE_MS = 5000;
-const DEBUG_CATEGORY_IDS: DebugCategoryId[] = ["device", "state", "logs", "realtime", "wsServer", "authTokens", "updates", "other"];
+const DEBUG_CATEGORY_IDS: DebugCategoryId[] = ["device", "state", "credentials", "logs", "desktopActions", "appBridge", "wsServer", "authTokens", "updates", "other"];
 const SETTINGS_SELECT_CLASS_NAMES = {
   popup: {
     root: "settings-select-popup"
@@ -199,12 +203,13 @@ const DEFAULT_WS_ACTION_DEBUG_COMMAND = {
 };
 const WEBSITE_NEW_ID = "__new__";
 
-function SettingsDebugTextAreaField({ label, value, readOnly = false, onChange }: SettingsDebugTextAreaFieldProps) {
+function SettingsDebugTextAreaField({ label, hideLabel = false, value, readOnly = false, onChange }: SettingsDebugTextAreaFieldProps) {
   return (
     <label className="settings-debug-field">
-      <span>{label}</span>
+      {hideLabel ? null : <span>{label}</span>}
       <Input.TextArea
         className="settings-debug-textarea"
+        aria-label={hideLabel && typeof label === "string" ? label : undefined}
         value={value}
         readOnly={readOnly}
         spellCheck={false}
@@ -266,10 +271,14 @@ function getDebugCategoryLabel(categoryId: DebugCategoryId, t: TranslateFunction
       return t("settings.debug.categories.device");
     case "state":
       return t("settings.debug.categories.state");
+    case "credentials":
+      return t("settings.debug.categories.credentials");
     case "logs":
       return t("settings.debug.categories.logs");
-    case "realtime":
-      return t("settings.debug.categories.realtime");
+    case "desktopActions":
+      return t("settings.debug.categories.desktopActions");
+    case "appBridge":
+      return t("settings.debug.categories.appBridge");
     case "wsServer":
       return t("settings.debug.categories.wsServer");
     case "authTokens":
@@ -1284,61 +1293,6 @@ function appendDebugLogEntry(
   ]);
 }
 
-function DesktopActionDebugCard() {
-  const { t } = useI18n();
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageIsError, setMessageIsError] = useState(false);
-
-  async function handleOpenWorkbench() {
-    setPending(true);
-    setMessage("");
-    try {
-      const result = await window.electronAPI.desktopActions.openWorkbench();
-      setMessageIsError(!result.ok);
-      setMessage(
-        result.ok
-          ? t("settings.debug.desktopActions.opened")
-          : result.message || t("settings.debug.desktopActions.openFailed")
-      );
-    } catch (error) {
-      setMessageIsError(true);
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <div className="data-root-card settings-debug-panel">
-      <div className="settings-debug-panel-head">
-        <div>
-          <h2>{t("settings.debug.desktopActions.title")}</h2>
-          <p className="page-copy">{t("settings.debug.desktopActions.description")}</p>
-        </div>
-      </div>
-      <div className="settings-debug-actions">
-        <Button
-          type="primary"
-          disabled={pending}
-          loading={pending}
-          onClick={() => void handleOpenWorkbench()}
-        >
-          {t("settings.debug.desktopActions.openWorkbench")}
-        </Button>
-      </div>
-      {message ? (
-        <div
-          className={`feedback-banner settings-desktop-ws-message${messageIsError ? " warning-banner" : ""}`}
-          role="status"
-        >
-          {message}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function WsServerDebugDialog({
   open,
   onClose,
@@ -1565,21 +1519,18 @@ function DeviceIdentityDebugCard() {
   return (
     <div className="data-root-card settings-debug-panel">
       <div className="settings-debug-panel-head">
-        <h2>{t("settings.debug.device.title")}</h2>
-        <span className={`settings-desktop-ws-status ${message ? "is-error" : pending ? "is-pending" : identity ? "is-running" : "is-closed"}`}>
-          {pending ? t("common.loading") : message ? t("common.error") : identity ? t("settings.debug.device.loaded") : t("settings.debug.empty")}
-        </span>
-      </div>
-      <div className="settings-debug-actions">
-        <Button disabled={pending} onClick={() => void handleRefresh()}>
-          {pending ? t("common.loading") : t("common.refresh")}
-        </Button>
-        <Button disabled={!identity?.deviceId} onClick={() => void handleCopy(identity?.deviceId || "")}>
-          {t("settings.debug.device.copyDeviceId")}
-        </Button>
-        <Button disabled={!identityJson} onClick={() => void handleCopy(identityJson)}>
-          {t("settings.debug.device.copyJson")}
-        </Button>
+        <div className="settings-debug-title-actions">
+          <h2>{t("settings.debug.device.title")}</h2>
+          <SettingsActionButton label={t("settings.debug.device.copyJson")} icon="copy" disabled={!identityJson} onClick={() => void handleCopy(identityJson)} />
+        </div>
+        <div className="settings-debug-actions">
+          <Button disabled={pending} onClick={() => void handleRefresh()}>
+            {pending ? t("common.loading") : t("common.refresh")}
+          </Button>
+          <span className={`settings-desktop-ws-status ${message ? "is-error" : pending ? "is-pending" : identity ? "is-running" : "is-closed"}`}>
+            {pending ? t("common.loading") : message ? t("common.error") : identity ? t("settings.debug.device.loaded") : t("settings.debug.empty")}
+          </span>
+        </div>
       </div>
       {message ? (
         <div className="feedback-banner warning-banner settings-desktop-ws-message" role="status">
@@ -1592,7 +1543,7 @@ function DeviceIdentityDebugCard() {
             {rows.map((row) => (
               <div key={row.label}>
                 <dt>{t(row.label)}</dt>
-                <dd>{formatDebugValue(row.value, t("settings.debug.empty"))}</dd>
+                <DebugFactValue>{formatDebugValue(row.value, t("settings.debug.empty"))}</DebugFactValue>
               </div>
             ))}
           </dl>
@@ -1607,7 +1558,7 @@ function DeviceIdentityDebugCard() {
   );
 }
 
-function DesktopStateDebugCard() {
+function DesktopStateDebugCard({ credentials = false }: { credentials?: boolean }) {
   const { locale, t } = useI18n();
   const [snapshot, setSnapshot] = useState<DesktopStateSnapshot | null>(null);
   const [pending, setPending] = useState(false);
@@ -1639,15 +1590,15 @@ function DesktopStateDebugCard() {
   return (
     <div className="data-root-card settings-debug-panel settings-debug-state-panel">
       <div className="settings-debug-panel-head">
-        <h2>{t("settings.debug.state.title")}</h2>
-        <span className={`settings-desktop-ws-status ${message ? "is-error" : pending ? "is-pending" : snapshot ? "is-running" : "is-closed"}`}>
-          {pending ? t("common.loading") : message ? t("common.error") : snapshot ? t("settings.debug.state.loaded") : t("settings.debug.empty")}
-        </span>
-      </div>
-      <div className="settings-debug-actions">
-        <Button disabled={pending} onClick={() => void handleRefresh()}>
-          {pending ? t("common.loading") : t("common.refresh")}
-        </Button>
+        <h2>{t(credentials ? "settings.debug.categories.credentials" : "settings.debug.state.title")}</h2>
+        <div className="settings-debug-actions">
+          <Button disabled={pending} onClick={() => void handleRefresh()}>
+            {pending ? t("common.loading") : t("common.refresh")}
+          </Button>
+          <span className={`settings-desktop-ws-status ${message ? "is-error" : pending ? "is-pending" : snapshot ? "is-running" : "is-closed"}`}>
+            {pending ? t("common.loading") : message ? t("common.error") : snapshot ? t("settings.debug.state.loaded") : t("settings.debug.empty")}
+          </span>
+        </div>
       </div>
       {message ? (
         <div className="feedback-banner warning-banner settings-desktop-ws-message" role="status">
@@ -1659,15 +1610,18 @@ function DesktopStateDebugCard() {
           <dl className="settings-debug-facts settings-debug-state-summary">
             <div>
               <dt>{t("settings.debug.state.directory")}</dt>
-              <dd>{snapshot.rootPath}</dd>
+              <DebugFactValue>{snapshot.rootPath}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.state.readAt")}</dt>
-              <dd>{formatEpochMillis(snapshot.readAt, locale)}</dd>
+              <DebugFactValue>{formatEpochMillis(snapshot.readAt, locale)}</DebugFactValue>
             </div>
           </dl>
           <div className="settings-debug-state-files">
-            {snapshot.files.map((file) => {
+            {snapshot.files.filter((file) => {
+              const isCredential = file.name === "sso-session.json" || file.name === "sso-id-token.txt";
+              return isCredential === credentials;
+            }).map((file) => {
               const statusClass = file.error ? "is-error" : file.exists ? "is-running" : "is-closed";
               const statusLabel = file.error
                 ? t("common.error")
@@ -1693,19 +1647,19 @@ function DesktopStateDebugCard() {
                   <dl className="settings-debug-facts settings-debug-state-file-meta">
                     <div>
                       <dt>{t("settings.debug.state.path")}</dt>
-                      <dd>{file.path}</dd>
+                      <DebugFactValue>{file.path}</DebugFactValue>
                     </div>
                     <div>
                       <dt>{t("settings.debug.state.size")}</dt>
-                      <dd>{file.size}</dd>
+                      <DebugFactValue>{file.size}</DebugFactValue>
                     </div>
                     <div>
                       <dt>{t("settings.debug.state.modifiedAt")}</dt>
-                      <dd>{file.modifiedAt === null ? t("settings.debug.empty") : formatEpochMillis(file.modifiedAt, locale)}</dd>
+                      <DebugFactValue>{file.modifiedAt === null ? t("settings.debug.empty") : formatEpochMillis(file.modifiedAt, locale)}</DebugFactValue>
                     </div>
                     <div>
                       <dt>{t("settings.debug.state.format")}</dt>
-                      <dd>{file.format === "json" ? "JSON" : "Text"}</dd>
+                      <DebugFactValue>{file.format === "json" ? "JSON" : "Text"}</DebugFactValue>
                     </div>
                   </dl>
                   {file.error ? (
@@ -1719,6 +1673,7 @@ function DesktopStateDebugCard() {
                     ) : (
                       <SettingsDebugTextAreaField
                         label={t("settings.debug.state.content")}
+                        hideLabel
                         value={file.content}
                         readOnly
                       />
@@ -1797,6 +1752,24 @@ function DesktopLogsDebugCard() {
   );
 }
 
+function PlatformRuntimeDebugCard() {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+
+  return (
+    <div className="data-root-card settings-debug-panel">
+      <div className="settings-debug-panel-head">
+        <h2>{t("settings.debug.platformRuntime.title")}</h2>
+      </div>
+      <div className="settings-debug-actions">
+        <Button onClick={() => navigate(buildSettingsSectionPath("mailbox"))}>
+          {t("settings.debug.platformRuntime.openMailbox")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function IdentityTokenDebugCard() {
   const { t } = useI18n();
   const [inspection, setInspection] = useState<IdentityAccessTokenInspection | null>(null);
@@ -1827,6 +1800,10 @@ function IdentityTokenDebugCard() {
   const payloadJson = inspection?.payload ? formatDebugJson(inspection.payload) : "";
   const headerJson = inspection?.header ? formatDebugJson(inspection.header) : "";
 
+  useEffect(() => {
+    void handleInspectToken();
+  }, []);
+
   return (
     <div className="data-root-card settings-debug-panel">
       <div className="settings-debug-panel-head">
@@ -1837,7 +1814,7 @@ function IdentityTokenDebugCard() {
       </div>
       <div className="settings-debug-actions">
         <Button type="primary" disabled={pending} onClick={() => void handleInspectToken("missing")}>
-          {pending ? t("common.loading") : t("settings.debug.identity.issue")}
+          {pending ? t("common.loading") : t("common.refresh")}
         </Button>
         <Button disabled={pending} onClick={() => void handleInspectToken("unauthorized")}>
           {t("settings.debug.identity.refresh")}
@@ -1859,35 +1836,35 @@ function IdentityTokenDebugCard() {
           <dl className="settings-debug-facts">
             <div>
               <dt>{t("settings.debug.identity.deviceId")}</dt>
-              <dd>{formatDebugValue(inspection.claims.deviceId, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.deviceId, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.scope")}</dt>
-              <dd>{formatDebugValue(inspection.claims.scope, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.scope, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.subject")}</dt>
-              <dd>{formatDebugValue(inspection.claims.subject, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.subject, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.issuer")}</dt>
-              <dd>{formatDebugValue(inspection.claims.issuer, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.issuer, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.audience")}</dt>
-              <dd>{formatDebugValue(inspection.claims.audience, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.audience, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.expiresAt")}</dt>
-              <dd>{formatDebugValue(inspection.claims.expiresAt, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.expiresAt, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.issuedAt")}</dt>
-              <dd>{formatDebugValue(inspection.claims.issuedAt, t("settings.debug.empty"))}</dd>
+              <DebugFactValue>{formatDebugValue(inspection.claims.issuedAt, t("settings.debug.empty"))}</DebugFactValue>
             </div>
             <div>
               <dt>{t("settings.debug.identity.expired")}</dt>
-              <dd>{inspection.claims.expired ? t("common.yes") : t("common.no")}</dd>
+              <DebugFactValue>{inspection.claims.expired ? t("common.yes") : t("common.no")}</DebugFactValue>
             </div>
           </dl>
           <SettingsDebugTextAreaField
@@ -1962,31 +1939,31 @@ function TunnelDebugCard() {
       <dl className="settings-debug-facts">
         <div>
           <dt>{t("settings.debug.tunnel.deviceId")}</dt>
-          <dd>{formatDebugValue(status?.deviceId, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.deviceId, t("settings.debug.empty"))}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.connected")}</dt>
-          <dd>{status?.connected ? t("common.yes") : t("common.no")}</dd>
+          <DebugFactValue>{status?.connected ? t("common.yes") : t("common.no")}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.publicUrl")}</dt>
-          <dd>{formatDebugValue(status?.publicUrl, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.publicUrl, t("settings.debug.empty"))}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.webSocketUrl")}</dt>
-          <dd>{formatDebugValue(status?.webSocketUrl, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.webSocketUrl, t("settings.debug.empty"))}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.lastRegisteredAt")}</dt>
-          <dd>{formatDebugValue(status?.lastRegisteredAt, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.lastRegisteredAt, t("settings.debug.empty"))}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.lastConnectedAt")}</dt>
-          <dd>{formatDebugValue(status?.lastConnectedAt, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.lastConnectedAt, t("settings.debug.empty"))}</DebugFactValue>
         </div>
         <div>
           <dt>{t("settings.debug.tunnel.lastError")}</dt>
-          <dd>{formatDebugValue(status?.lastError, t("settings.debug.empty"))}</dd>
+          <DebugFactValue>{formatDebugValue(status?.lastError, t("settings.debug.empty"))}</DebugFactValue>
         </div>
       </dl>
       <div className="settings-debug-actions">
@@ -2068,22 +2045,27 @@ function DebugSettingsPanel() {
       case "device":
         return <DeviceIdentityDebugCard />;
       case "state":
-        return <DesktopStateDebugCard />;
+        return <DesktopStateDebugCard key="state" />;
+      case "credentials":
+        return <DesktopStateDebugCard key="credentials" credentials />;
       case "logs":
-        return <DesktopLogsDebugCard />;
-      case "realtime":
-        return <AgentRealtimeDebugCard />;
+        return (
+          <div className="settings-debug-logs-layout">
+            <DesktopLogsDebugCard />
+            <AgentRealtimeDebugCard />
+            <PlatformRuntimeDebugCard />
+          </div>
+        );
+      case "desktopActions":
+        return <DesktopActionWorkbenchPage embedded />;
+      case "appBridge":
+        return <WebappBridgeDebugCard />;
       case "wsServer":
         return <LocalWsServerDebugCard />;
       case "authTokens":
         return <IdentityTokenDebugCard />;
       case "other":
-        return (
-          <div className="settings-about-stack">
-            <DesktopActionDebugCard />
-            <TunnelDebugCard />
-          </div>
-        );
+        return <TunnelDebugCard />;
       default:
         return null;
     }

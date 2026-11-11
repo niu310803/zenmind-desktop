@@ -4984,7 +4984,7 @@ export function AppShell() {
           onCloseToolMenu={() => shellOverlay.closeToolMenu(toolMenuOverlay)}
           onToggleCollapsed={toggleSidebarCollapsed}
           sidebarMode={sidebarMode}
-          settingsSections={visibleSettingsSections}
+          settingsSections={visibleSettingsSections.filter((section) => section.id !== "mailbox")}
           activeSettingsSectionId={activeSettingsSectionId}
           onSelectSettingsSection={handleSelectSettingsSection}
           onExitSecondarySidebarMode={handleExitSecondarySidebarMode}

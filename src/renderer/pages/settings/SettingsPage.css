@@ -2310,6 +2310,12 @@
   margin: 0;
 }
 
+.settings-debug-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settings-debug-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2407,6 +2413,80 @@
   overflow-wrap: anywhere;
 }
 
+.settings-debug-facts dd.settings-debug-copy-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.settings-debug-copy-value > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-debug-copy-value > .ant-btn {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  opacity: 0;
+}
+
+.settings-debug-facts > div:hover .settings-debug-copy-value > .ant-btn,
+.settings-debug-copy-value:focus-within > .ant-btn {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .settings-debug-copy-value > .ant-btn {
+    opacity: 1;
+  }
+}
+
+.settings-debug-state-summary.settings-debug-facts,
+.settings-debug-state-file-meta.settings-debug-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.settings-debug-state-summary.settings-debug-facts > div,
+.settings-debug-state-file-meta.settings-debug-facts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-debug-state-summary > div:first-child {
+  flex: 1 1 320px;
+}
+
+.settings-debug-state-file-meta > div:first-child {
+  flex: 1 0 100%;
+}
+
+.settings-debug-state-summary dt,
+.settings-debug-state-file-meta dt {
+  flex-shrink: 0;
+  margin: 0;
+  font-weight: 400;
+}
+
+.settings-debug-state-summary dt::after,
+.settings-debug-state-file-meta dt::after {
+  content: ":";
+}
+
+.settings-debug-state-summary dd,
+.settings-debug-state-file-meta dd {
+  min-width: 0;
+  font-size: 11px;
+}
+
 .settings-debug-field {
   display: flex;
   min-width: 0;
@@ -2416,19 +2496,6 @@
 }
 
 .settings-debug-field span {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.settings-debug-field-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settings-debug-field-head > label {
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 700;
@@ -2521,6 +2588,56 @@
 }
 
 .settings-debug-content {
+  min-width: 0;
+}
+
+.settings-app-bridge-panel > .page-copy {
+  margin: 0;
+}
+
+.settings-app-bridge-group h3 {
+  margin: 4px 0 10px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.settings-app-bridge-panel .ant-table {
+  background: transparent;
+}
+
+.settings-app-bridge-panel .ant-table-cell {
+  overflow-wrap: anywhere;
+}
+
+.settings-app-bridge-method-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.settings-app-bridge-method-link:hover {
+  text-decoration: underline;
+}
+
+.settings-app-bridge-method-link:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.settings-debug-logs-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-debug-logs-layout > .settings-debug-panel {
+  margin: 0;
   min-width: 0;
 }
 
