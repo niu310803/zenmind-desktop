@@ -783,7 +783,7 @@ test("WorkPanel File tab title prefers explicit title then path basename", () =>
 test("WorkPanel derives distinct canonical identities for every independent WebClient surface", () => {
   const descriptors = [
     ["btw", "/btw/chat?btwId=btw-1", { agentKey: "agent", chatId: "chat", btwId: "btw-1" }, "btw:agent:chat:btw-1"],
-    ["source", "/source-viewer/src?chatId=chat&chunkId=chunk-1", { agentKey: "agent", chatId: "chat", btwId: "btw-1", publishId: "pub", sourceId: "src" }, "source:agent:chat:btw-1:pub:src"],
+    ["source", "/source-viewer/src?chatId=chat&chunkId=chunk-1", { agentKey: "agent", chatId: "chat", btwId: "btw-1", publishId: "pub", sourceId: "src" }, "source:agent:chat:btw-1:pub::src"],
     ["planning", "/planning-viewer/plan?chatId=chat", { chatId: "chat", planningId: "plan" }, "planning:chat:plan"],
     ["artifact", "/resource-viewer/agent?chatId=chat&file=artifacts%2Frun%2Freport.pdf", { agentKey: "agent", chatId: "chat", artifactId: "art" }, "artifact:agent:chat:art"],
     ["reference", "/resource-viewer/agent?chatId=chat&file=references%2Fdocument.pdf", { agentKey: "agent", chatId: "chat", referenceId: "ref" }, "reference:agent:chat:ref"],
@@ -800,6 +800,27 @@ test("WorkPanel derives distinct canonical identities for every independent WebC
     assert.equal(result.item.descriptor.route, route);
     state = result.nextState;
   }
+});
+
+test("Source items carry libraryId and keep cross-library same-id sources distinct", () => {
+  const source = (libraryId) => ({
+    kind: "webclient",
+    module: "source",
+    route: `/source-viewer/src?chatId=chat&libraryId=${libraryId}`,
+    context: { agentKey: "agent", chatId: "chat", publishId: "pub", sourceId: "src", libraryId },
+    title: `${libraryId}.md`,
+  });
+  const first = open(EMPTY_WORK_PANEL_STATE, "chat", source("lib-1"));
+  assert.equal(first.ok, true);
+  assert.equal(first.item.descriptor.context.libraryId, "lib-1");
+  const second = open(first.nextState, "chat", source("lib-2"));
+  assert.equal(second.ok, true);
+  assert.equal(second.state.items.length, 2);
+  assert.notEqual(second.item.itemId, first.item.itemId);
+  const reopened = open(second.nextState, "chat", source("lib-1"));
+  assert.equal(reopened.ok, true);
+  assert.equal(reopened.state.items.length, 2);
+  assert.equal(reopened.state.activeItemId, first.item.itemId);
 });
 
 test("Planning identity does not require an agent and canonicalizes legacy descriptors", () => {
