@@ -3076,6 +3076,28 @@ export function WorkPanelHost({
     onFullscreenChange,
   ]);
 
+  // Esc leaves the immersive layout only while the host renderer owns focus.
+  // Guest webviews get their own key events, so slides, dialogs and HTML
+  // fullscreen inside a page keep Esc; editable fields and open dialogs do too.
+  useEffect(() => {
+    if (!activeOwnerKey || fullscreenOwnerChatId !== activeOwnerKey) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing)
+        return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='dialog'], [role='alertdialog'], [aria-modal='true']",
+        )
+      )
+        return;
+      void onFullscreenChange(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeOwnerKey, fullscreenOwnerChatId, onFullscreenChange]);
+
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
