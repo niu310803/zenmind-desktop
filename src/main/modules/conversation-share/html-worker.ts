@@ -283,6 +283,7 @@ async function loadSnapshot(request: ConversationExportWorkerRequest): Promise<S
     url: snapshotURL.toString(),
     headers: {
       Accept: "application/json",
+      "X-Locale": request.locale,
       Authorization: `Bearer ${request.bearerToken}`
     },
     timeoutMs: SNAPSHOT_TIMEOUT_MS,
