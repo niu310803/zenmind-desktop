@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, matchPath, useLocation, useNavigate, useNaviga
 import { BorderOutlined, CloseOutlined, MinusOutlined, ShareAltOutlined, SwitcherOutlined } from "@ant-design/icons";
 import { AppSidebar, type AppSidebarChatMenuHandle } from "./navigation/AppSidebar";
 import { HistoryGestureOverlay } from "./navigation/HistoryGestureOverlay";
+import { removedChatFallbackTarget } from "./navigation/primaryChatView";
 import { DesktopChatHeaderNavigation, DESKTOP_CHAT_HEADER_INITIAL_INSET, WINDOWS_CHAT_HEADER_INITIAL_INSET } from "./navigation/DesktopChatHeaderNavigation";
 import { forwardMainChatAwaitingDigit } from "../services/mainChatAwaitingShortcut";
 import { getActiveServiceSurfaceId, getServiceSurfaceWebview } from "../services/serviceSurfaceWebviewRefs";
@@ -4465,12 +4466,16 @@ export function AppShell() {
       const fallbackRoute = nextChat?.agentKey
         ? createAgentChatRoute(nextChat.agentKey, nextChat.chatId)
         : ownerAgentKey
-          ? createAgentWebclientRoute({ agentKey: ownerAgentKey })
+          ? removedChatFallbackTarget(
+              ownerAgentKey,
+              primaryChatNavAgents.find((agent) => agent.agentKey === ownerAgentKey),
+              chat.chatId,
+            )
           : "/agents";
       requestNavigationWithAgentChatFocus(fallbackRoute);
     }
     void refreshAssistantNavAgents({ force: true });
-  }, [activeChatRouteInfo.agentKey, activeChatRouteInfo.chatId, closeChatWorkPanelWorkspace, currentRoute]);
+  }, [activeChatRouteInfo.agentKey, activeChatRouteInfo.chatId, closeChatWorkPanelWorkspace, currentRoute, primaryChatNavAgents]);
 
   const toggleMainChatWorkPanel = useCallback(() => {
     const chatId = desiredChatRouteChatId;

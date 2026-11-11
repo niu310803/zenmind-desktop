@@ -295,6 +295,28 @@ test("mismatched new-chat source fails locally with a diagnostic and never repai
   assert.equal(JSON.stringify(trace.data).includes("test-token"), false);
 });
 
+// Removing the current Chat must not leave Main Chat on a bare Agent route: its desired identity
+// is empty, so the renderer only publishes it inactive and the removed owner stays registered.
+for (const fallback of ["?newChat=1788000000001", "?newChat=1788000000001&primaryNewChat=true"]) {
+  test(`a bare Agent route keeps rejecting queries while the removal fallback ${fallback} sends`, async (t) => {
+    const h = await harness(t);
+    h.register("/agent/agent-1?chatId=chat-a", "chat-a");
+    await h.open();
+    h.register("/agent/agent-1", "", { active: false });
+    assert.equal(h.registry.resolveWebviewSurfaceTarget(h.sender.id).ownerChatId, "chat-a");
+    for (const [id, payload] of [["kept-chat-id", { chatId: "chat-a" }], ["cleared-chat-id", {}]]) {
+      h.submit(id, payload);
+      await until(() => h.frames().some((f) => f.id === id));
+      assert.equal(h.frames().find((f) => f.id === id).msg, "canonical Chat owner does not match its guest route");
+    }
+    assert.equal(h.sockets[0].sent.some((f) => f.type === "/api/query"), false);
+
+    h.register(`/agent/agent-1${fallback}`);
+    await h.accept(await h.query("fallback-query"), "chat-b", "run-b");
+    assert.equal(h.broker.getMainChatRootObserver().contextId, "chat-b");
+  });
+}
+
 function attachBrowserUse(h, t) {
   const lifecycle = [], actions = [];
   const runtime = new BrowserUseRuntime({ createClient: () => { throw new Error('WorkPanel needs no Chrome client'); } });

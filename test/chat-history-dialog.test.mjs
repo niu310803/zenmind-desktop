@@ -16,6 +16,7 @@ test("Chats and Projects open one native history dialog without route mutation",
   assert.match(appShell, /onOpenChatHistory=\{openChatHistoryDialog\}/u);
   assert.match(appShell, /key=\{chatHistoryDialog\.id\}/u);
   assert.match(appShell, /handleHistoryChatRemoved[\s\S]*?closeChatWorkPanelWorkspace\(chat\.chatId, true\)[\s\S]*?activeChatRouteInfo\.chatId === chat\.chatId[\s\S]*?refreshAssistantNavAgents\(\{ force: true \}\)/u);
+  assert.match(appShell, /handleHistoryChatRemoved[\s\S]*?removedChatFallbackTarget\([\s\S]*?chat\.chatId,[\s\S]*?refreshAssistantNavAgents/u);
   assert.match(dialog, /window\.electronAPI\.assistant\.listHistoryChats\(\)/u);
   assert.match(dialog, /useState\(normalizedAgentKey \|\| ALL_OWNERS\)/u);
   assert.match(dialog, /function resetFilters[\s\S]*?setOwnerKey\(ALL_OWNERS\)/u);

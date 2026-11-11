@@ -1,6 +1,6 @@
 import { useDebugMode } from "../../debug/DebugModeContext";
 import { PrimaryChatNavigation } from "./PrimaryChatNavigation";
-import { isBotAgent, selectBotNavigationAgents, primaryChatNavigationTarget } from "./primaryChatView";
+import { isBotAgent, selectBotNavigationAgents, primaryChatNavigationTarget, removedChatFallbackTarget } from "./primaryChatView";
 import { SkinHeading } from "../../appearance/SkinVisual";
 import { DesktopUpdateCard } from "../../updates/DesktopUpdateCard";
 import { useDesktopUpdates } from "../../updates/useDesktopUpdates";
@@ -3931,7 +3931,7 @@ export function AppSidebar({
       const nextRoute = nextChat
         ? createAgentChatRoute(agentKey, nextChat.chatId)
         : agentKey
-          ? createAgentRoute(agentKey)
+          ? removedChatFallbackTarget(agentKey, findAssistantNavAgent(agentKey), chat.chatId)
           : "/agents";
       onRequestNavigate?.(nextRoute);
     }
@@ -3976,7 +3976,7 @@ export function AppSidebar({
         const nextRoute = nextChat
           ? createAgentChatRoute(agentKey, nextChat.chatId)
           : agentKey
-            ? createAgentRoute(agentKey)
+            ? removedChatFallbackTarget(agentKey, findAssistantNavAgent(agentKey), chat.chatId)
             : "/agents";
         onRequestNavigate?.(nextRoute);
       }

@@ -11,7 +11,7 @@ test("deleting the active sidebar chat navigates away from its stale route", () 
     "utf8",
   );
   const handler = source.match(
-    /async function handleConfirmDeleteChat[\s\S]*?function handleAssistantDockClick/u,
+    /async function handleConfirmDeleteChat[\s\S]*?function toggleSidebarGroup/u,
   )?.[0] ?? "";
 
   assert.match(handler, /const chat = assistantChatDeleteDialog\.chat/u);
@@ -20,7 +20,7 @@ test("deleting the active sidebar chat navigates away from its stale route", () 
   assert.match(handler, /currentChatId === chat\.chatId/u);
   assert.match(handler, /candidate\.chatId !== chat\.chatId/u);
   assert.match(handler, /createAgentChatRoute\(agentKey, nextChat\.chatId\)/u);
-  assert.match(handler, /createAgentRoute\(agentKey\)/u);
+  assert.match(handler, /removedChatFallbackTarget\(agentKey, findAssistantNavAgent\(agentKey\), chat\.chatId\)/u);
   assert.match(handler, /onRequestNavigate\?\.\(nextRoute\)/u);
 
   const navigateIndex = handler.indexOf("onRequestNavigate?.(nextRoute)");

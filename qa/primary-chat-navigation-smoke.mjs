@@ -162,7 +162,11 @@ await js('window.qa.menuAction="agent.clear-primary"');
 await click('.primary-chat-history');
 await until('window.qa.archives.length===1');
 assert.deepEqual(await js('window.qa.archives'),['primary-0']);
-assert.equal(await js('window.qa.routes.at(-1)'),'/agent/agent-0');
+// A bare Agent route has no committable Chat identity, so the next send would be rejected.
+const clearedRoute=new URL(await js('window.qa.routes.at(-1)'),'http://desktop.local');
+assert.equal(clearedRoute.pathname,'/agent/agent-0');
+assert.match(clearedRoute.searchParams.get('newChat')||'',/^[1-9][0-9]{12}$/u);
+assert.equal(clearedRoute.searchParams.get('primaryNewChat'),'true');
 await until('document.querySelector("[data-primary-agent-key=agent-0]").textContent.includes("下一条消息")');
 await js('window.qa.longText()');
 await js('document.activeElement?.blur()');

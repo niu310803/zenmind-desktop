@@ -19,6 +19,7 @@ test("archiving the active sidebar chat navigates away from its stale route", ()
   assert.match(handler, /window\.alert\(result\?\.message \|\| t\("sidebar\.chat\.archiveFailed"\)\)/u);
   assert.match(handler, /currentChatId === chat\.chatId/u);
   assert.match(handler, /candidate\.chatId !== chat\.chatId/u);
+  assert.match(handler, /removedChatFallbackTarget\(agentKey, findAssistantNavAgent\(agentKey\), chat\.chatId\)/u);
   assert.match(handler, /onRequestNavigate\?\.\(nextRoute\)/u);
   assert.match(handler, /await onRefreshAssistantNavAgents\?\.\(\)/u);
 });

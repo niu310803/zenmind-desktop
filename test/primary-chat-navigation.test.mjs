@@ -85,3 +85,18 @@ test("Bots are only BOT mode Agents, retain catalog order and use only the Platf
   assert.equal(api.isBotAgent({}), false);
   assert.match(api.primaryChatNavigationTarget(missing, EPOCH), /primaryNewChat=true$/);
 });
+
+test("removing the current Chat never falls back to a bare Agent route", () => {
+  const agent = fixture();
+  const bot = { ...agent, mode: "BOT" };
+  const fallback = (target, removed = "older-primary") => api.removedChatFallbackTarget("a", target, removed, EPOCH);
+  assert.equal(fallback(agent), `/agent/a?newChat=${EPOCH}`);
+  assert.equal(fallback(undefined), `/agent/a?newChat=${EPOCH}`);
+  // The snapshot still holds the cleared pointer until the post-navigation refresh.
+  assert.equal(fallback(bot), `/agent/a?newChat=${EPOCH}&primaryNewChat=true`);
+  assert.equal(fallback(bot, "bot-history"), "/agent/a?chatId=older-primary");
+  for (const target of [agent, bot, undefined]) {
+    const route = new URL(fallback(target), "http://desktop.local");
+    assert.ok(route.searchParams.has("chatId") || route.searchParams.has("newChat"));
+  }
+});

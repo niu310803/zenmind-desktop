@@ -418,6 +418,7 @@
 ## 对话侧边栏
 
 - macOS 与 Windows、浅色与深色下，Chat/Main Chat 右上角依次显示“更多操作”“分享”、WorkPanel 开关。“更多操作”与导航栏 Chat 的三点按钮使用同一原生菜单，重命名、置顶/取消置顶、导出、分享、WorkPanel、归档、删除和对话信息行为一致；侧栏收起、对话不在最近列表时仍可操作当前对话，键盘打开菜单定位在按钮下方，新建对话未生成 chatId 时禁用。展开或调整 WorkPanel 宽度时，更多与分享保持在主对话列内；主对话完全收起时两者隐藏，恢复后重新显示。
+- macOS 与 Windows 分别从侧栏菜单和历史弹窗归档、删除当前打开的对话：同 Agent 有其他可回退对话时打开该对话；没有时进入该 Agent 的一次性新对话（`newChat`），不停留在裸 `/agent/<agentKey>` 路由。随后直接发送消息应成功创建新对话，不出现 `canonical Chat owner does not match its guest route` 或其他 `protocol_error`。
 - macOS 与 Windows 分别检查 Project 的“更多操作”按钮：项目展开和折叠时，hover 项目标题行均显示按钮，移出后隐藏；悬停只显示一份提示，点击时提示立即消失且操作菜单正常展开，并保持项目原有展开或折叠状态；快速移入后立即点击也不应在菜单上方延迟出现提示。按 Escape 关闭菜单后，按钮保留焦点时不显示提示；移出再悬停可重新显示，键盘打开菜单时也不叠加提示。覆盖展开侧栏与收起侧栏的 Project Popover，以及浅深色主题。
 - macOS 与 Windows 分别打开对话右键菜单中的“对话信息”和“分享链接”，确认分享遮罩与选择弹窗只覆盖主对话列，左侧栏和右侧 WorkPanel 保持清晰且可见；拖动 WorkPanel 分隔线、收起侧栏后边界仍贴合主对话列。与“Desktop 综合搜索”打开时的侧栏清晰度对照，覆盖浅深色及选择弹窗打开、关闭；分享入口覆盖未登录提示，样式验收不创建公开分享链接。
 
@@ -1823,6 +1824,7 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - 点击已有主聊天、无主聊天 BOT；后者仅进入新聊天，首次文本和附件消息由 Platform 原子创建主聊天；运行中消息进入 mailbox。返回分身历史后可继续聊天。
 - 检查 BOT 回复、未读、运行和等待状态的 Push 更新，以及清空/归档后的指针刷新。机器人直接展示，无分组标题或折叠入口；没有机器人时不显示占位；旧的隐藏偏好不影响展示。
 - 更多按钮、右键、菜单键和 Shift+F10 打开原生历史/设置/清空菜单；运行或等待时清空禁用，取消确认不归档，成功清空保留分身历史且不自动打开分身。
+- macOS / Windows 分别在正打开的 BOT 主聊天中执行清空、侧栏归档和删除：Desktop 路由进入带 `newChat` 与 `primaryNewChat=true` 的新主聊天，不停留在无 `chatId`/`newChat` 的裸 Agent 路由；立即发送首条消息成功创建新主聊天，不出现 `canonical Chat owner does not match its guest route`。
 
 ## Debug 收件箱
 
