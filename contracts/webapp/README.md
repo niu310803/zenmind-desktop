@@ -46,7 +46,7 @@ const { connector, agent, skill, artifact, kanban } = createBackendClient({
 | 能力 | 当前接口与约束 |
 | --- | --- |
 | Agent | `agent.query(message)` 或 `agent.query({message,skillIds?,background?})`；默认返回 `{text,agentKey,chatId,runId}`，后台返回 `{accepted,chatId,runId}` |
-| 结构化执行 | `agent.execute({message,input?,outputSchema},{signal?})`；页面/后端共用，同步返回 `{chatId,status,output|reason}` |
+| 结构化执行 | `agent.execute({message,input?,outputSchema,agentKey?,chatId?,references?},{signal?})`；页面/后端共用，同步返回 `{chatId,status,output|reason}` |
 | 运行 | `agent.observe({runId,cursor?},{signal?})` 异步迭代精简事件；`agent.interrupt({runId})`，只操作本应用后台运行 |
 | 技能 | `skill.list()`、`skill.describe({skillId})`；读取 Platform 实际技能目录的安全元数据，`agentHasSkill` 按当前宿主选定 Agent 返回；不要求固定 Copilot 或包内技能声明 |
 | 产物 | `artifact.list({chatId,runId?,cursor?,limit?})`；`get/read/open/saveAs({chatId,runId?,artifactId})`；只允许当前应用实例发起的 Chat |
@@ -108,9 +108,18 @@ if (result.status === 'success') useAmount(result.output.amount);
 else showReason(result.reason);
 ```
 
-受管后端使用 createBackendClient 返回的同名方法。目标必须是有效工具带 result_submit 的 Native Agent；EXECUTOR 模板通常符合，但不按 mode 授权。沿用现有用户 Agent 选择、固定 Copilot 和 Desktop helper 选择机制；默认 helper 未必支持执行，宿主不自动换 Agent。execute 只用 Agent 自身挂载的技能，不注入 Manifest copilot.references。
+```js
+// 页面与受管后端使用相同参数；上传和执行应选择同一个 Agent。
+const { chatId, upload } = await agent.upload({ file, name: file.name, agentKey: 'invoice-agent' });
+const result = await agent.execute({
+  agentKey: 'invoice-agent', chatId, references: [upload],
+  message: '提取附件中的金额', outputSchema: { type: 'object' }
+});
+```
 
-仅接受 message、input、outputSchema 和可选 agentKey；拒绝 skillIds、references、accessLevel、background、chatId 和任意路由。权限固定 default，不提供问答或审批 UI。审批返回 approval_required；Agent 主动提问可能等待直至取消/超时。input 为标准 JSON，不支持 Blob、multipart、$file、自定义 toJSON、循环或非有限数；input/schema 各从自身根节点计数，最多 64 层。显式 input:undefined 视为省略，嵌套 undefined 仍拒绝。
+受管后端使用 createBackendClient 返回的同名方法。目标必须是有效工具带 result_submit 的 Native Agent；EXECUTOR 模板通常符合，但不按 mode 授权。沿用现有用户 Agent 选择、固定 Copilot 和 Desktop helper 选择机制；默认 helper 未必支持执行，宿主不自动换 Agent。execute 不自动注入 Manifest copilot.references；显式 references 的资源语义与准入由 Platform 判定。
+
+接受 message、input、outputSchema 以及可选 agentKey、chatId、references；拒绝 skillIds、accessLevel、background 和任意路由。chatId 必须属于当前应用实例，可使用 upload、query 或 execute 返回的 Chat。references 沿用 Platform Reference JSON 字段（type、id、name、url、mimeType、sizeBytes、text、annotation、annotationIndex、path、sha256、meta）；chat 类型引用同样校验应用归属，资源有效性由 Platform 判定。上传后将返回的 chatId 与 upload 引用一起传给 execute，即可使用附件。权限固定 ask_for_approval，不提供问答或审批 UI。审批返回 approval_required；Agent 主动提问可能等待直至取消/超时。input 为标准 JSON，不支持 Blob、multipart、$file、自定义 toJSON、循环或非有限数；input/schema 各从自身根节点计数，最多 64 层。显式 input:undefined 视为省略，嵌套 undefined 仍拒绝。
 
 message 最多 12,000 个 UTF-16 code unit；outputSchema 根为 object，序列化最多 64 KiB。完整页面请求体最多 64 KiB，完整后端请求体最多 256 KiB，因此页面实际可用 schema 大小还需扣除其他字段。Platform 完整响应最多 1 MiB。Main 执行期限十分钟，传输层留十五秒余量；全局最多八个在途执行，同一 WebApp 最多两个，两入口共享额度，不排队。
 

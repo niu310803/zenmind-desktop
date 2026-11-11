@@ -230,3 +230,23 @@ test('explicit agent overrides the configured default only when present in the c
  assert.equal((await run(f,{...input,agentKey:'chosen'})).ok,true);
  assert.equal((await run(f,{...input,agentKey:'missing'})).error.code,'assistant_agent_unavailable');assert.equal(calls,1);
 });
+
+for (const kind of ['webappPage','webappBackend']) test(kind+' execute forwards owned Chat and Platform references unchanged',async()=>{
+ const f=fixture();f.invocation.kind=kind;const bodies=[];
+ fetcher=async(_url,options)=>{bodies.push(JSON.parse(options.body));return json({chatId:'chat-1',status:'success',output:{}})};
+ await run(f);
+ const references=[{type:'file',id:'upload-1',name:'invoice.pdf',url:'@chat/invoice.pdf',mimeType:'application/pdf',sizeBytes:128,annotationIndex:0,annotation:'amount',text:'invoice',path:'uploads/invoice.pdf',sha256:'digest',meta:{page:1}},{type:'chat',id:'chat-1'}];
+ assert.equal((await run(f,{...input,chatId:'chat-1',references,agentKey:'chosen'})).ok,true);
+ assert.equal(bodies[1].chatId,'chat-1');assert.deepEqual(bodies[1].references,references);assert.equal(bodies[1].agentKey,'chosen');
+ const other=fixture();other.invocation.kind=kind;
+ assert.equal((await run(other,{...input,chatId:'chat-1',references})).error.code,'app_grant_required');
+ assert.equal((await run(other,{...input,references:[{type:'chat',id:'chat-1'}]})).error.code,'app_grant_required');assert.equal(bodies.length,2);
+ assert.equal((await run(f)).ok,true);assert.equal(bodies[2].agentKey,'executor');
+});
+test('execute rejects malformed Chat and reference fields before contacting Platform',async()=>{
+ let calls=0;fetcher=async()=>{calls++;throw Error('unexpected')};
+ for(const extra of [{chatId:''},{chatId:12},{chatId:'../chat'},{references:null},{references:{}},{references:[null]},{references:[{url:12}]},{references:[{sizeBytes:'128'}]},{references:[{meta:[]}]},{references:[{sandboxPath:'removed'}]},{agentKey:''},{agentKey:12}]) {
+  assert.equal((await run(fixture(),{...input,...extra})).error.code,'invalid_args');
+ }
+ assert.equal(calls,0);
+});

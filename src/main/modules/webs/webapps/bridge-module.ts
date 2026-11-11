@@ -417,10 +417,19 @@ async function executeAssistant(input, { signal } = {}, transport, action = "ass
   try {
     executeJson(input, new Set(), -1);
     if (!input || Array.isArray(input) || typeof input !== "object" ||
-        Object.keys(input).some(key => !["message", "input", "outputSchema", "agentKey"].includes(key)) ||
+        Object.keys(input).some(key => !["message", "input", "outputSchema", "agentKey", "chatId", "references"].includes(key)) ||
         typeof input.message !== "string" || !input.message.trim() ||
         !input.outputSchema || Array.isArray(input.outputSchema) || input.outputSchema.type !== "object") throw Error("Use message, input and an object outputSchema.");
     if (input.agentKey !== undefined && (typeof input.agentKey !== "string" || !input.agentKey.trim() || input.agentKey.length > 256)) throw Error("Invalid agentKey.");
+    if (input.chatId !== undefined && (typeof input.chatId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/u.test(input.chatId))) throw Error("Invalid chatId.");
+    if (input.references !== undefined && (!Array.isArray(input.references) || !input.references.every(ref => {
+      if (!ref || Array.isArray(ref) || typeof ref !== "object") return false;
+      return Object.entries(ref).every(([key, value]) => {
+        if (["annotationIndex", "sizeBytes"].includes(key)) return Number.isSafeInteger(value);
+        if (key === "meta") return value !== null && typeof value === "object" && !Array.isArray(value);
+        return ["id", "type", "text", "annotation", "name", "path", "mimeType", "url", "sha256"].includes(key) && typeof value === "string";
+      });
+    }))) throw Error("Invalid references.");
     if (input.message.length > 12000) throw new DesktopBridgeError(action, "assistant_message_too_long", "Assistant message exceeds 12000 characters.");
     if (new TextEncoder().encode(JSON.stringify(input.outputSchema)).length > 65536) throw Error("Schema exceeds 64 KiB.");
     const checkFile = node => {

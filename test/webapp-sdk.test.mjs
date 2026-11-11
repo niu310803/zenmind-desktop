@@ -149,3 +149,15 @@ test('canonical agent.execute posts canonical action and keeps cancellation',asy
  globalThis.fetch=async(_url,options)=>{assert.equal(JSON.parse(options.body).action,'agent.execute');return new Response(JSON.stringify({ok:true,result:{chatId:'c',status:'success',output:{}}}));};
  await agent.execute({message:'task',outputSchema:{type:'object'}});const controller=new AbortController();controller.abort();await assert.rejects(agent.execute({message:'task',outputSchema:{type:'object'}},{signal:controller.signal}),{code:'cancelled'});
 });
+
+test('page execute SDK forwards Chat, references and per-call Agent for both namespaces',async t=>{
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});const {agent}=await import('../contracts/webapp/bridge.mjs');const calls=[];
+ globalThis.fetch=async(_url,options)=>{calls.push(JSON.parse(options.body));return new Response(JSON.stringify({ok:true,result:{chatId:'owned',status:'success',output:{}}}))};
+ const input={message:'read attachment',outputSchema:{type:'object'},chatId:'owned',references:[{type:'file',id:'u',name:'invoice.pdf',url:'@chat/invoice.pdf',mimeType:'application/pdf',sizeBytes:128,meta:{page:1}}]};
+ for(const client of [assistant,agent]) for(const agentKey of ['invoice-agent','summary-agent']) {
+  await client.execute({...input,agentKey});assert.deepEqual(calls.at(-1).args,{...input,agentKey});
+ }
+ const count=calls.length;
+ for(const extra of [{chatId:''},{chatId:12},{references:null},{references:[null]},{references:[{url:12}]},{references:[{sizeBytes:'128'}]},{references:[{sandboxPath:'removed'}]},{agentKey:''}]) await assert.rejects(assistant.execute({...input,...extra}),{code:'invalid_args'});
+ assert.equal(calls.length,count);
+});

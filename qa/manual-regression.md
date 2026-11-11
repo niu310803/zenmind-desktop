@@ -1743,7 +1743,9 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 
 ## WebApp 结构化执行
 
-- macOS / Windows 分别在静态 WebApp 与受管 Node WebApp 使用带 result_submit 的 Native Agent，验证结构化成功（包括空对象）与业务 failure；不传 Agent、权限、技能引用或任意路由。官网未登录时，不依赖官网凭据的执行仍可用。
+- 页面与受管后端分别上传文件，将返回的 chatId、upload 引用通过 execute 的 chatId、references 传入，确认附件被 Agent 使用；跨应用/重启实例的 Chat 拒绝。两平台在同一 WebApp 连续用不同 agentKey 执行，确认分别到达指定 Agent，省略时仍用原默认值，无效 Agent 不回退。
+
+- macOS / Windows 分别在静态 WebApp 与受管 Node WebApp 使用带 result_submit 的 Native Agent，验证结构化成功（包括空对象）与业务 failure；不传权限或任意路由。官网未登录时，不依赖官网凭据的执行仍可用。
 - 页面与后端分别执行超过两分钟、超过五分钟而小于十分钟的任务，确认无传输提前超时；超过 Main 期限返回 assistant_timeout，不自动重发。
 - 两入口分别取消、刷新/关闭页面、停止/重启/卸载应用和退出 Desktop，确认精确 Run 被 HTTP interrupt/连接断开中断，其他应用 Run 不受影响；隐藏/展示转移不主动中断，页面关闭不取消独立后端请求。
 - 缺 result_submit、非 Native Agent、非法 Schema、需审批、未交卷、响应超大、并发超限均返回对应错误；官网账号变化不轮换本地调用，真实本地身份/实例变化后旧结果不能交付。

@@ -23,7 +23,7 @@ async function fixture(t) {
  const home=fs.mkdtempSync(path.join(os.tmpdir(),'execute-http-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
  const item={schemaVersion:2,id:'webapp-1234567890abcdef',key:'execute-test',label:'Execute test',version:'1.0.0',target:'any',frontend:{root:'frontend',index:'index.html',routeConfig:{backendPrefixes:[]}},desktopBridge:{version:2}};
  fs.mkdirSync(path.join(home,'frontend'));fs.writeFileSync(path.join(home,'frontend/index.html'),'<p>test</p>');fs.writeFileSync(path.join(home,'webapp.json'),JSON.stringify(item));
- const app={getPath:name=>path.join(home,name)};let mode='success';let started,closed;let interruptBody;let posts=0;let uploadBytes=80*1024;
+ const app={getPath:name=>path.join(home,name)};let mode='success';let started,closed;let interruptBody;let posts=0;let uploadBytes=80*1024;const executions=[];
  const platform=http.createServer(async(req,res)=>{
   if(req.url.startsWith('/api/resource?')){res.end('uploaded bytes');return}
   const chunks=[];for await(const chunk of req)chunks.push(chunk);
@@ -35,9 +35,9 @@ async function fixture(t) {
   const body=JSON.parse(Buffer.concat(chunks));
   assert.match(req.headers.authorization,/^Bearer h\./);
   if(req.url==='/api/interrupt'){interruptBody=body;res.end(JSON.stringify({code:0,data:{accepted:true}}));return}
-  assert.equal(req.url,'/api/execute');setImmediate(()=>onRun?.({runId:'run-1',chatId:'chat-1',agentKey:body.agentKey}));posts++;assert.equal(body.agentKey,'executor');assert.equal(body.accessLevel,'ask_for_approval');
+  assert.equal(req.url,'/api/execute');setImmediate(()=>onRun?.({runId:'run-1',chatId:'chat-1',agentKey:body.agentKey}));posts++;executions.push(body);assert.ok(['executor','chosen'].includes(body.agentKey));assert.equal(body.accessLevel,'ask_for_approval');
   res.once('close',()=>{if(!res.writableFinished)closed?.()});started?.();
-  if(mode==='success')res.end(JSON.stringify({code:0,data:{chatId:'chat-1',status:'success',output:{amount:128}}}));
+  if(mode==='success')res.end(JSON.stringify({code:0,data:{chatId:body.chatId||'chat-1',status:'success',output:{amount:128}}}));
  });
  const platformPort=await listen(platform);t.after(()=>{platform.closeAllConnections();platform.close()});
  const probe=http.createServer();const bridgePort=await listen(probe);await new Promise(resolve=>probe.close(resolve));
@@ -47,7 +47,7 @@ async function fixture(t) {
   issueAgentAccessToken:async()=>({ok:true,token:'h.'+Buffer.from(JSON.stringify({sub:'desktop-app'})).toString('base64url')+'.s'}),
   services:{getResponsiveServiceState:async()=>({status:'running',healthMeta:{webUrl:`http://127.0.0.1:${platformPort}`}})},
   webs:{webappManager:{list:()=>[item],readUserConfig:()=>({})},webappRuntime:{getStatus:()=>runtime}},
-  assistantBridge:{observeExecuteRun:(_id,_key,callback)=>{onRun=callback;return()=>{onRun=undefined}},listAgents:async()=>[]}
+  assistantBridge:{observeExecuteRun:(_id,_key,callback)=>{onRun=callback;return()=>{onRun=undefined}},listAgents:async()=>[{agentKey:'executor'},{agentKey:'chosen'}]}
  };
  const bridge=startDesktopActionBridge(options);await once(bridge,'listening');t.after(()=>{stopDesktopActionBridge();bridge.closeAllConnections()});
  const page=issueWebappActionToken(item,'localPageGateway');const backend=issueWebappActionToken(item,'backendActionToken');
@@ -55,7 +55,7 @@ async function fixture(t) {
  const gateway=await startWebappGateway({app,item,webappDir:home,backendUrl:'',pageActionToken:page,integrationPorts:{getConfiguredDesktopActionBridgePort:()=>bridgePort}});
  runtime.webUrl=gateway.webUrl;t.after(()=>gateway.close());
  const backendURL=`http://127.0.0.1:${bridgePort}/webapps`;
- return {gateway,bridge,backendURL,backend,page,setUploadBytes(value){uploadBytes=value},get posts(){return posts},get interrupt(){return interruptBody},
+ return {gateway,bridge,backendURL,backend,page,setUploadBytes(value){uploadBytes=value},executions,get posts(){return posts},get interrupt(){return interruptBody},
   block(){mode='blocked';return {started:new Promise(resolve=>{started=resolve}),closed:new Promise(resolve=>{closed=resolve})}}};
 }
 test('real gateway and native Node backend transport deliver equivalent results and deny scope substitution',async t=>{
@@ -111,4 +111,24 @@ test('canonical agent actions cross real gateway, scoped tokens and host handler
  const resource=await backend.agent.resource.read({chatId:uploaded.chatId,file:'fixture.txt'});assert.equal(await new Response(resource).text(),'uploaded bytes');
  const pageUpload=await send('/__desktop/assistant/uploads','agent.upload',{name:'fixture.txt',dataBase64:Buffer.alloc(80*1024).toString('base64')});assert.equal(pageUpload.status,200);
  for(const action of ['agent.stop','agent.image','agent.chat'])assert.equal((await send('/__desktop/actions/call',action,{})).status,403);
+});
+
+test('upload references and Chat reach execute through both real HTTP transports with per-call Agent',async t=>{
+ const f=await fixture(t);const origin=new URL(f.gateway.webUrl).origin;
+ const pageCall=async(action,args)=>{
+  const response=await fetch(new URL('/__desktop/actions/call',f.gateway.webUrl),{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({action,args})});
+  const body=await response.json();assert.equal(body.ok,true,JSON.stringify(body));return body.result;
+ };
+ const backend=createBackendClient({url:f.backendURL,token:f.backend});
+ const uploaded=await backend.assistant.upload({file:new Blob([new Uint8Array(80*1024)]),name:'fixture.txt',agentKey:'executor'});
+ for(const action of ['assistant.execute','agent.execute']) {
+  for(const agentKey of ['executor','chosen']) {
+   const args={...input,agentKey,chatId:uploaded.chatId,references:[uploaded.upload]};
+   const page=await pageCall(action,args);assert.equal(page.chatId,uploaded.chatId);
+   const result=await backend[action.split('.')[0]].execute(args);assert.equal(result.chatId,uploaded.chatId);
+   for(const body of f.executions.slice(-2)) {assert.equal(body.agentKey,agentKey);assert.equal(body.chatId,uploaded.chatId);assert.deepEqual(body.references,[uploaded.upload]);}
+  }
+ }
+ await assert.rejects(backend.assistant.execute({...input,agentKey:'missing'}),{code:'assistant_agent_unavailable'});
+ assert.equal(f.posts,8);
 });

@@ -5,7 +5,7 @@ import type { DesktopActionCallResponse } from "../../../shared/desktop-actions"
 import { validateWebappExecute, WEBAPP_EXECUTE_TIMEOUT_MS, type WebappExecuteInput } from "../../../shared/webapp-execute";
 import { captureWebappContext, ConnectorError, platform, probeWebappExecutionIdentity, type WebappContext } from "./webapp-platform-client";
 import { selectWebappAssistantAgent } from "./webapp-assistant-agent";
-import { prepareWebappChat, rememberWebappChat } from "./webapp-connector";
+import { assertWebappChat, prepareWebappChat, rememberWebappChat } from "./webapp-connector";
 import { WebappExecuteError, postWebappExecute, interruptWebappExecute } from "./webapp-execute-client";
 
 const active = new Set<{ app: object; appId: string; abort: AbortController }>();
@@ -96,7 +96,12 @@ export async function executeWebappExecute(options: DesktopActionBridgeOptions, 
   }, limits.checkMs); checkTimer.unref();
   try {
     context = await abortable(captureWebappContext(options, invocation.webappId, invocation.signal), abort.signal);
-    agentKey = await abortable(selectWebappAssistantAgent(options, context.item, (args as WebappExecuteInput).agentKey), abort.signal);
+    const input = args as WebappExecuteInput;
+    if (input.chatId !== undefined) assertWebappChat(context.key, input.chatId);
+    for (const ref of input.references ?? []) {
+      if (ref.type?.trim().toLowerCase() === "chat") assertWebappChat(context.key, ref.id);
+    }
+    agentKey = await abortable(selectWebappAssistantAgent(options, context.item, input.agentKey), abort.signal);
     releaseChat = prepareWebappChat(context.key);
     // Passive Primary Push only: no Run stream or page-control grant is acquired.
     unsubscribe = options.assistantBridge.observeExecuteRun(requestId, agentKey, identity => {
@@ -105,8 +110,9 @@ export async function executeWebappExecute(options: DesktopActionBridgeOptions, 
     await abortable(context.check(), abort.signal);
     abort.signal.throwIfAborted(); sent = true;
     log("platform", "execute_sent");
-    const input = args as WebappExecuteInput;
     const result = await abortable(postWebappExecute(context, { agentKey, message: input.message, outputSchema: input.outputSchema,
+      ...(input.chatId === undefined ? {} : { chatId: input.chatId }),
+      ...(input.references === undefined ? {} : { references: input.references }),
       ...(input.input === undefined ? {} : { input: input.input }), accessLevel: "ask_for_approval", requestId }, abort.signal), abort.signal);
     await checkDeliveryContext(context, abort.signal);
     abort.signal.throwIfAborted();
