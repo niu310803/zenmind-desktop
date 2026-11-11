@@ -272,7 +272,8 @@ function centeredView(
   };
 }
 
-// Keep at least a quarter of the image (48px floor) inside the viewport while panning.
+// Keep at least a quarter of the image (48px floor) inside the viewport while
+// panning, capped by the viewport so long images can still reach both edges.
 function clampView(
   view: Point,
   viewport: { clientWidth: number; clientHeight: number },
@@ -287,7 +288,13 @@ function clampView(
     viewportSize: number,
     contentSize: number,
   ) => {
-    const keepVisible = Math.max(48, Math.min(contentSize, contentSize * 0.25));
+    // A quarter of a long or zoomed-in image is larger than the viewport; using
+    // it as the minimum would keep both ends out of reach. The viewport size is
+    // also the largest value that still lets the top/bottom (left/right) align.
+    const keepVisible = Math.min(
+      viewportSize,
+      Math.max(48, contentSize * 0.25),
+    );
     const lower = keepVisible - contentSize;
     const upper = Math.max(lower, viewportSize - keepVisible);
     return clamp(value, lower, upper);
@@ -830,6 +837,18 @@ export function WorkPanelResourceImage({
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
     const scale = effectiveZoom / 100;
+    const applied = canvas.viewportTransform;
+    // A viewport resize applies this exact transform and repaints in the same
+    // frame; repainting again here would double the work for every drag step.
+    if (
+      applied[0] === scale &&
+      applied[1] === 0 &&
+      applied[2] === 0 &&
+      applied[3] === scale &&
+      applied[4] === view.x &&
+      applied[5] === view.y
+    )
+      return;
     canvas.setViewportTransform([scale, 0, 0, scale, view.x, view.y]);
     canvas.requestRenderAll();
   }, [effectiveZoom, view]);
@@ -841,17 +860,34 @@ export function WorkPanelResourceImage({
     if (!viewport || !current) return;
     const update = () => {
       const canvas = fabricCanvasRef.current;
-      // Fabric clears the backing store even for unchanged dimensions; zoom must only update the transform.
-      if (
-        canvas &&
-        (canvas.getWidth() !== viewport.clientWidth ||
-          canvas.getHeight() !== viewport.clientHeight)
-      )
-        canvas.setDimensions({
-          width: viewport.clientWidth,
-          height: viewport.clientHeight,
-        });
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
       const nextFitZoom = fitZoomFor(viewport, current);
+      const nextZoom = fitMode ? nextFitZoom : effectiveZoom;
+      // Fabric clears the backing store even for unchanged dimensions; zoom must only update the transform.
+      const resized = Boolean(
+        canvas &&
+        (canvas.getWidth() !== width || canvas.getHeight() !== height),
+      );
+      if (canvas && resized) {
+        canvas.setDimensions({ width, height });
+        // setDimensions wipes the backing store and schedules its repaint for the
+        // next animation frame, so dragging the panel width would show a blank
+        // image for a frame on every step. Repaint synchronously with the new
+        // transform instead; the deferred render then only confirms it.
+        const scale = nextZoom / 100;
+        const centered = centeredView(viewport, current, nextZoom);
+        const base = canvas.viewportTransform;
+        canvas.setViewportTransform([
+          scale,
+          0,
+          0,
+          scale,
+          fitMode ? centered.x : base[4],
+          fitMode ? centered.y : base[5],
+        ]);
+        canvas.renderAll();
+      }
       setFitZoom(nextFitZoom);
       if (fitMode) setView(centeredView(viewport, current, nextFitZoom));
     };
