@@ -25,7 +25,7 @@ const epoch=1793000000000;
 const chat=(id,agentKey,patch={})=>({chatId:id,chatName:id,agentKey,createdAt:epoch,updatedAt:epoch,lastRunId:'r',lastRunContent:'最新回复摘要',isRead:true,readRunId:'',hasActiveRun:false,hasPendingAwaiting:false,...patch});
 const initialAgents=Array.from({length:18},(_,i)=>({agentKey:'agent-'+i,displayName:['普通助理','编程项目','知识库','协作团队','执行器','代理'][i%6]+' '+i,mode:i<5?'BOT':['GENERAL','CODER','KBASE','TEAM','EXECUTOR','PROXY'][i%6],workspaceDir:i===0?'':'/fixture/project-'+i,role:'',recentChats:[chat('recent-'+i,'agent-'+i)],projectChats:[chat('recent-'+i,'agent-'+i)],primaryChat:i===1?undefined:chat('primary-'+i,'agent-'+i,{hasActiveRun:i===2,hasPendingAwaiting:i===3,isRead:i!==4}),chatCount:1,unreadCount:0,unreadChatCount:0,hasPendingAwaiting:false,latestChatId:'recent-'+i,latestPreview:'preview'}));
 window.confirm=()=>window.qa.confirm!==false;
-window.qa={archives:[],routes:[],histories:[],orders:[],menus:[],agentOrders:[],set:null,state:null};
+window.qa={archives:[],routes:[],histories:[],orders:[],chatOrders:[],menus:[],agentOrders:[],set:null,state:null};
 function Fixture(){
  const [agents,setAgents]=useState(initialAgents);window.qa.clearMain=id=>setAgents(items=>items.map(agent=>agent.primaryChat?.chatId===id?{...agent,primaryChat:undefined}:agent));window.qa.resetOrder=()=>setAgents(initialAgents);window.qa.removeBots=()=>setAgents(items=>items.filter(agent=>agent.mode!=='BOT'));window.qa.longText=()=>setAgents(items=>items.map(agent=>agent.agentKey==='agent-4'?{...agent,displayName:'机器人名称很长时应当渐隐而不是省略号'.repeat(4),primaryChat:{...agent.primaryChat,isRead:true,lastRunContent:'机器人回复内容很长时应当渐隐而不是省略号'.repeat(4)}}:agent));
  const [options,setOptions]=useState({debug:false,collapsed:false,windows:false,fullScreen:false,error:''});
@@ -39,8 +39,9 @@ function Fixture(){
  currentPathname={route.split('?')[0]} currentRoute={route} primaryChatNavAgents={agents} primaryChatNavError={options.error}
  sidebarNavOrder={['kanban','schedules','new-chat','chats','group:assistants','group:webs']} onSidebarNavOrderChange={order=>window.qa.orders.push(order)}
  webItems={[]} assistantNavAgents={agents.filter(agent=>agent.agentKey!=='agent-0')} chatNavAgentOptions={agents} chatDefaultAgentKey='agent-5'
- assistantNavChatItems={[chat('ordinary','agent-5'),chat('worker','agent-0')]} assistantPinnedChatItems={[chat('pinned','agent-5'),chat('bot-pinned','agent-0')]}
+ assistantNavChatItems={[chat('ordinary','agent-5'),chat('ordinary-next','agent-5'),chat('worker','agent-0')]} assistantPinnedChatItems={[chat('pinned','agent-5'),chat('bot-pinned','agent-0')]}
  assistantNavAgentsLoaded assistantChatPinningSupported assistantChatOrderingSupported
+ onUpdateAssistantChatOrder={async request=>{window.qa.chatOrders.push(request);return {ok:true,sortMode:'manual'};}}
  onOpenChatHistory={key=>window.qa.histories.push(key||'all')} onShareChat={()=>{}}
  onRequestNavigate={navigate} onRequestAgentChatNavigate={navigate}
  onToggleCollapsed={()=>setOptions(old=>({...old,collapsed:!old.collapsed}))}
@@ -62,6 +63,49 @@ let win;const js=code=>win.webContents.executeJavaScript(code);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(code,attempts=150){for(let n=0;n<attempts;n++){try{if(await js(code))return;}catch{}await delay(20);}throw Error('Timed out: '+code);}
 const click=selector=>js('document.querySelector('+JSON.stringify(selector)+').click()');
+async function verifyOrdinaryChatDrag() {
+ const source='[data-sidebar-chat-id=ordinary]';
+ const target='[data-sidebar-chat-id=ordinary-next]';
+ await js('document.querySelector('+JSON.stringify(target)+').scrollIntoView({block:"center",behavior:"instant"})');
+ const row=selector=>js('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');
+ const startRect=await row(source), targetRect=await row(target);
+ const from={x:Math.round(startRect.left+30),y:Math.round(startRect.top+startRect.height/2)};
+ const to={x:from.x+60,y:Math.round(targetRect.top+targetRect.height/2)};
+ const outside={x:Math.round(targetRect.right+70),y:to.y};
+ const mouse=(type,point,held)=>win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{
+  type,...point,button:type==='mouseMoved'&&!held?'none':'left',buttons:held?1:0,clickCount:type==='mouseMoved'?0:1,
+ });
+ const moveToTarget=async()=>{
+  await mouse('mouseMoved',from,false);
+  await mouse('mousePressed',from,true);
+  // One move crosses the threshold and reaches the destination.
+  await mouse('mouseMoved',to,true);
+ };
+ const start=async()=>{
+  await moveToTarget();
+  await until('document.querySelector("[data-sidebar-sortable-chat-id=ordinary-next]").classList.contains("has-drop-indicator-after")');
+ };
+ const routeCount=await js('window.qa.routes.length');
+ const orderCount=await js('window.qa.chatOrders.length');
+ await start();
+ assert.ok(Math.abs((await row('.sidebar-chat-drag-overlay')).left-startRect.left)<1);
+ await mouse('mouseReleased',to,false);
+ await until('window.qa.chatOrders.length==='+String(orderCount+1)+' && !document.querySelector(".sidebar-chat-drag-overlay")');
+ assert.deepEqual(await js('window.qa.chatOrders.at(-1)'),{operation:'move',chatId:'ordinary',afterChatId:'ordinary-next'});
+
+ await start();
+ await mouse('mouseMoved',outside,true);
+ await until('!document.querySelector(".sidebar-sortable-chat.has-drop-indicator-after, .sidebar-sortable-chat.has-drop-indicator-before")');
+ await mouse('mouseReleased',outside,false);
+ await until('!document.querySelector(".sidebar-chat-drag-overlay,.sidebar-sortable-chat.is-dragging")');
+ assert.equal(await js('window.qa.chatOrders.length'),orderCount+1);
+
+ await moveToTarget();
+ await mouse('mouseReleased',to,false);
+ await until('window.qa.chatOrders.length==='+String(orderCount+2)+' && !document.querySelector(".sidebar-chat-drag-overlay")');
+ assert.deepEqual(await js('window.qa.chatOrders.at(-1)'),{operation:'move',chatId:'ordinary',afterChatId:'ordinary-next'});
+ assert.equal(await js('window.qa.routes.length'),routeCount);
+}
 (async()=>{await app.whenReady();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 win=new BrowserWindow({show:false,width:1280,height:800,useContentSize:true,webPreferences:{contextIsolation:true,nodeIntegration:false}});
 win.webContents.on('render-process-gone',(_event,details)=>console.error('Renderer exited:',details));
@@ -154,10 +198,14 @@ for(const windows of [false,true]) {
 await js('window.qa.removeBots()');
 await until('!document.querySelector(".primary-chat-navigation")');
 assert.equal(await js('!!document.querySelector("[data-sidebar-group-id=chats]")'),true);
+await js('window.qa.set({windows:true,collapsed:false})');
+await until('!!document.querySelector("[data-sidebar-chat-id=ordinary-next]")');
+await delay(250);
+await verifyOrdinaryChatDrag();
 assert.deepEqual(await js('window.qa.orders'),[]);
 assert.deepEqual(errors,[]);
 fs.writeFileSync(path.join(output,'passed'),'ok');
-console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','main pointer and new-chat intent','always visible direct entries with no heading or toggle','empty bots leave no placeholder','old hidden preference ignored','Debug-only history with live toggle','centered shared pinned more button','long bot name and preview share Chats overflow fade','idle bot text uses full row width and only yields space on hover','native settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
+console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','Windows layout ordinary chat single-move drag and outside release','main pointer and new-chat intent','always visible direct entries with no heading or toggle','empty bots leave no placeholder','old hidden preference ignored','Debug-only history with live toggle','centered shared pinned more button','long bot name and preview share Chats overflow fade','idle bot text uses full row width and only yields space on hover','native settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
 win.destroy();server.close();app.quit();})().catch(error=>{console.error(error);if(win)win.destroy();server.close();app.exit(1);});
 `;
 fs.writeFileSync(path.join(output,"checks.cjs"), checker);

@@ -10,6 +10,11 @@ import type { DesktopUpdateState } from "../../../shared/desktop-updates";
 import { SidebarFileDropTarget } from "./SidebarFileDropTarget";
 import { SortableNavEntries } from "./SortableNavEntries";
 import {
+  SidebarChatPointerSensor,
+  detectSidebarChatCollisions,
+  sidebarChatDragModifiers,
+} from "./sidebarChatDrag";
+import {
   Fragment,
   useEffect,
   useImperativeHandle,
@@ -984,6 +989,7 @@ function SortableAssistantChat({
     <div
       ref={sortable.setNodeRef}
       style={style}
+      data-sidebar-sortable-chat-id={chat.chatId}
       className={[
         "sidebar-sortable-chat",
         sortable.isDragging ? "is-dragging" : "",
@@ -1223,8 +1229,13 @@ export function AppSidebar({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const chatPointerDropIdRef = useRef("");
   const chatDragSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(SidebarChatPointerSensor, {
+      activationConstraint: { distance: 6 },
+      capturePointer: isWindows,
+      onRelease: (chatId) => { chatPointerDropIdRef.current = chatId; },
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const [activeProjectDragKey, setActiveProjectDragKey] = useState("");
@@ -4156,6 +4167,7 @@ export function AppSidebar({
     }
     setChatOrderError("");
     setChatDropIndicator(null);
+    chatPointerDropIdRef.current = "";
     setActiveChatDragId(String(event.active.id));
   }
 
@@ -4194,12 +4206,10 @@ export function AppSidebar({
   }
 
   async function handleChatDragEnd(event: DragEndEvent) {
-    const dropIndicator = event.over
-      ? resolveChatDropIndicator(
-          String(event.active.id),
-          String(event.over.id),
-        )
-      : null;
+    const overId = event.activatorEvent instanceof PointerEvent
+      ? chatPointerDropIdRef.current
+      : String(event.over?.id ?? "");
+    const dropIndicator = resolveChatDropIndicator(String(event.active.id), overId);
     setChatDropIndicator(null);
     setActiveChatDragId("");
     if (
@@ -4858,6 +4868,7 @@ export function AppSidebar({
           <Popover
             trigger="hover"
             placement="right-start"
+            disabled={Boolean(activeChatDragId)}
             closeOnOutsideClick={false}
             className="sidebar-chat-hover-card-surface"
             content={() => renderChatHoverCard(agent, chat)}
@@ -4892,7 +4903,8 @@ export function AppSidebar({
     return (
       <DndContext
         sensors={chatDragSensors}
-        collisionDetection={closestCenter}
+        collisionDetection={detectSidebarChatCollisions}
+        modifiers={sidebarChatDragModifiers}
         onDragStart={handleChatDragStart}
         onDragOver={handleChatDragOver}
         onDragCancel={() => {
@@ -4912,6 +4924,7 @@ export function AppSidebar({
               <DragOverlay
                 adjustScale={false}
                 dropAnimation={null}
+                className="sidebar-chat-drag-layer"
                 zIndex={130}
               >
                 {activeChatDragItem ? (

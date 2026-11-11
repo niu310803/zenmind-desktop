@@ -1007,9 +1007,15 @@
   -webkit-backdrop-filter: blur(10px);
 }
 
+.sidebar-chat-drag-layer {
+  pointer-events: none;
+}
+
 .sidebar-chat-drag-overlay {
   min-height: 29px;
+  background: var(--desktop-overlay-panel-bg);
   font-size: 13px;
+  opacity: 1;
 }
 
 .sidebar-project-drag-overlay {
