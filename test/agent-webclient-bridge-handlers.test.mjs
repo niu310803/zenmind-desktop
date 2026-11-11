@@ -588,6 +588,43 @@ test("Main Chat query rechecks route ownership after asynchronous availability",
   assert.ok(sentFrames(sender).some((frame) => frame.id === "old-query" && frame.type === "surface_unavailable"));
 });
 
+test("canonical guest route mismatch reproduces the reported protocol error before reaching Platform", async (t) => {
+  for (const [name, guestRoute, payloadChatId] of [
+    ["switched guest with an omitted query chatId", "?chatId=chat-2", undefined],
+    ["guest route has neither newChat nor chatId", "", "chat-1"],
+    ["guest has duplicate canonical chatId parameters", "?chatId=chat-1&chatId=chat-1", "chat-1"],
+  ]) {
+    await t.test(name, async () => {
+      // An inactive transition preserves the last trusted Desktop owner/route,
+      // but records the guest's newly observed URL.
+      const target = mainTarget(101, {
+        active: false,
+        currentUrl: `http://127.0.0.1:7079/agent/agent-1${guestRoute}`,
+      });
+      let waitCalls = 0;
+      const runtime = createRuntime(new Map([[101, target]]), {
+        browserSurfaces: {
+          waitForWebviewSurfaceTargetMatching: async () => { waitCalls += 1; return null; },
+        },
+      });
+      const sender = createSender(101, target.currentUrl);
+      await openSession(runtime, sender, "guest-route-mismatch");
+      send(runtime, sender, "guest-route-mismatch", {
+        frame: "request", id: "mismatched-query", type: "/api/query",
+        payload: { agentKey: "agent-1", message: "continue",
+          ...(payloadChatId ? { chatId: payloadChatId } : {}) },
+      });
+      await flush();
+      const error = sentFrames(sender).find(frame => frame.id === "mismatched-query");
+      assert.equal(error.frame, "error");
+      assert.equal(error.type, "protocol_error");
+      assert.equal(error.msg, "canonical Chat owner does not match its guest route");
+      assert.equal(runtime.calls.queries.length, 0);
+      assert.equal(waitCalls, 0, "these routes cannot enter the canonical convergence wait");
+    });
+  }
+});
+
 test("canonical Main Chat query waits for stale owner registration to converge", async () => {
   const stale = mainTarget(101, { active: false });
   const ready = mainTarget(101, {
