@@ -338,3 +338,10 @@ test("macOS dev signing removes its temporary search-list entry after failure", 
   }), error => error === failure);
   assert.equal(readSearchList(), before);
 });
+
+test("macOS development launch preserves the explicit private HTTP auth test switch",()=>{
+ for(const value of ["0","1"])withLaunchEnvironment({ZENMIND_AUTH_PRIVATE_HTTP_TEST:value},()=>{
+  const args=buildDarwinDevOpenArgs({appRoot:"/tmp/desktop-test.app"},"/tmp/desktop-test",{id:"cutej"});
+  assert.ok(args.includes("ZENMIND_AUTH_PRIVATE_HTTP_TEST="+value));
+ });
+});

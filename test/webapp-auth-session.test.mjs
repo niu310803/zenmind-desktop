@@ -80,7 +80,13 @@ test('Desktop browser and WorkPanel pages exchange visitor identity in their own
  for(const [surfaceKind,surfaceRole] of [['chat-work-panel','workpanel-file'],['service','main-chat'],['help','help']]){
   surface={...surface,surfaceKind,surfaceRole};before=prompts;assert.equal((await invoke()).error.code,'forbidden');assert.equal(prompts,before);
  }
- surface={...surface,surfaceKind:'browser',surfaceRole:'browser'};guest.session=browser;frame.url='http://127.0.0.1:4567/';
+ surface={...surface,surfaceKind:'browser',surfaceRole:'browser'};guest.session=browser;frame.url='http://192.168.1.8:4567/';
+ const oldTestFlag=process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST;t.after(()=>{if(oldTestFlag===undefined)delete process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST;else process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST=oldTestFlag;});
+ delete process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST;
+ assert.equal((await invoke()).error.code,'insecure_origin');
+ process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST='1';assert.deepEqual(await invoke(),{ok:true});
+ afterConsent=()=>{delete process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST;};let testSent=fetches;assert.equal((await invoke()).error.code,'context_changed');assert.equal(fetches,testSent);afterConsent=undefined;
+ frame.url='http://127.0.0.1:4567/';
  before=prompts;assert.equal((await invoke()).error.code,'insecure_origin');assert.equal(prompts,before);
  liveGateway=true;assert.deepEqual(await invoke(),{ok:true});
  afterConsent=()=>{liveGateway=false};before=fetches;assert.equal((await invoke()).error.code,'context_changed');assert.equal(fetches,before);afterConsent=undefined;

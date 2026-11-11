@@ -229,3 +229,7 @@ Hub 验证官网证明和目标归属后，手机取回所选电脑的原 App To
 Tunnel 设备 ID 首次读取缺失时生成并持久化；普通退出、重启、账号切换及切回都保留该 ID，Hub 按账号与设备 ID 复用原记录。退出仅清理公网地址与注册时间缓存，保留开启意愿与本地 Platform 身份。注册响应必须匹配请求设备并返回账号；停止 Tunnel 会取消在途请求，迟到响应复验取消信号、canonical token、设备和 relay 后才写入设置。
 
 页面认证 preload 只暴露当前构建品牌的全局（ZenMind/CuteJ 分别独立命名），不注入其他品牌别名。统一 SDK 发现访问者 transport，使任一品牌发布的 WebApp 可在另一品牌 Desktop 登录；存在多个 transport 时拒绝选择。品牌名不参与服务端用户身份或授权判定。
+
+## 局域网 HTTP 认证测试例外
+
+开发启动脚本仅为测试默认设置 ZENMIND_AUTH_PRIVATE_HTTP_TEST=1；显式设为 0 可关闭，正式打包宿主在未显式启用时仍要求远端 HTTPS。例外只允许私有 IPv4 与链路本地地址，不能由页面请求字段开启。Browser、Website 和普通 WorkPanel 网页仍需真实 Surface/session 校验、访问者原生确认、同源交换、禁止重定向与 Cookie 范围校验。异步确认后测试开关关闭时必须取消本次提交。localhost 仍须属于当前 Desktop 的运行中 gateway，不能借测试开关开放任意 localhost 服务。macOS 与 Windows 使用相同的宿主环境变量和 Node 网络策略，不调整系统防火墙。

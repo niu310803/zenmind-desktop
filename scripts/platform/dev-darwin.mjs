@@ -79,6 +79,7 @@ function fileHashPrefix(filePath) {
 function buildDarwinDevLaunchEnvironment(projectRoot, brand, serviceAssetsRoot) {
   return {
     MallocNanoZone: process.env.MallocNanoZone || "0",
+    ZENMIND_AUTH_PRIVATE_HTTP_TEST: process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST || "0",
     PATH: process.env.PATH || "",
     BRAND: brand.id,
     DESKTOP_BRAND_JSON: path.join(projectRoot, "build", "brands", brand.id, "generated", "brand.json"),

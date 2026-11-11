@@ -18,6 +18,8 @@ import { npmCmd, run, runAndWait, withBrandEnv } from "./platform/spawn.mjs";
 const projectRoot = process.cwd();
 const brand = loadBrandConfig(projectRoot, resolveBrandId());
 process.env.BRAND = brand.id;
+// Temporary LAN authentication testing; packaged Desktop keeps HTTPS by default.
+process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST ??= "1";
 const brandProcessOptions = (options = {}) => withBrandEnv(brand, options);
 
 // 把当前 Node 的目录顶到 PATH 最前，并显式声明 NODE_BIN，

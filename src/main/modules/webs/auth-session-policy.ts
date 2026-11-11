@@ -1,12 +1,17 @@
 import type { CookiesSetDetails } from "electron";
+import { isPrivateIpv4 } from "./webapps/lan-access";
 
 export class WebappAuthError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
 }
-export function resolveSessionExchangeUrl(pageUrl: string, input: unknown, localWebapp: boolean) {
+export function isPrivateHttpTestOrigin(pageUrl: string) {
+  const page = new URL(pageUrl);
+  return page.protocol === "http:" && !page.username && !page.password && isPrivateIpv4(page.hostname);
+}
+export function resolveSessionExchangeUrl(pageUrl: string, input: unknown, localWebapp: boolean, allowPrivateHttpForTesting = false) {
   const page = new URL(pageUrl);
   const loopback = page.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(page.hostname);
-  if (page.username || page.password || (page.protocol !== "https:" && !(localWebapp && loopback))) {
+  if (page.username || page.password || (page.protocol !== "https:" && !(localWebapp && loopback) && !(allowPrivateHttpForTesting && isPrivateHttpTestOrigin(pageUrl)))) {
     throw new WebappAuthError("insecure_origin", "Remote authentication requires HTTPS.");
   }
   if (!input || typeof input !== "object" || Array.isArray(input) ||

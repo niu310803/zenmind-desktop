@@ -1862,3 +1862,10 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - macOS / Windows 分别导入独立 Agent Lab ZIP，聊天页选择 Agent、上传附件、query 后保持 canonical Chat；Executor 页独立验证结构化交卷和取消。
 - 后台 query→observe→解除→游标续读→interrupt：解除不停止运行；过期不重发。steer/send/submit 只操作本实例根 Agent，send 不自动替换观察 Run。
 - 新 namespace 无 chat/stop/image；旧 Bridge Lab 的 assistant 兼容调用仍可用。上传图片/蒙版不作为图像编辑通过证据，必须核对真实工具能力和产物。
+
+### Auth Lab 局域网 HTTP 测试
+
+- 测试开发版 Desktop 开启 ZENMIND_AUTH_PRIVATE_HTTP_TEST=1；在自己的 Desktop 打开其他用户分享的私有 IPv4 HTTP 地址，OneID 原生确认展示该精确交换地址，确认后只在当前页面 session 建立 Cookie。
+- 关闭测试开关后，局域网 HTTP OneID 拒绝；公网 HTTP、未登记 guest、跨源路径和重定向始终拒绝。
+- 普通浏览器访问新版 Auth Lab 的局域网 HTTP 分享链接，统一认证跳转 Google 并返回同一分享地址；变化的私有 IP/端口无需逐个登记，仍检查 state/nonce/PKCE、完整 callback 与票据重放。
+- 不可用的认证入口显示明确提示，不能跳转空 URL 刷新页面。macOS/Windows 分别核验原生确认和 Cookie 写入。

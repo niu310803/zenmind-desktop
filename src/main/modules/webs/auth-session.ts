@@ -8,7 +8,7 @@ import { getDesktopSsoBusinessToken, getDesktopSsoStatus, subscribeDesktopSsoCre
 import type { BrowserSurfaceRegistry } from "../web-surfaces";
 import type { WebsFacade } from "./facade";
 import { t } from "../../support/i18n/main-i18n";
-import { parseSessionCookies, resolveSessionExchangeUrl, WebappAuthError } from "./auth-session-policy";
+import { isPrivateHttpTestOrigin, parseSessionCookies, resolveSessionExchangeUrl, WebappAuthError } from "./auth-session-policy";
 
 type CookieRecord = { partition: string; url: string; name: string };
 
@@ -86,16 +86,18 @@ export function registerWebappAuth(options: {
       const partition = local || browser ? DESKTOP_BROWSER_WEBVIEW_PARTITION : "";
       const expectedSession = partition ? session.fromPartition(partition) : session.defaultSession;
       if (guest.session !== expectedSession) throw new WebappAuthError("forbidden", "Unexpected application session.");
-      // HTTP is never granted just because a Browser URL says localhost. It must
-      // be this Desktop's live WebApp gateway; visitors of remote apps use HTTPS.
+      // Loopback still requires a live local gateway. Private LAN HTTP additionally
+      // requires the host-controlled development flag; page input cannot enable it.
       const localGateway = local || options.webs.webappRuntime.isRunningGatewayOrigin(frame.url);
-      const url = resolveSessionExchangeUrl(frame.url, input, localGateway);
+      const privateHttpTest = process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST === "1" && isPrivateHttpTestOrigin(frame.url);
+      const url = resolveSessionExchangeUrl(frame.url, input, localGateway, privateHttpTest);
       const startEpoch = epoch;
       const originalUrl = frame.url;
       const validate = () => {
         const live = options.registry.resolveWebviewSurfaceTarget(guest.id);
         if (controller.signal.aborted || epoch !== startEpoch || guest.isDestroyed() || guest.mainFrame !== frame || frame.url !== originalUrl || guest.session !== expectedSession ||
-            (!local && url.protocol === "http:" && !options.webs.webappRuntime.isRunningGatewayOrigin(frame.url)) ||
+            (privateHttpTest && process.env.ZENMIND_AUTH_PRIVATE_HTTP_TEST !== "1") ||
+            (!local && url.protocol === "http:" && !privateHttpTest && !options.webs.webappRuntime.isRunningGatewayOrigin(frame.url)) ||
             (detached ? options.webs.webappWindowManager.resolveAuthGuest(guest) !== detached :
               !live || live.registrationId !== surface?.registrationId || live.surfaceId !== surface?.surfaceId ||
               live.surfaceKind !== surface?.surfaceKind || live.surfaceRole !== surface?.surfaceRole || live.ownerWebContentsId !== surface?.ownerWebContentsId)) {

@@ -56,3 +56,13 @@ test('macOS and Windows network webviews receive only the sandboxed auth preload
   assert.equal(prepareWebviewAttachPreferences(service).ok,true);assert.equal(service.webPreferences.nodeIntegrationInSubFrames,undefined,'service pages keep their preload in the top frame');
  }
 });
+
+test('private LAN HTTP exchange requires the host testing policy and stays same origin',()=>{
+ for(const address of ['10.0.0.3','172.16.0.2','172.31.255.254','192.168.1.8','169.254.1.2']){
+  const origin='http://'+address+':54321';
+  assert.throws(()=>resolveSessionExchangeUrl(origin,{exchangePath:'/api/session'},false));
+  assert.equal(resolveSessionExchangeUrl(origin,{exchangePath:'/api/session'},false,true).href,origin+'/api/session');
+ }
+ for(const origin of ['http://8.8.8.8:54321','http://172.32.1.1:54321','http://intranet.test:54321','http://127.0.0.1:54321'])assert.throws(()=>resolveSessionExchangeUrl(origin,{exchangePath:'/api/session'},false,true));
+ assert.throws(()=>resolveSessionExchangeUrl('http://192.168.1.8:54321',{exchangePath:'/api/session',allowPrivateHttpForTesting:true},false,true));
+});
