@@ -179,12 +179,14 @@ test("recent tray chats handle unavailable, empty and short histories without fa
   );
 });
 
-test("tray new chat routes use the configured agent and a fresh identity on every click", () => {
+test("tray new chat routes use the configured agent and distinct WebClient timestamps", (t) => {
+  const timestamp = 1794300000000;
+  t.mock.method(Date, "now", () => timestamp);
   const first = new URL(createAppTrayNewChatRoute("my agent"), "https://desktop.test");
   const second = new URL(createAppTrayNewChatRoute("my agent"), "https://desktop.test");
   assert.equal(first.pathname, "/agent/my%20agent");
-  assert.ok(first.searchParams.get("newChat"));
-  assert.notEqual(first.searchParams.get("newChat"), second.searchParams.get("newChat"));
+  assert.equal(first.searchParams.get("newChat"), String(timestamp));
+  assert.equal(second.searchParams.get("newChat"), String(timestamp + 1));
   assert.equal(first.searchParams.has("chatId"), false);
 });
 

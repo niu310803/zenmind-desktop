@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { AssistantNavAgentItemsResult, AssistantNavChatItem } from "../../../shared/contracts";
 import { createAgentWebclientAgentPath } from "../../../shared/agent-webclient-routes";
 
@@ -35,6 +34,10 @@ export function getAppTrayRecentChats(snapshot: AssistantNavAgentItemsResult | u
     .slice(0, TRAY_RECENT_CHAT_LIMIT);
 }
 
+let lastNewChatTimestamp = 0;
+
 export function createAppTrayNewChatRoute(agentKey: string) {
-  return createAgentWebclientAgentPath(agentKey, new URLSearchParams({ newChat: randomUUID() }));
+  // WebClient requires a 13-digit millisecond timestamp to start a new chat.
+  lastNewChatTimestamp = Math.max(Date.now(), lastNewChatTimestamp + 1);
+  return createAgentWebclientAgentPath(agentKey, new URLSearchParams({ newChat: String(lastNewChatTimestamp) }));
 }
