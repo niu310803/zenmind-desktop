@@ -27,7 +27,49 @@ function fixture(t, html = "<!doctype html><title>WebApp</title>", index = "inde
   return { root, packageRoot, frontend, write, read: () => readWebappIconDataUrl(packageRoot, frontend) };
 }
 
-test("WebApp icons use declared package icons ahead of touch icons and conventional fallbacks", t => {
+test("WebApp package assets override frontend favicons and work independently of frontend files", t => {
+  const app = fixture(t, '<link rel=icon href="/favicon.png">');
+  app.write("favicon.png", png);
+  const assets = path.join(app.packageRoot, "assets");
+  fs.mkdirSync(assets);
+  fs.writeFileSync(path.join(assets, "icon.svg"), svg);
+  fs.writeFileSync(path.join(assets, "icon.png"), png);
+  assert.equal(app.read(), dataUrl(svg));
+  fs.rmSync(path.join(app.packageRoot, "frontend"), { recursive: true });
+  assert.equal(app.read(), dataUrl(svg));
+});
+
+test("WebApp package PNG icons work alone and replace invalid SVG icons before frontend fallbacks", t => {
+  const app = fixture(t, '<link rel=icon href="/favicon.svg">');
+  app.write("favicon.svg", svg);
+  const assets = path.join(app.packageRoot, "assets");
+  fs.mkdirSync(assets);
+  fs.writeFileSync(path.join(assets, "icon.png"), png);
+  assert.equal(app.read(), dataUrl(png, "image/png"));
+  fs.writeFileSync(path.join(assets, "icon.svg"), "not an image");
+  assert.equal(app.read(), dataUrl(png, "image/png"));
+});
+
+test("WebApp package assets reject oversized images and symlink escapes while retaining favicon fallback", t => {
+  const app = fixture(t);
+  const assets = path.join(app.packageRoot, "assets");
+  fs.mkdirSync(assets);
+  const outside = path.join(app.root, "outside.svg");
+  fs.writeFileSync(outside, svg);
+  fs.symlinkSync(outside, path.join(assets, "icon.svg"));
+  fs.writeFileSync(path.join(assets, "icon.png"), Buffer.concat([png, Buffer.alloc(256 * 1024)]));
+  assert.equal(app.read(), "");
+  app.write("favicon.png", png);
+  assert.equal(app.read(), dataUrl(png, "image/png"));
+  fs.rmSync(assets, { recursive: true });
+  const outsideAssets = path.join(app.root, "outside-assets");
+  fs.mkdirSync(outsideAssets);
+  fs.writeFileSync(path.join(outsideAssets, "icon.svg"), svg);
+  fs.symlinkSync(outsideAssets, assets, process.platform === "win32" ? "junction" : "dir");
+  assert.equal(app.read(), dataUrl(png, "image/png"));
+});
+
+test("WebApp icons use declared frontend icons ahead of touch icons and conventional fallbacks", t => {
   const app = fixture(t, `<link rel="apple-touch-icon" href="/touch.png"><LINK HREF='/assets/logo.svg?v=2&amp;x=1#icon' REL='shortcut icon'>`);
   app.write("touch.png", png);
   app.write("assets/logo.svg", svg);
@@ -115,7 +157,8 @@ test("WebApp icon failures are optional and package icon replacements are observ
 
 test("WebApp listing projects package icons without adding manifest configuration or local paths", t => {
   const app = fixture(t, '<link rel=icon href="/favicon.svg">');
-  app.write("favicon.svg", svg);
+  fs.mkdirSync(path.join(app.packageRoot, "assets"));
+  fs.writeFileSync(path.join(app.packageRoot, "assets/icon.svg"), svg);
   const key = "sidebar-icons";
   const manifest = { schemaVersion: 2, id: `webapp-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`, key, label: "Sidebar icons", version: "1.0.0", target: "any", frontend: app.frontend };
   const manifestPath = path.join(app.packageRoot, "webapp.json");

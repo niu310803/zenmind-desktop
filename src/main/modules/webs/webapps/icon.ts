@@ -5,6 +5,7 @@ import type { WebappFrontendConfig } from "../../../../shared/webapp-manifest";
 const ICON_MAX_BYTES = 256 * 1024;
 const HTML_HEAD_MAX_BYTES = 512 * 1024;
 const ICON_ORIGIN = "https://webapp-icon.invalid";
+const PACKAGE_ICON_FILES = ["icon.svg", "icon.png"];
 const FALLBACK_ICON_PATHS = ["/favicon.svg", "/favicon.png", "/favicon.ico", "/apple-touch-icon.png"];
 
 function isInsideRoot(root: string, candidate: string, platform: NodeJS.Platform) {
@@ -117,6 +118,12 @@ function declaredIconHrefs(html: string) {
 export function readWebappIconDataUrl(webappDir: string, frontend: Pick<WebappFrontendConfig, "root" | "index">) {
   try {
     const packageRoot = fs.realpathSync(webappDir);
+    // Package presentation assets sit beside webapp.json, independent of the frontend.
+    const assetsRoot = path.join(packageRoot, "assets");
+    for (const filename of PACKAGE_ICON_FILES) {
+      const dataUrl = toImageDataUrl(readContainedFile(assetsRoot, path.join(assetsRoot, filename), ICON_MAX_BYTES));
+      if (dataUrl) return dataUrl;
+    }
     const frontendRoot = fs.realpathSync(path.resolve(packageRoot, ...frontend.root.replaceAll("\\", "/").split("/")));
     if (!isInsideRoot(packageRoot, frontendRoot, process.platform)) return "";
     const indexPath = path.resolve(frontendRoot, ...frontend.index.replaceAll("\\", "/").split("/"));
