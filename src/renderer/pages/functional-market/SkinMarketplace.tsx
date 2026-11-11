@@ -74,7 +74,7 @@ export function SkinMarketplace(props: Props) {
         </div>;
     };
     const useButton = (id: DesktopSkinId) => <Button type={current === id ? "default" : "primary"}
-        className={`market-card-action market-card-primary ${current === id ? "is-current" : ""}`}
+        className={`market-card-action market-card-primary market-card-use${current === id ? " is-current" : ""}`}
         disabled={!flow.ready || flow.busy || current === id} loading={flow.busyId === id}
         icon={current === id ? <CheckOutlined /> : undefined} onClick={() => void flow.useSkin(id)}>
         {t(current === id ? "market.skin.current" : "market.skin.use")}
@@ -101,7 +101,7 @@ export function SkinMarketplace(props: Props) {
             <button type="button" className="skill-discovery-outline" aria-label={t("market.skin.refresh")}
                 onClick={refresh} disabled={flow.busy}><ReloadOutlined /></button>
         </div>}>
-        <div className="skill-discovery skin-discovery">
+        <div className={`skill-discovery skin-discovery${flow.activity?.action === "import" ? " is-importing" : ""}`}>
             <SkinMessages runtime={flow}/>{props.feedback}
             <div className="skill-discovery-scroll">
                 {flow.stateError ? <Alert type="warning" showIcon message={flow.stateError}
