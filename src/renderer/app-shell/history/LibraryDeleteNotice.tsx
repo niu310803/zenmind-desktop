@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/useI18n";
 
-export function LibraryDeleteNotice({ chatId }: { chatId: string }) {
+export function LibraryDeleteNotice({
+  chatId,
+  className,
+}: {
+  chatId: string;
+  className?: string;
+}) {
   const { t } = useI18n();
   const [count, setCount] = useState<number | null>(null);
   useEffect(() => {
@@ -19,5 +25,11 @@ export function LibraryDeleteNotice({ chatId }: { chatId: string }) {
     const unsubscribe = window.electronAPI.artifacts.onChanged(load);
     return () => { cancelled = true; unsubscribe(); };
   }, [chatId]);
-  return <p>{t(count === null ? "artifactManagement.deleteNoticeUnknown" : "artifactManagement.deleteNotice", { count: count ?? 0 })}</p>;
+  // 仅在资料库确实收录了该对话的资料时提示；查询中或没有条目时不占用弹窗版面。
+  if (count === null || count <= 0) return null;
+  return (
+    <p className={className}>
+      {t("artifactManagement.deleteNotice", { count })}
+    </p>
+  );
 }

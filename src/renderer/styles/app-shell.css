@@ -924,7 +924,7 @@
 
 .app-content {
   --chat-work-panel-tab-height: 28px;
-  --chat-work-panel-tabs-top-padding: 8px;
+  --chat-work-panel-tabs-top-padding: 4px;
   --chat-work-panel-tabs-bottom-padding: 4px;
   --chat-work-panel-tabs-height: calc(var(--chat-work-panel-tab-height) + var(--chat-work-panel-tabs-top-padding) + var(--chat-work-panel-tabs-bottom-padding));
   position: relative;
@@ -3589,6 +3589,49 @@
   padding-right: 46px;
 }
 
+/* Arrows outside the scroll strip page through hidden tabs. */
+.chat-work-panel-tabs-scroll-button {
+  flex: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--control-radius-sm);
+  background: transparent;
+  color: var(--control-icon-color);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.chat-work-panel-tabs-scroll-button:hover:not(:disabled),
+.chat-work-panel-tabs-scroll-button:focus-visible {
+  background: var(--control-hover-bg);
+  color: var(--control-icon-hover-color);
+}
+
+.chat-work-panel-tabs-scroll-button:disabled {
+  color: var(--control-icon-color);
+  opacity: 0.35;
+  cursor: default;
+}
+
+.chat-work-panel-tabs-scroll-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-work-panel-tabs-scroll-button {
+    transition: none;
+  }
+}
+
 .chat-work-panel-tabs-scroll {
   flex: 1;
   min-width: 0;
@@ -3631,6 +3674,8 @@
   flex: 0 0 24px;
   width: 24px;
   height: var(--chat-work-panel-tab-height);
+  /* Sibling of the scroll strip, so match the strip's 4px tab gap. */
+  margin-left: 4px;
 }
 
 .chat-work-panel-add-button {

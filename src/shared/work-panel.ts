@@ -193,7 +193,7 @@ function normalizeContext(
         ? ["id"]
         : [
             "chatId", "runId", "agentKey", "artifactId", "referenceId", "planningId",
-            "publishId", "sourceId", "btwId", "instanceId", "path", "relativePath",
+            "publishId", "sourceId", "libraryId", "btwId", "instanceId", "path", "relativePath",
           ],
   );
   if (Object.keys(record).some((key) => !allowed.has(key) || /token|event|absolute|preload/iu.test(key))) {
@@ -202,7 +202,7 @@ function normalizeContext(
   const context: Record<string, string> = {};
   for (const key of [
     "chatId", "runId", "agentKey", "artifactId", "referenceId", "planningId",
-    "publishId", "sourceId", "btwId", "instanceId", "id", "viewIndex",
+    "publishId", "sourceId", "libraryId", "btwId", "instanceId", "id", "viewIndex",
   ] as const) {
     const value = cleanIdentity(record[key]);
     if (record[key] !== undefined && !value) return null;
@@ -517,8 +517,9 @@ function normalizeDescriptor(
         : "";
       break;
     case "source":
+      // 同一 publish 可含跨库同名 source，libraryId 参与身份以免两个 Tab 互相顶掉。
       stableKey = context.agentKey && context.chatId && context.publishId && context.sourceId
-        ? `source:${context.agentKey}:${context.chatId}:${context.btwId || "main"}:${context.publishId}:${context.sourceId}`
+        ? `source:${context.agentKey}:${context.chatId}:${context.btwId || "main"}:${context.publishId}:${context.libraryId || ""}:${context.sourceId}`
         : "";
       break;
     case "project":
