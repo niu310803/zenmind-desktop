@@ -513,6 +513,19 @@ return Object.freeze({
 }
 
 function createDataClient(call, image, execute) {
+const mcp = Object.freeze({
+  async invoke(input, { signal } = {}) {
+    try {
+      signal?.throwIfAborted();
+      const result = await call("mcp.invoke", input, signal);
+      signal?.throwIfAborted();
+      return result;
+    } catch (error) {
+      if (signal?.aborted) throw new DesktopBridgeError("mcp.invoke", "cancelled", "MCP invocation was cancelled.");
+      throw error;
+    }
+  }
+});
 const connector = Object.freeze({
   list: () => call("connector.list"),
   describe: (input) => call("connector.describe", input),
@@ -552,9 +565,9 @@ const agent = Object.freeze({
   upload: methods.upload, resource: methods.resource, observe: methods.subscribe,
   interrupt: methods.interrupt, steer: methods.steer, send: methods.send, submit: methods.submit
 });
-return Object.freeze({ connector, skill, automation, kanban, artifact, assistant, agent });
+return Object.freeze({ connector, skill, automation, kanban, artifact, assistant, agent, mcp });
 }
-export const { connector, skill, automation, kanban, artifact, assistant, agent } = createDataClient((action, args, signal) => call(action, args, undefined, signal), Object.freeze(image), (input, options, action) => executeAssistant(input, options, undefined, action));
+export const { connector, skill, automation, kanban, artifact, assistant, agent, mcp } = createDataClient((action, args, signal) => call(action, args, undefined, signal), Object.freeze(image), (input, options, action) => executeAssistant(input, options, undefined, action));
 
 // Copy the generated bridge.mjs into a managed Node backend. Credentials stay
 // in that process and must never be forwarded to frontend code or logs.

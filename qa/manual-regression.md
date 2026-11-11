@@ -1166,6 +1166,15 @@
 
 - 连接器共享凭据版本：WebApp 无需 connectorAuthentication 声明即可经宿主登录流程认证；backend 仍不能发起登录。已有连接器登录应直接复用，管理界面退出后 Agent/WebApp 同步失效；不创建额外用户凭据目录。工作台登录后直接读取企微数据。
 
+## WebApp 免安装远程 MCP
+
+- [ ] macOS / Windows：页面和受管 Node 后端使用相同 `mcp.invoke` 参数调用未安装的测试 HTTP MCP，确认无需注册或挂载 Agent；Desktop 只访问 Platform 固定接口，不直接连接 MCP。
+- [ ] SSO 测试 HTTPS MCP 收到当次有效 Bearer；同账号续期后下一次调用使用新值。页面、SDK 返回和日志不暴露宿主注入的 token，认证请求不跟随重定向。
+- [ ] 官网退出后 SSO 调用返回身份不可用，`auth:none` 的测试 HTTP MCP 仍可调用且无 SSO header；调用方不能传 headers、token 或用户身份。普通 Desktop Action/匿名入口不可调用。
+- [ ] 工具文本、structuredContent 和 isError 保持原生语义；Platform 不可达、非法响应、超时可见，不自动重发。对于有副作用的测试工具，取消/断网后由应用提示核对，不声称回滚。
+- [ ] 页面刷新/断开、后端取消、应用停止及 token 撤销会取消上游；应用重启或本地服务身份/endpoint 变化后不交付旧结果。页面和后端共享在途限额。
+- [ ] 纯 Linux Compose 不依赖 Desktop；使用宿主 WebApp session 和后端凭据进入同一执行服务。未供应服务端 SSO 身份文件时明确失败，不以 bridge/API token 替代。
+
 ## WebApp 连接器直连读写
 
 - 安装新版个人工作台，登录后直接读取和发送，无应用级读写授权弹窗。

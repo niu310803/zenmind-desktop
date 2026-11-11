@@ -1729,6 +1729,29 @@ test("desktop.display routes to the Main renderer without confirmation", async (
   assert.equal(rendererCalls.length, 1);
 });
 
+test("MCP invocation enters the Platform adapter only through WebApp page/backend routing", async t => {
+  const { options } = createDesktopActionOptions(t);
+  const token = 'h.' + Buffer.from(JSON.stringify({ sub: 'local-app' })).toString('base64url') + '.s';
+  options.issueAgentAccessToken = async () => ({ ok: true, token });
+  options.services.getResponsiveServiceState = async () => ({ status: 'running', healthMeta: { webUrl: 'http://127.0.0.1:1234' } });
+  options.webs = { ...options.webs,
+    webappManager: { list: () => [{ id: 'mcp-app' }] },
+    webappRuntime: { getStatus: () => ({ status: 'running', startedAt: 123 }) }
+  };
+  const input = { url: 'https://mcp.example.test/mcp', toolName: 'search', arguments: {} };
+  const mcp = { content: [{ type: 'text', text: 'found' }] };
+  const calls = [];
+  t.mock.method(require('../dist-electron/main/modules/desktop-actions/webapp-platform-client.js'), 'request', async (...args) => {
+    calls.push(args); return { mcp };
+  });
+  const { handleActionCall } = require('../dist-electron/main/modules/desktop-actions/action-handlers.js');
+  assert.deepEqual(await handleWebappPageActionRequest(options, 'mcp-app', { action: 'mcp.invoke', args: input }), { ok: true, action: 'mcp.invoke', result: { mcp } });
+  assert.equal((await handleActionCall(options, { action: 'mcp.invoke', args: input }, { kind: 'webappBackend', webappId: 'mcp-app' })).ok, true);
+  assert.equal((await handleActionCall(options, { action: 'mcp.invoke', args: input })).error.code, 'forbidden');
+  assert.equal(calls.length, 2);
+  for (const call of calls) assert.deepEqual(call.slice(0, 5), ['http://127.0.0.1:1234', token, '/api/mcp/invoke', 'POST', input]);
+});
+
 test("WebApp assistant chat uses its configured Desktop agent and forwards the message unchanged", async (t) => {
   const { calls, options } = createDesktopActionOptions(t);
   options.issueAgentAccessToken = async () => ({ok: true, token: 'h.' + Buffer.from(JSON.stringify({sub:'desktop-app'})).toString('base64url')+'.s'});

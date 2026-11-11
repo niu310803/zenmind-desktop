@@ -1,12 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBackendClient, auth, assistant, automation, artifact, desktop, connector, skill, kanban } from '../contracts/webapp/bridge.mjs';
+import { createBackendClient, auth, assistant, automation, artifact, desktop, connector, skill, kanban, mcp } from '../contracts/webapp/bridge.mjs';
 
-test('the public SDK uses eight singular namespaces and reports reserved capabilities', async()=>{
- for(const group of [auth,assistant,automation,artifact,desktop,connector,skill,kanban])assert.equal(Object.isFrozen(group),true);
+test('the public SDK exposes frozen namespaces and reports reserved capabilities', async()=>{
+ for(const group of [auth,assistant,automation,artifact,desktop,connector,skill,kanban,mcp])assert.equal(Object.isFrozen(group),true);
  assert.equal(desktop.native,undefined);assert.equal(desktop.assistant,undefined);
  await assert.rejects(automation.list(),{code:'not_implemented'});
  await assert.rejects(desktop.screen.capture(),{code:'not_implemented'});
+});
+test('MCP SDK shares page/backend arguments and keeps cancellation outside JSON', async t => {
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});const calls=[];
+ const input={url:'https://mcp.example.test/mcp',toolName:'search',arguments:{query:'hello'},auth:'sso'};
+ const result={mcp:{content:[{type:'text',text:'business error'}],isError:true}};
+ const controller=new AbortController();
+ globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({ok:true,result}));};
+ const backend=createBackendClient({url:'http://127.0.0.1:17070/webapps',token:'scoped'});
+ for(const client of [mcp,backend.mcp])assert.deepEqual(await client.invoke(input,{signal:controller.signal}),result);
+ assert.deepEqual(calls.map(c=>c.url),['/__desktop/actions/call','http://127.0.0.1:17070/webapps/actions/call']);
+ for(const call of calls){assert.deepEqual(JSON.parse(call.options.body),{action:'mcp.invoke',args:input});assert.equal(call.options.signal,controller.signal);}
+ controller.abort();await assert.rejects(mcp.invoke(input,{signal:controller.signal}),{code:'cancelled'});assert.equal(calls.length,2);
+ globalThis.fetch=async()=>new Response(JSON.stringify({ok:false,error:{code:'sso_identity_unavailable',message:'SSO identity unavailable'}}),{status:400});
+ await assert.rejects(backend.mcp.invoke(input),{code:'sso_identity_unavailable'});
+});
+test('MCP SDK cancellation during response decoding stays cancelled without retry',async t=>{
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});const controller=new AbortController();let calls=0;
+ globalThis.fetch=async()=>{calls++;return {ok:true,json:async()=>{controller.abort();throw Error('body cancelled');}}};
+ await assert.rejects(mcp.invoke({url:'https://mcp.example.test',toolName:'search',arguments:{}},{signal:controller.signal}),{code:'cancelled'});
+ assert.equal(calls,1);
 });
 test('Node backend SDK uses only the injected loopback scope without DOM access',async(t)=>{
  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});let calls=0;

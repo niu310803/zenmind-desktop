@@ -31,7 +31,7 @@ function createBackendSdk(source) {
   };
   return "// Generated shared Desktop/Compose backend SDK. Use only host-injected credentials.\nconst ACTION_PATH = \"/__desktop/actions/call\";\n\n" +
     part("export class DesktopBridgeError", "async function listCapabilities") +
-    part("function executeJson(", "export const { connector, skill, automation, kanban, artifact, assistant }") +
+    part("function executeJson(", "export const { connector,") +
     part("export function createBackendClient(", "");
 }
 

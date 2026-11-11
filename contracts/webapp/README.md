@@ -143,9 +143,32 @@ credentialRevision 是不含凭据的账号状态版本，可在连续业务调�
 
 旧 operationId、connectorOperations、connectorWrite 契约不恢复，旧 operationId 请求返回 connector_contract_upgrade_required。现有 connectorExecution、connectorAuthentication、kanbanRead 字段仅兼容解析，新包可省略整个 desktopBridge。Bridge v1/v2 不再作为能力门控；宿主与 Platform 内部短期 grant 请求仍使用 version:2，无需应用申请或持有该凭据。
 
+## 免安装远程 MCP：`mcp.invoke`
+
+页面和受管 Node 后端均提供同一方法，无需安装连接器或注册服务：
+
+```js
+import { mcp } from '/__desktop/bridge.js';
+const { mcp: toolResult } = await mcp.invoke({
+  url: 'https://example.com/mcp',
+  toolName: 'search',
+  arguments: { query: '关键词' },
+  auth: 'sso'
+}, { signal: abortController.signal });
+if (toolResult.isError) { /* 应用处理工具业务错误 */ }
+```
+
+后端通过 `createBackendClient(...).mcp.invoke()` 调用。输入仅接受 `url`、`toolName`、对象 `arguments` 和可选 `auth`；默认 `sso`，可显式设为 `none`。认证、地址和协议校验由 Platform 完成；SSO 模式仅接受 HTTPS，不跟随重定向，不接受页面自定义 token、header、账号或 Platform 路由。`none` 支持 HTTP(S)，不附加 SSO 身份。它只连接远程 HTTP MCP，不运行 stdio 或下载代码，不消耗模型调用。
+
+Desktop 以本地宿主身份调用固定 `POST /api/mcp/invoke`，只投影成功 data 中的 `{mcp}` 原生工具结果，保留 `content`、`structuredContent`、`isError`。SSO token 由 Platform 出站时读取并注入，不经过页面或 SDK。应用安装信任包含向指定目标发送当前账号凭据，目标 MCP 会收到 token；受管后端必须保护自己的业务接口，不能把宿主身份开放给匿名访客。官网退出不撤销本地 WebApp grant，但后续 SSO 调用会因没有有效业务身份失败；无认证调用不依赖官网登录。
+
+Platform 执行期限 30 秒，Desktop 传输留 5 秒余量；完整页面请求沿用 64 KiB、后端请求沿用 256 KiB 上限，Platform 响应沿用有界读取。两入口共享最多八个在途请求、同应用最多两个，不排队。AbortSignal、页面连接断开和应用 grant 撤销会取消上游请求；返回前复验应用实例、本地服务主体和 endpoint。`sso_identity_unavailable` 表示 Platform 没有可用身份，`app_grant_required` 表示调用实例或本地主体已失效；SDK 主动取消返回 `cancelled`。工具 `isError:true` 仍是工具结果，不当作传输异常。
+
+此入口不使用连接器执行 grant 或持久幂等收据，SDK 与 Desktop 均不自动重试；超时/取消不能证明外部写入未发生。Desktop 与 Platform 新接口须配套发布；旧 Platform 不支持时明确失败，不回退至连接器安装、Agent 调用或页面持有 token。
+
 ## 网站认证：`auth.createSession`
 
-`auth` 是第八个顶层作用域，与 `agent`、`connector`、`desktop` 并列。页面可先用 `auth.isAvailable()` 检测宿主认证传输是否存在，再在启动时或用户点击时调用。该检测不代表已登录或获准；Main 仍验证真实 Surface 并请求原生同源授权：
+`auth` 是独立的顶层作用域，与 `agent`、`connector`、`mcp`、`desktop` 并列。页面可先用 `auth.isAvailable()` 检测宿主认证传输是否存在，再在启动时或用户点击时调用。该检测不代表已登录或获准；Main 仍验证真实 Surface 并请求原生同源授权：
 
 ```js
 import { auth } from '/__desktop/bridge.js';

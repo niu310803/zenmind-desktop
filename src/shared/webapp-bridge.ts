@@ -8,6 +8,7 @@ export const WEBAPP_BRIDGE_AVAILABLE_CAPABILITIES = [
   "assistant.execute",
   "assistant.image",
   "connector.execute",
+  "mcp.invoke",
   "skill.read",
   "artifact.read",
   "kanban.read",
@@ -62,6 +63,18 @@ export interface WebappBridgeCapabilitiesResult {
   capabilities: WebappBridgeCapabilityState[];
 }
 
+export interface WebappMcpInvokeRequest {
+  url: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  auth?: "sso" | "none";
+}
+
+export interface WebappMcpInvokeResult {
+  // Platform preserves the native MCP result, including content and isError.
+  mcp: Record<string, unknown>;
+}
+
 export const WEBAPP_BRIDGE_ACTIONS = Object.freeze({
   permissionsRequest: "desktop.requestAccess",
   capabilitiesList: "desktop.capabilities.list",
@@ -76,6 +89,7 @@ export const WEBAPP_BRIDGE_ACTIONS = Object.freeze({
   connectorList: "connector.list",
   connectorDescribe: "connector.describe",
   connectorInvoke: "connector.invoke",
+  mcpInvoke: "mcp.invoke",
   connectorAuthenticate: "desktop.authenticateConnector",
   assistantChat: "desktop.assistant.chat",
   assistantExecute: "assistant.execute",
@@ -104,6 +118,7 @@ export const WEBAPP_BRIDGE_CAPABILITY_ACTIONS: Readonly<Record<WebappBridgeCapab
     "desktop.theme": Object.freeze([WEBAPP_BRIDGE_ACTIONS.themeGet, WEBAPP_BRIDGE_ACTIONS.themeSet]),
     "desktop.locale": Object.freeze([WEBAPP_BRIDGE_ACTIONS.localeGet, WEBAPP_BRIDGE_ACTIONS.localeSet]),
     "connector.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorList,WEBAPP_BRIDGE_ACTIONS.connectorDescribe,WEBAPP_BRIDGE_ACTIONS.connectorInvoke]),
+    "mcp.invoke": Object.freeze([WEBAPP_BRIDGE_ACTIONS.mcpInvoke]),
     "desktop.connector.authenticate": Object.freeze([WEBAPP_BRIDGE_ACTIONS.connectorAuthenticate]),
     "agent.query": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantChat, "assistant.agents.list", "assistant.events", "assistant.interrupt", "assistant.steer", "assistant.send", "assistant.submit", "assistant.upload", "assistant.resource.read"]),
     "agent.execute": Object.freeze([WEBAPP_BRIDGE_ACTIONS.assistantExecute]),
