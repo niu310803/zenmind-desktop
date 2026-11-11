@@ -222,6 +222,27 @@
   background: var(--embedded-surface-frame-bg);
 }
 
+.desktop-sso-login-modal-frame {
+  position: relative;
+}
+
+.desktop-sso-login-webview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.desktop-sso-login-page-feedback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  padding: 24px;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.5;
+}
+
 .desktop-sso-login-result {
   width: min(620px, calc(100% - 48px));
   margin: 48px auto;

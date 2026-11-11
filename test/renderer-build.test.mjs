@@ -8328,6 +8328,7 @@ test("tool menu opens directly while account state stays subscribed", () => {
 
 test("desktop sso waits for a user click and keeps pending login recoverable", () => {
   const appShell = readAppShellSource();
+  const loginWebview = readSourceFile("src", "renderer", "app-shell", "DesktopSsoLoginWebview.tsx");
   const sidebarSource = fs.readFileSync(
     path.join(projectRoot, "src", "renderer", "app-shell", "navigation", "AppSidebar.tsx"),
     "utf8"
@@ -8372,9 +8373,9 @@ test("desktop sso waits for a user click and keeps pending login recoverable", (
   assert.match(appShell, /onEmbeddedLoginOpen/);
   assert.match(appShell, /desktop-sso-login-modal/);
   assert.match(appShell, /role="dialog"/);
-  assert.match(appShell, /partition: desktopSsoLoginDialog\.partition/);
-  assert.match(appShell, /useragent: desktopSsoLoginDialog\.userAgent/);
-  assert.doesNotMatch(appShell, /desktop-sso-login-webview[\s\S]{0,220}allowpopups/);
+  assert.match(loginWebview, /partition: request\.partition/);
+  assert.match(loginWebview, /useragent: request\.userAgent/);
+  assert.doesNotMatch(loginWebview, /allowpopups/);
   assert.match(appShell, /onDesktopSsoLogin=\{handleDesktopSsoLogin\}/);
   assert.match(appShell, /startLogin\(\)/);
   assert.match(appShell, /isCompleteDesktopSsoLogin\(status\)/);
