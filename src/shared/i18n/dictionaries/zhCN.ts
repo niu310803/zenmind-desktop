@@ -1287,6 +1287,8 @@ export const zhCNMessages = {
   "chatWorkPanel.newTab.tools": "工具",
   "chatWorkPanel.newTab.suggested": "推荐",
   "chatWorkPanel.newTab.fileError": "无法打开文件，请重试。",
+  "chatWorkPanel.tabs.scrollLeft": "向左滚动标签页",
+  "chatWorkPanel.tabs.scrollRight": "向右滚动标签页",
   "chatWorkPanel.add.openMenu": "新增 WorkPanel 标签页",
   "chatWorkPanel.add.menu": "新增标签页",
   "chatWorkPanel.add.terminal": "终端",

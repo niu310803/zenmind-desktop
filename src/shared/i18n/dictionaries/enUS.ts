@@ -1287,6 +1287,8 @@ export const enUSMessages = {
   "chatWorkPanel.newTab.tools": "Tools",
   "chatWorkPanel.newTab.suggested": "Suggested",
   "chatWorkPanel.newTab.fileError": "Unable to open files. Please try again.",
+  "chatWorkPanel.tabs.scrollLeft": "Scroll tabs left",
+  "chatWorkPanel.tabs.scrollRight": "Scroll tabs right",
   "chatWorkPanel.add.openMenu": "Add WorkPanel tab",
   "chatWorkPanel.add.menu": "Add tab",
   "chatWorkPanel.add.terminal": "Terminal",

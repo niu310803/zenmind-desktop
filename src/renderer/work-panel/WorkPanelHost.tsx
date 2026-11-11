@@ -12,9 +12,11 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
+  LeftOutlined,
   MessageOutlined,
   PlusOutlined,
   ProjectOutlined,
+  RightOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import { Button, Flex, Modal } from "antd";
@@ -29,6 +31,7 @@ import {
   type Dispatch,
   type SetStateAction,
   type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import type {
@@ -301,6 +304,21 @@ function workPanelDocumentPath(ownerChatId: string, item: WorkPanelItem) {
   return "";
 }
 
+// A plain mouse wheel has no horizontal axis, so map its vertical delta onto
+// the tab strip. Trackpad horizontal scrolling keeps its native behavior.
+function scrollTabStripWithWheel(event: ReactWheelEvent<HTMLDivElement>) {
+  if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+  const strip = event.currentTarget;
+  if (strip.scrollWidth <= strip.clientWidth) return;
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? strip.clientWidth
+        : 1;
+  strip.scrollLeft += event.deltaY * unit;
+}
+
 function WorkPanelSkillIcon({ id }: { id: string }) {
   const [loaded, setLoaded] = useState<{ id: string; src: string } | null>(null);
   useEffect(() => {
@@ -545,12 +563,44 @@ export function WorkPanelHost({
     Record<string, WebclientDocumentState>
   >({});
   const [textEditModes, setTextEditModes] = useState<Record<string, boolean>>({});
+  const [tabScrollEdges, setTabScrollEdges] = useState<
+    Record<string, { left: boolean; right: boolean }>
+  >({});
   const textEditModesRef = useRef(textEditModes);
   textEditModesRef.current = textEditModes;
   const pendingReviewRequestsRef = useRef(
     new Map<string, PendingReviewRequest>(),
   );
   stateRef.current = state;
+
+  // Tracks which sides hide tabs, so the strip arrows show and enable.
+  const syncTabStripEdges = useCallback((ownerChatId: string) => {
+    const strip = rootRef.current?.querySelector<HTMLElement>(
+      `.chat-work-panel[data-work-panel-chat="${CSS.escape(ownerChatId)}"] .chat-work-panel-tabs-scroll`,
+    );
+    if (!strip) return;
+    const left = strip.scrollLeft > 1;
+    const right =
+      strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+    setTabScrollEdges((current) => {
+      const previous = current[ownerChatId];
+      if (previous?.left === left && previous?.right === right) return current;
+      return { ...current, [ownerChatId]: { left, right } };
+    });
+  }, []);
+
+  // Page the strip by roughly one screenful; the arrow buttons sit outside it.
+  const scrollTabStrip = useCallback(
+    (ownerChatId: string, direction: -1 | 1) => {
+      const strip = rootRef.current?.querySelector<HTMLElement>(
+        `.chat-work-panel[data-work-panel-chat="${CSS.escape(ownerChatId)}"] .chat-work-panel-tabs-scroll`,
+      );
+      if (!strip) return;
+      const page = Math.max(120, Math.round(strip.clientWidth * 0.8));
+      strip.scrollLeft += direction * page;
+    },
+    [],
+  );
 
   useEffect(() => {
     const openKeys = new Set<string>();
@@ -3114,12 +3164,14 @@ export function WorkPanelHost({
       if (!visiblePanel.hidden && width > 0 && height > 0) {
         lastVisiblePanelSizes.current.set(ownerChatId, { width, height });
       }
+      // A resized panel changes how much of the tab strip is hidden.
+      syncTabStripEdges(ownerChatId);
     };
     record();
     const observer = new ResizeObserver(record);
     observer.observe(visiblePanel);
     return () => observer.disconnect();
-  }, [activeOwnerKey, state.workspaces, workPanelFullscreen]);
+  }, [activeOwnerKey, state.workspaces, workPanelFullscreen, syncTabStripEdges]);
 
   useEffect(
     () => () => {
@@ -3139,6 +3191,72 @@ export function WorkPanelHost({
     },
     [isMac, isWindows],
   );
+
+  const activeWorkspace = state.workspaces.find(
+    (workspace) => workspace.ownerChatId === activeOwnerKey,
+  );
+  const activeNewTab = activeWorkspace
+    ? selectedNewTabs[activeWorkspace.ownerChatId]
+    : undefined;
+  // A newly added or newly activated tab must be visible immediately, so the
+  // strip scrolls to it instead of leaving it clipped at either edge.
+  let activeTabKey = "";
+  if (activeWorkspace) {
+    if (mainChatTab?.active) {
+      activeTabKey = "main";
+    } else if (
+      isWorkPanelNewTabActive(activeNewTab, activeWorkspace.activeItemId)
+    ) {
+      activeTabKey = `new:${activeNewTab?.id ?? ""}`;
+    } else {
+      activeTabKey = `item:${activeWorkspace.activeItemId ?? ""}`;
+    }
+  }
+
+  // Arrows take width from the strip, so their first appearance can clip the
+  // active tab again; reveal it once the arrows are laid out.
+  const activeTabArrowsVisible = activeOwnerKey
+    ? Boolean(
+        tabScrollEdges[activeOwnerKey]?.left ||
+          tabScrollEdges[activeOwnerKey]?.right,
+      )
+    : false;
+
+  useLayoutEffect(() => {
+    if (!activeOwnerKey) return;
+    const panel = rootRef.current?.querySelector<HTMLElement>(
+      `.chat-work-panel[data-work-panel-chat="${CSS.escape(activeOwnerKey)}"]`,
+    );
+    const strip = panel?.querySelector<HTMLElement>(
+      ".chat-work-panel-tabs-scroll",
+    );
+    const activeTab = strip?.querySelector<HTMLElement>(
+      ".chat-work-panel-tab.is-active",
+    );
+    if (!strip) return;
+    if (activeTab && strip.scrollWidth > strip.clientWidth) {
+      const stripBox = strip.getBoundingClientRect();
+      const tabBox = activeTab.getBoundingClientRect();
+      if (tabBox.left < stripBox.left || tabBox.right > stripBox.right) {
+        strip.scrollLeft +=
+          tabBox.left < stripBox.left
+            ? tabBox.left - stripBox.left
+            : tabBox.right - stripBox.right;
+      }
+    }
+  }, [activeOwnerKey, activeTabArrowsVisible, activeTabKey]);
+
+  // Opening or closing tabs without activating another one still changes how
+  // much of the strip is hidden behind an edge.
+  useLayoutEffect(() => {
+    if (activeOwnerKey) syncTabStripEdges(activeOwnerKey);
+  }, [
+    activeOwnerKey,
+    mainChatTab?.active,
+    selectedNewTabs,
+    state.workspaces,
+    syncTabStripEdges,
+  ]);
 
   return (
     <div
@@ -3163,6 +3281,8 @@ export function WorkPanelHost({
         const newTabActive =
           !mainChatActive &&
           isWorkPanelNewTabActive(selectedNewTab, workspace.activeItemId);
+        const tabScroll = tabScrollEdges[workspace.ownerChatId];
+        const showTabScroll = Boolean(tabScroll?.left || tabScroll?.right);
         const localOnly =
           isLocalDocumentDraftOwnerKey(workspace.ownerChatId) ||
           (visible && !activeChatId);
@@ -3187,12 +3307,25 @@ export function WorkPanelHost({
             aria-label={t("chatWorkPanel.title")}
             data-work-panel-chat={workspace.ownerChatId}
           >
-            <div
-              className="chat-work-panel-tabs"
-              role="tablist"
-              aria-label={t("chatWorkPanel.title")}
-            >
-              <Flex className="chat-work-panel-tabs-scroll">
+            <div className="chat-work-panel-tabs">
+              {showTabScroll && (
+                <button
+                  type="button"
+                  className="chat-work-panel-tabs-scroll-button is-left"
+                  aria-label={t("chatWorkPanel.tabs.scrollLeft")}
+                  disabled={!tabScroll?.left}
+                  onClick={() => scrollTabStrip(workspace.ownerChatId, -1)}
+                >
+                  <LeftOutlined />
+                </button>
+              )}
+              <Flex
+                className="chat-work-panel-tabs-scroll"
+                role="tablist"
+                aria-label={t("chatWorkPanel.title")}
+                onWheel={scrollTabStripWithWheel}
+                onScroll={() => syncTabStripEdges(workspace.ownerChatId)}
+              >
                 {visible && mainChatTab && (
                   <WorkPanelTab
                     title={t("chatWorkPanel.mainChat")}
@@ -3321,17 +3454,28 @@ export function WorkPanelHost({
                       onClose={() => closeNewTab(workspace.ownerChatId, tab.id)}
                     />
                   ))}
-                <div className="chat-work-panel-add-tab" role="presentation">
-                  <button
-                    type="button"
-                    className="chat-work-panel-add-button"
-                    aria-label={t("chatWorkPanel.add.openMenu")}
-                    onClick={() => openNewTab(workspace.ownerChatId)}
-                  >
-                    <PlusOutlined />
-                  </button>
-                </div>
               </Flex>
+              {showTabScroll && (
+                <button
+                  type="button"
+                  className="chat-work-panel-tabs-scroll-button is-right"
+                  aria-label={t("chatWorkPanel.tabs.scrollRight")}
+                  disabled={!tabScroll?.right}
+                  onClick={() => scrollTabStrip(workspace.ownerChatId, 1)}
+                >
+                  <RightOutlined />
+                </button>
+              )}
+              <div className="chat-work-panel-add-tab" role="presentation">
+                <button
+                  type="button"
+                  className="chat-work-panel-add-button"
+                  aria-label={t("chatWorkPanel.add.openMenu")}
+                  onClick={() => openNewTab(workspace.ownerChatId)}
+                >
+                  <PlusOutlined />
+                </button>
+              </div>
             </div>
             <div
               className={`chat-work-panel-body${mainChatActive ? " is-main-chat-active" : ""}`}
