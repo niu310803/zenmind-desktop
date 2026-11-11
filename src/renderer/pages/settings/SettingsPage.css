@@ -2421,6 +2421,19 @@
   font-weight: 700;
 }
 
+.settings-debug-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-debug-field-head > label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .settings-debug-field .settings-debug-textarea.ant-input {
   width: 100%;
   min-height: 120px;

@@ -159,7 +159,7 @@ export function createSettingsSectionDefinitions({
       group: "system",
       label: "debug",
       description: "",
-      layout: "measure",
+      layout: "wide",
       visible: debugVisible
     }
   ];

@@ -13,6 +13,7 @@ import { getWebappRuntimeLabel, WebappRuntimeSettingsDialog } from "./WebappRunt
 import { LocalServicesSettings } from "./LocalServicesSettings";
 import { BrowserControlSettings } from "./BrowserControlSettings";
 import { DebugUpdatePanel } from "../../updates/DebugUpdatePanel";
+import { SsoIdTokenDebugField } from "./SsoIdTokenDebugField";
 import { DesktopUpdateCard } from "../../updates/DesktopUpdateCard";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
@@ -1713,11 +1714,15 @@ function DesktopStateDebugCard() {
                     </div>
                   ) : null}
                   {file.exists ? (
-                    <SettingsDebugTextAreaField
-                      label={t("settings.debug.state.content")}
-                      value={file.content}
-                      readOnly
-                    />
+                    file.name === "sso-id-token.txt" ? (
+                      <SsoIdTokenDebugField content={file.content} />
+                    ) : (
+                      <SettingsDebugTextAreaField
+                        label={t("settings.debug.state.content")}
+                        value={file.content}
+                        readOnly
+                      />
+                    )
                   ) : (
                     <div className="settings-debug-state-missing">
                       {t("settings.debug.state.missing")}

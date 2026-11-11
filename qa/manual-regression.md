@@ -203,6 +203,8 @@
 
 ## WebClient 调试与网站菜单入口
 
+- macOS / Windows：从菜单打开调试，确认宽度与控制中心一致，左侧分类和右侧内容在宽、窄窗口下均正常显示。状态文件的 `sso-id-token.txt` 在“完整内容”标题最右侧显示“解析 JWT”，点击后在原文下方显示格式化 Payload，保留中文与嵌套字段；原文与复制内容不变。空内容禁用解析，非法 JWT 显示错误，刷新 token 后旧解析结果消失，其他状态文件不显示解析按钮；覆盖中英文和浅深色。
+
 - macOS / Windows 分别解锁 Debug：状态文件中的 ID token 显示完整原文，复制内容与文件一致；WebView 浮层显示及复制的 URL 保留查询参数、授权码和片段，WebSocket 调试控制台保留实际连接 URL。运行时观察器的目标 URL、实时帧中的 token/Cookie/secret、选中文字、批注和工作目录均按原值显示，嵌套字段与双向帧不出现 REDACTED 占位符；持久日志与对外诊断包继续脱敏。
 
 - macOS / Windows 分别让挂载 Platform Control 的 Agent 根据显示名发现 Website/WebApp 并置顶；停止的 WebApp 仍可发现，展开及收起侧栏立即出现入口，重启后保留，取消后回到原 Sites 顺序。重复置顶不改变已有排序，操作不启动应用。
