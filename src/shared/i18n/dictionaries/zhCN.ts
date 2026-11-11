@@ -33,6 +33,7 @@ export const zhCNMessages = {
   "market.skin.browse": "浏览市场",
   "market.skin.mine": "我安装的皮肤（{count}）",
   "market.skin.builtin": "内置皮肤",
+  "market.skin.showBuiltins": "显示内置",
   "market.skin.empty": "暂无匹配皮肤",
   "market.skin.removeTitle": "删除这个皮肤？",
   "market.skin.removeHint": "删除当前皮肤后将恢复默认皮肤；其他版本和用户背景保持原有规则。",

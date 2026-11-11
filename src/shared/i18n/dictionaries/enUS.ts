@@ -33,6 +33,7 @@ export const enUSMessages = {
   "market.skin.browse": "Browse Market",
   "market.skin.mine": "My skins ({count})",
   "market.skin.builtin": "Built-in skin",
+  "market.skin.showBuiltins": "Show built-ins",
   "market.skin.empty": "No matching skins",
   "market.skin.removeTitle": "Remove this skin?",
   "market.skin.removeHint": "Removing the current skin restores the default. Other versions and custom backgrounds keep the existing behavior.",
