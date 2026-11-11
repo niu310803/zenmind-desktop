@@ -272,6 +272,7 @@ export const desktop = Object.freeze({
     open: (input) => call("desktop.chat.open", input)
   }),
   copilot: Object.freeze({
+    get: () => call("desktop.copilot.get"),
     open: () => call("desktop.copilot.open"),
     close: () => call("desktop.copilot.close")
   }),

@@ -100,9 +100,10 @@ test('page UI helpers use only history identity and explicit Copilot commands', 
  assert.equal(Object.isFrozen(desktop.chat), true);
  assert.equal(Object.isFrozen(desktop.copilot), true);
  await desktop.chat.open({ chatId: 'chat / 历史' });
- await desktop.copilot.open(); await desktop.copilot.close();
+ await desktop.copilot.get(); await desktop.copilot.open(); await desktop.copilot.close();
  assert.deepEqual(calls, [
   { action: 'desktop.chat.open', args: { chatId: 'chat / 历史' } },
+  { action: 'desktop.copilot.get', args: {} },
   { action: 'desktop.copilot.open', args: {} },
   { action: 'desktop.copilot.close', args: {} }
  ]);

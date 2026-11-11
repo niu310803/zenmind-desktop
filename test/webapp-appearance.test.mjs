@@ -23,7 +23,7 @@ const item = {
   label: 'Appearance test', version: '1.0.0', target: 'any', appConfig: {},
   frontend: { root: 'frontend', index: 'index.html', routeConfig: { backendPrefixes: [] } }
 };
-const actions = ['desktop.chat.open', 'desktop.copilot.open', 'desktop.copilot.close', 'desktop.theme.get', 'desktop.theme.set', 'desktop.locale.get', 'desktop.locale.set'];
+const actions = ['desktop.chat.open', 'desktop.copilot.get', 'desktop.copilot.open', 'desktop.copilot.close', 'desktop.theme.get', 'desktop.theme.set', 'desktop.locale.get', 'desktop.locale.set'];
 
 test('settings and UI actions belong only to local page grants without manifest declarations', t => {
   const pageToken = issueWebappActionToken(item, 'localPageGateway');
@@ -62,6 +62,7 @@ test('page SDK routes all four settings actions through the gateway and existing
   let theme = { themeMode: 'system', resolvedTheme: 'light' };
   let locale = { locale: 'zh-CN', source: 'default' };
   let rendererFailure = false;
+  let copilotOpen = false;
   const options = {
     app,
     webs: { webappManager: { list: () => [item] } },
@@ -73,7 +74,10 @@ test('page SDK routes all four settings actions through the gateway and existing
       rendererCalls.push([request.action, request.args]);
       if (rendererFailure) return { ok: false, error: { code: 'save_failed', message: 'Could not save settings' } };
       if (request.action === 'desktop.native.chat.open') return { ok: true, result: { chatId: request.args.chatId, status: 'opened' } };
-      if (request.action.startsWith('desktop.native.copilot.')) return { ok: true, result: { open: request.action.endsWith('.open') } };
+      if (request.action.startsWith('desktop.native.copilot.')) {
+        if (!request.action.endsWith('.get')) copilotOpen = request.action.endsWith('.open');
+        return { ok: true, result: { open: copilotOpen } };
+      }
       if (request.action === 'desktop.theme.set') {
         theme = { themeMode: request.args.themeMode, resolvedTheme: request.args.themeMode === 'system' ? 'light' : request.args.themeMode };
       }
@@ -126,14 +130,19 @@ test('page SDK routes all four settings actions through the gateway and existing
     ['desktop.locale.set', { locale: 'zh-CN' }], ['desktop.locale.get', {}]
   ]);
   assert.deepEqual(await desktop.chat.open({ chatId: 'chat-history' }), { chatId: 'chat-history', status: 'opened' });
+  assert.deepEqual(await desktop.copilot.get(), { open: false });
   assert.deepEqual(await desktop.copilot.open(), { open: true });
+  assert.deepEqual(await desktop.copilot.get(), { open: true });
   assert.deepEqual(await desktop.copilot.close(), { open: false });
-  assert.deepEqual(rendererCalls.slice(-3), [
+  assert.deepEqual(await desktop.copilot.get(), { open: false });
+  assert.deepEqual(rendererCalls.slice(-6), [
     ['desktop.native.chat.open', { chatId: 'chat-history' }],
-    ['desktop.native.copilot.open', {}], ['desktop.native.copilot.close', {}]
+    ['desktop.native.copilot.get', {}], ['desktop.native.copilot.open', {}],
+    ['desktop.native.copilot.get', {}], ['desktop.native.copilot.close', {}], ['desktop.native.copilot.get', {}]
   ]);
   rendererFailure = true;
   await assert.rejects(desktop.chat.open({ chatId: 'chat-history' }), { code: 'save_failed', action: 'desktop.chat.open' });
+  await assert.rejects(desktop.copilot.get(), { code: 'save_failed', action: 'desktop.copilot.get' });
   await assert.rejects(desktop.copilot.open(), { code: 'save_failed', action: 'desktop.copilot.open' });
   await assert.rejects(desktop.copilot.close(), { code: 'save_failed', action: 'desktop.copilot.close' });
   await assert.rejects(desktop.theme.set({ themeMode: 'dark' }), { code: 'save_failed', action: 'desktop.theme.set' });

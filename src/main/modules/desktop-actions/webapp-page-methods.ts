@@ -18,6 +18,7 @@ import { executeNativeWebappAction } from "./webapp-native-actions";
 export const WEBAPP_PAGE_METHODS = new Set([
   "desktop.capabilities.list",
   "desktop.native.chat.open",
+  "desktop.native.copilot.get",
   "desktop.native.copilot.open",
   "desktop.native.copilot.close",
   "desktop.native.browser.openExternal",
@@ -38,7 +39,7 @@ export async function executeWebappPageMethod(
   args: Record<string, unknown>,
   webappId: string
 ): Promise<DesktopActionCallResponse> {
-  if (["desktop.native.chat.open", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(action)) {
+  if (["desktop.native.chat.open", "desktop.native.copilot.get", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(action)) {
     const chatId = readString(args, "chatId");
     const isChat = action === "desktop.native.chat.open";
     if (isChat ? (!chatId || chatId.length > 256 || Object.keys(args).some(key => key !== "chatId")) : Object.keys(args).length > 0) {

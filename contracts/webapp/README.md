@@ -53,7 +53,7 @@ const { connector, agent, skill, artifact, kanban } = createBackendClient({
 | 看板 | 安装后直接调用；`kanban.boards.list()`、`kanban.issues.list({projectId?,cursor?,limit?})`、`kanban.issues.get({issueId})` |
 | 宿主 | `desktop.capabilities.list/has`、`desktop.app.getConfig/getUserConfig`、`desktop.theme.get/set`、`desktop.locale.get/set`、browser、dialog、microphone、clipboard.writeText、notification |
 | 聊天预览 | `desktop.chat.open({chatId})` → `{chatId,status:"opened"}`；按 Chat ID 打开 WebClient 只读历史弹窗，不发起 Run |
-| Copilot | `desktop.copilot.open()`、`desktop.copilot.close()` → `{open:boolean}`；幂等控制当前应用已有的 Copilot，沿用 Agent、引用及会话 |
+| Copilot | `desktop.copilot.get()`、`desktop.copilot.open()`、`desktop.copilot.close()` → `{open:boolean}`；幂等控制当前应用已有的 Copilot，沿用 Agent、引用及会话 |
 | 预留 | `automation.*`、desktop.screen.capture、clipboard.readText、file.reveal、window、camera、share；调用抛 `not_implemented` |
 
 主题和语言设置只向本机 WebApp 页面开放，复用 Desktop 的设置持久化与界面更新；不要求 Manifest 声明或额外授权。托管后端 SDK、局域网和发布页面不能调用。能力检测使用 `desktop.capabilities.has('desktop.theme')` 与 `desktop.capabilities.has('desktop.locale')`。
@@ -168,11 +168,12 @@ Cookie 要求：host-only（不得声明 Domain）、`Path=/`、`HttpOnly`、`Sa
 ```js
 import { desktop } from '/__desktop/bridge.js';
 await desktop.chat.open({ chatId }); // 例如 agent.execute/chat 返回的 chatId
+const { open } = await desktop.copilot.get();
 await desktop.copilot.open();
 await desktop.copilot.close();
 ```
 
-这三个方法仅供主工作区当前 WebApp 的本机页面使用，不需要额外 Manifest 声明；后台应用或独立窗口调用返回 `webapp_ui_unavailable`，应先在主工作区打开该应用。后端、局域网、发布页面和通用 Desktop Action 不能调用。SDK capability ID 为 `desktop.chat`、`desktop.copilot`。历史弹窗仅接受 Chat ID，不接受 URL、Agent 或 Run 控制参数；关闭或切换应用后释放预览。弹窗期间让出 Copilot 的活动观察者，关闭后恢复已有 Dock。Copilot 被页面设置禁用时，open 返回 `copilot_disabled`；重复 open 不新建或重置会话，close 不停止后台 Run。
+这些方法仅供主工作区当前 WebApp 的本机页面使用，不需要额外 Manifest 声明；后台应用或独立窗口调用返回 `webapp_ui_unavailable`，应先在主工作区打开该应用。后端、局域网、发布页面和通用 Desktop Action 不能调用。SDK capability ID 为 `desktop.chat`、`desktop.copilot`。历史弹窗仅接受 Chat ID，不接受 URL、Agent 或 Run 控制参数；关闭或切换应用后释放预览。弹窗期间让出 Copilot 的活动观察者，关闭后恢复已有 Dock。get 只读取当前应用实际显示的面板状态，不打开面板或创建会话；切换前应回读该状态，避免用户从面板内关闭后误判。Copilot 被页面设置禁用时，open 返回 `copilot_disabled`；重复 open 不新建或重置会话，close 不停止后台 Run。
 
 认证 SDK 的 `auth` 接口与品牌无关，自动发现访问者自己的 ZenMind/CuteJ preload；不要由 WebApp 直接读取品牌全局，也不要用发布者品牌判断登录能力。
 

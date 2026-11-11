@@ -4646,7 +4646,7 @@ test("WebApp history and Copilot methods forward trusted app identity only from 
   };
   for (const [action, args] of [
     ["desktop.chat.open", { chatId: "chat / 历史" }],
-    ["desktop.copilot.open", {}], ["desktop.copilot.close", {}]
+    ["desktop.copilot.get", {}], ["desktop.copilot.open", {}], ["desktop.copilot.close", {}]
   ]) {
     const result = await handleWebappPageActionRequest(options, id, { action, args, source: { webappId: "forged" } });
     assert.equal(result.ok, true);
@@ -4662,7 +4662,7 @@ test("WebApp history and Copilot methods forward trusted app identity only from 
     ["desktop.chat.open", {}], ["desktop.chat.open", { chatId: " " }],
     ["desktop.chat.open", { chatId: "x".repeat(257) }],
     ["desktop.chat.open", { chatId: "chat", url: "https://evil.test" }],
-    ["desktop.copilot.open", { agentKey: "other" }], ["desktop.copilot.close", { webappId: "other" }]
+    ["desktop.copilot.get", { webappId: "other" }], ["desktop.copilot.open", { agentKey: "other" }], ["desktop.copilot.close", { webappId: "other" }]
   ]) {
     const result = await handleWebappPageActionRequest(options, id, { action, args });
     assert.equal(result.ok, false);

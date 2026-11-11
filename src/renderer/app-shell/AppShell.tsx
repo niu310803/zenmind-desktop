@@ -2230,7 +2230,7 @@ export function AppShell() {
   // Only the foreground app can control its existing Dock or use the shared
   // read-only Chat preview observer. Never act on another app's context.
   useEffect(() => registerDesktopActionProviderForScope("global", async (request) => {
-    if (!["desktop.native.chat.open", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(request.action)) return null;
+    if (!["desktop.native.chat.open", "desktop.native.copilot.get", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(request.action)) return null;
     if (!request.source?.webappId || activeWebEntry?.kind !== "webapp" ||
         activeWebEntry.id !== request.source.webappId || activeWebEntry.openMode === "dialog" || !copilotDockAllowed) {
       return { ok: false, error: { code: "webapp_ui_unavailable", message: "Open this WebApp in the main workspace first." } };
@@ -2240,6 +2240,9 @@ export function AppShell() {
       if (!chatId) return { ok: false, error: { code: "invalid_args", message: "chatId is required." } };
       setWebappChatPreview({ webappId: request.source.webappId, chatId });
       return { ok: true, result: { chatId, status: "opened" } };
+    }
+    if (request.action === "desktop.native.copilot.get") {
+      return { ok: true, result: { open: assistantCopilotOpen } };
     }
     if (request.action === "desktop.native.copilot.open") {
       if (!assistantLauncherVisible) return { ok: false, error: { code: "copilot_disabled", message: "Copilot is disabled for this page." } };
