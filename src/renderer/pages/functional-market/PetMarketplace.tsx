@@ -37,7 +37,7 @@ export function PetMarketplace(props: PetMarketplaceProps) {
   const stateWarning = runtime.stateError ? <Alert type="warning" showIcon message={runtime.stateError} action={refreshButton()} /> : null;
   const removeError = runtime.errorAction === "remove" && runtime.errorItemId === remove?.id ? runtime.error : "";
   const useButton = (appearance: DesktopPetAppearanceOption) => runtime.stateError ? refreshButton() : <Button type={current === appearance.id ? "default" : "primary"}
-    className={`market-card-action market-card-primary ${current === appearance.id ? "is-current" : ""}`}
+    className={`market-card-action market-card-primary market-card-use${current === appearance.id ? " is-current" : ""}`}
     disabled={runtime.busy || runtime.loading || current === appearance.id} loading={runtime.busyId === appearance.id}
     onClick={() => void runtime.usePet(appearance.id)} aria-label={t("market.pet.useName", { name: appearance.displayName })}
     icon={current === appearance.id ? <CheckOutlined /> : undefined}>
@@ -59,7 +59,7 @@ export function PetMarketplace(props: PetMarketplaceProps) {
     </button>
     <button type="button" className="skill-discovery-outline" aria-label={t("market.pet.refresh")} disabled={runtime.busy} aria-busy={props.loading || runtime.loading} onClick={() => { void runtime.refresh(); props.onRefresh(); }}><ReloadOutlined aria-hidden="true" /></button>
   </div>}>
-    <div className="skill-discovery pet-discovery">
+    <div className={`skill-discovery pet-discovery${runtime.activity?.action === "import" ? " is-importing" : ""}`}>
       <PetMessages runtime={runtime} />
       {props.feedback}
       <div className="skill-discovery-scroll">
