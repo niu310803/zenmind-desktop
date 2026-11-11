@@ -1428,23 +1428,24 @@ export function AppShell() {
       };
     }
 
-    const wasActive = activeWebEntryKey === item.entryKey;
-    if (wasActive) {
-      requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
+    if (webappStopInFlightRef.current.has(item.id)) {
+      return { ok: false, item, items: [], message: t("webapp.removing") };
     }
-    disposeWebappPresentation(item);
-
-    const result = await window.electronAPI.webs.webapps.uninstall(item.id);
-    if (result.ok) {
-      handleWebappRuntimeStateChange(item.id, null);
-    } else {
-      if (wasActive) moveWebappPresentationToMain(item);
-      if (wasActive) {
-        requestSidebarNavigation(buildWebEntryPath(item.entryKey));
+    webappStopInFlightRef.current.add(item.id);
+    try {
+      // Main stops the runtime before asking the renderer to dispose its guest.
+      const result = await window.electronAPI.webs.webapps.uninstall(item.id);
+      if (result.ok) {
+        handleWebappRuntimeStateChange(item.id, null);
+        if (activeWebEntryKeyRef.current === item.entryKey) {
+          requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
+        }
       }
+      await refreshWebItems().catch(() => undefined);
+      return result;
+    } finally {
+      webappStopInFlightRef.current.delete(item.id);
     }
-    await refreshWebItems().catch(() => undefined);
-    return result;
   }
 
   function updateWebItems(items: WebEntry[]) {
@@ -1516,7 +1517,7 @@ export function AppShell() {
     );
   }
 
-  function disposeWebappPresentation(item: WebappEntry) {
+  function disposeWebappPresentation(item: Pick<WebappEntry, "id" | "entryKey">) {
     commitWorkPanelState(removeWebappWorkPanelReferences(item.id));
     setWebappPresentationOwners((current) => {
       if (!(item.id in current)) return current;
@@ -1555,21 +1556,23 @@ export function AppShell() {
   }
 
   async function handleCloseWebEntry(item: WebEntry) {
-    if (activeWebEntryKey === item.entryKey) {
-      requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
-    }
     if (item.kind === "webapp") {
-      disposeWebappPresentation(item);
+      if (webappStopInFlightRef.current.has(item.id)) return;
       webappStopInFlightRef.current.add(item.id);
       try {
         const result = await window.electronAPI.webs.webapps.stop(item.id);
-        handleWebappRuntimeStateChange(item.id, result.state, result.message, result.ok ? "idle" : "error");
         if (!result.ok) {
           throw new Error(result.message);
+        }
+        handleWebappRuntimeStateChange(item.id, result.state, result.message, "idle");
+        if (activeWebEntryKeyRef.current === item.entryKey) {
+          requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
         }
       } finally {
         webappStopInFlightRef.current.delete(item.id);
       }
+    } else if (activeWebEntryKeyRef.current === item.entryKey) {
+      requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
     }
 
     setMountedWebEntryKeys((current) =>
@@ -2632,9 +2635,7 @@ export function AppShell() {
         if (activeWebEntryKeyRef.current === entryKey) {
           requestSidebarNavigation(EMPTY_WEB_SURFACE_ROUTE);
         }
-        setMountedWebEntryKeys((current) =>
-          current.filter((currentEntryKey) => currentEntryKey !== entryKey)
-        );
+        disposeWebappPresentation({ id: event.webappId, entryKey });
         return;
       }
       refreshWebItems().catch(() => undefined);

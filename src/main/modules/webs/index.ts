@@ -10,7 +10,7 @@ export type { WebsIntegrationPorts } from "./integration-ports";
 export { authorizeWebappActionToken, invalidateWebappActionTokens } from "./webapps/action-tokens";
 export { disposeWebappInstallation } from "./webapps/actions";
 export { consumeWebappImageUpload } from "./webapps/image-upload-registry";
-export { activateWebappInstall, commitWebappInstall, recoverWebappInstallTransactions, rollbackWebappInstall } from "./webapps/install-transaction";
+export { activateWebappInstall, commitWebappInstall, hasPendingWebappInstallTransaction, markWebappInstallRollback, recoverWebappInstallTransactions, rollbackWebappInstall } from "./webapps/install-transaction";
 export type { WebappInstallTransaction } from "./webapps/install-transaction";
 export { WebappManager, WebappRuntimeRequiredError, webappManager } from "./webapps/manager";
 export { WebappInstallError, WebappInstallPolicyError } from "./webapps/install-errors";
@@ -24,6 +24,7 @@ export { getWebappPublishStatus, publishWebapp, unpublishWebapp } from "./webapp
 export { webappRuntime } from "./webapps/runtime";
 export { getWebappDir, readInstalledWebappItems, readWebappItemFromDir } from "./webapps/store";
 export { webappWindowManager } from "./webapps/window-manager";
+export { removeWebappDirectory } from "./webapps/remove-directory";
 export { addWebsiteItem, listWebsiteItems, removeWebsiteItem, updateWebsiteItem } from "./websites/actions";
 export { registerWebsiteFaviconProtocol, registerWebsiteFaviconProtocolScheme } from "./websites/favicon-protocol";
 export { createWebsiteItem, getWebsiteDir, readWebsiteItems, writeWebsiteItem } from "./websites/store";

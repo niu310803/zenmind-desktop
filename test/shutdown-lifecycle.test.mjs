@@ -393,10 +393,11 @@ test("WebApp removal closes its UI and refuses file deletion after a failed runt
   const disposalIndex = actions.indexOf("dependencies.windowManager.beginDisposal");
   const stopIndex = actions.indexOf("await dependencies.runtime.stop");
   const stopGuardIndex = actions.indexOf("if (!stopped.ok)");
-  const deleteIndex = actions.indexOf("fs.rmSync(target.installPath");
+  const closeIndex = actions.indexOf("await dependencies.windowManager.closeForDisposal");
+  const deleteIndex = actions.indexOf("await removeWebappDirectory(target.installPath");
 
   assert.ok(disposalIndex >= 0 && disposalIndex < stopIndex);
-  assert.ok(stopIndex < stopGuardIndex && stopGuardIndex < deleteIndex);
+  assert.ok(stopIndex < stopGuardIndex && stopGuardIndex < closeIndex && closeIndex < deleteIndex);
   assert.doesNotMatch(actions, /dependencies\.runtime\.stop\([^;]+\.catch\(\(\) => undefined\)/u);
   assert.match(windowManager, /this\.disposalListener\?\.\(normalizedId\)/u);
   assert.match(mainRuntime, /phase: "disposing"/u);

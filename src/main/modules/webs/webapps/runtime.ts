@@ -58,9 +58,50 @@ import { readServiceLogFile } from "../../../support/logging/service-logs";
 
 export class WebappRuntime {
   private readonly records = new Map<string, RuntimeRecord>();
+  private readonly starting = new Map<string, Promise<WebappCommandResult>>();
+  private readonly disposingIds = new Map<string, number>();
   private publicationChangeListener: ((reason: DesktopWebappChangedReason, webappId: string) => void) | null = null;
 
   constructor(private readonly integrationPorts?: WebsIntegrationPorts) {}
+
+  isDisposing(webappId: string) {
+    return this.disposingIds.has(webappId.trim());
+  }
+
+  beginDisposal(webappId: string) {
+    const id = webappId.trim();
+    this.disposingIds.set(id, (this.disposingIds.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.disposingIds.get(id) ?? 1) - 1;
+      if (remaining > 0) this.disposingIds.set(id, remaining);
+      else this.disposingIds.delete(id);
+    };
+  }
+
+  beginInstallation(webappId: string) {
+    const id = webappId.trim();
+    if (this.isDisposing(id)) return null;
+    const releaseDisposal = this.beginDisposal(id);
+    let released = false;
+    return {
+      // Only the installer holding this lease can start the package for health
+      // validation. User starts remain blocked until commit or rollback ends.
+      start: (app: App): Promise<WebappCommandResult> => {
+        if (released || this.disposingIds.get(id) !== 1) {
+          return Promise.resolve({ ok: false, item: null, state: null, message: t("webapp.removing") });
+        }
+        return this.startAdmitted(app, id);
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        releaseDisposal();
+      }
+    };
+  }
 
   setPublicationChangeListener(
     listener: ((reason: DesktopWebappChangedReason, webappId: string) => void) | null
@@ -261,6 +302,26 @@ export class WebappRuntime {
 
   async start(app: App, webappId: string): Promise<WebappCommandResult> {
     const id = webappId.trim();
+    if (this.isDisposing(id)) {
+      return { ok: false, item: null, state: null, message: t("webapp.removing") };
+    }
+    return this.startAdmitted(app, id);
+  }
+
+  private async startAdmitted(app: App, id: string): Promise<WebappCommandResult> {
+    const pending = this.starting.get(id);
+    if (pending) return pending;
+    const task = this.startRuntime(app, id);
+    this.starting.set(id, task);
+    try {
+      return await task;
+    } finally {
+      if (this.starting.get(id) === task) this.starting.delete(id);
+    }
+  }
+
+  private async startRuntime(app: App, webappId: string): Promise<WebappCommandResult> {
+    const id = webappId.trim();
     const item = findWebapp(app, id, this.integrationPorts);
     if (!item) {
       return { ok: false, item: null, state: null, message: t("webapp.notFound") };
@@ -270,7 +331,8 @@ export class WebappRuntime {
       return { ok: true, item, state: { ...existing.state, lanUrls: existing.gateway?.lanUrls ?? [] }, message: t("webapp.alreadyRunning", { label: item.label }) };
     }
     if (existing) {
-      await this.stop(app, id);
+      const stopped = await this.stopRuntime(app, id);
+      if (!stopped.ok) return stopped;
     }
 
     const contextBase = createLauncherContext(app, item, null, undefined, "", this.integrationPorts);
@@ -482,6 +544,22 @@ export class WebappRuntime {
     webappId: string,
     message = t("webapp.stopped")
   ): Promise<WebappCommandResult> {
+    // A start already in flight may still be creating its child or gateway.
+    // Let it settle before stopping so none can appear after cleanup succeeds.
+    const releaseDisposal = this.beginDisposal(webappId);
+    try {
+      await this.starting.get(webappId.trim())?.catch(() => undefined);
+      return await this.stopRuntime(app, webappId, message);
+    } finally {
+      releaseDisposal();
+    }
+  }
+
+  private async stopRuntime(
+    app: App,
+    webappId: string,
+    message = t("webapp.stopped")
+  ): Promise<WebappCommandResult> {
     const id = webappId.trim();
     const item = findWebapp(app, id, this.integrationPorts);
     const record = this.records.get(id);
@@ -490,11 +568,11 @@ export class WebappRuntime {
       let gatewayFailureMessage = "";
       try {
         await record.gateway?.close();
+        record.gateway = null;
       } catch (error) {
         const gatewayMessage = error instanceof Error ? error.message : String(error);
         gatewayFailureMessage = t("webapp.gatewayCloseFailed", { message: gatewayMessage });
       }
-      record.gateway = null;
       revokeRecordActionTokens(record);
       if (record.child) {
         const terminated = await terminateRuntimeChild(
@@ -632,7 +710,11 @@ export class WebappRuntime {
   }
 
   async restart(app: App, webappId: string) {
-    await this.stop(app, webappId);
+    if (this.isDisposing(webappId)) {
+      return { ok: false, item: null, state: null, message: t("webapp.removing") };
+    }
+    const stopped = await this.stop(app, webappId);
+    if (!stopped.ok) return stopped;
     return this.start(app, webappId);
   }
 

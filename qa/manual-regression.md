@@ -643,6 +643,7 @@
 - WebApp 已在独立窗口时，WorkPanel 菜单显示已在浮窗并只聚焦窗口，不创建 tab。
 - WorkPanel presentation 不进入公开 CDP current，但页面 gateway/bridge、Cmd/Ctrl+W 和上下文菜单仍按 WorkPanel 归属工作；WebApp popup 保持单页，不能打开 WorkPanel 新 tab。
 - 停止、启动失败、卸载和退出应用后确认所有 WorkPanel 引用与 canonical guest 被回收；WorkPanel 转移不改变持久 `openMode`。
+- macOS / Windows 分别从主区、隐藏 WorkPanel 与独立窗口执行侧栏关闭、设置页停止和卸载：先确认 gateway 与受管后端进程停止，再销毁 guest / 关闭窗口；卸载仅在 guest 销毁后删除目录。停止失败保留页面和安装目录，关闭期间不自动重启，WorkPanel 不遗留引用；关闭超时明确失败，Windows 短暂文件占用释放后可重试成功，持续占用仍报错。
 - 人为构造一次 Surface Registry 拒绝，确认 Main 只记录结构化 reason、surface/renderer/guest 身份和去重汇总，不记录 URL、token、Cookie、页面正文、identity key 或原始 Chat ID。
 
 ## Website 关闭快捷键
@@ -1543,6 +1544,10 @@ macOS 与 Windows 分别执行；Windows 的密钥保护、目录权限和系统
 
 ## WebApp 单路径安装与确认前校验
 
+- macOS / Windows：从 ZIP 导入带托管后端的网页应用，分别在主区、隐藏 WorkPanel 和独立窗口运行时导入更高版本；确认先停止后端，再销毁页面，最后替换程序目录。升级保留业务数据及原运行状态；升级期间点击启动、重启、再次导入或卸载同一应用，不能产生第二次目录操作。
+- 注入旧后端停止失败、页面关闭失败或超时，确认安装未移动旧目录，原 ZIP 与业务数据保留。新版健康检查失败时，必须确认新版后端停止后才回滚；停止失败应同时保留新版、旧版备份和待回滚记录，再次导入明确提示先完成恢复，不得同版本误报成功。
+- Windows 短暂占用程序目录时，重命名及回滚删除异步重试，界面仍响应；持续 `EPERM` 保留原始诊断和恢复记录。macOS 验证普通文件操作分支，不使用 Windows 专属重试。暂存目录清理失败不得替换原始安装错误。
+- 失败后重启，确认恢复旧包前同样先停止进程和销毁页面；启动恢复遇到正在进行的安装必须跳过，不得删除它的备份或 journal。确认运行中的 ZIP 应用可卸载，卸载完成后再次导入同一 ZIP 可成功。
 - macOS / Windows：用同一个 archivePath 分别安装本机 Workspace 外的 ZIP、Workspace 相对 ZIP、@workspace ZIP 和当前 @chat ZIP；Chat 在项目外或未绑定 Workspace 时仍能安装，原文件保留。外部绝对路径用于 package.validate/init/build 时仍被拒绝。
 - 安装默认省略 expectedId，读取返回的 webappId 完成 checkRuntime → start → open，再 stop → start → open 并回读状态；没有 itemId 或 message 成功字段。
 - 缺失文件、目录、损坏 ZIP、非法 Manifest、错误 expectedId、URL/URI、相对路径或别名越界均在安装确认前报错且未执行安装。确认展示精确文件、应用身份和版本；取消不安装，确认过程中改变 ZIP 后拒绝安装并要求重新发起。

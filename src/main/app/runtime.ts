@@ -406,11 +406,14 @@ export function createMainProcessRuntime() {
     get restoreDesktopPetWindowLayering() { return restoreDesktopPetWindowLayering; },
     get websFacade() { return websFacade; }
   });
-  websFacade.webappWindowManager.setDisposalListener((webappId) => {
+  websFacade.webappWindowManager.setDisposalListener(async (webappId) => {
+    // Capture live guests before the renderer unregisters their presentation.
+    const guestsClosed = webSurfaceRuntime.waitForWebappPresentationClosed(webappId);
     emitWebsChanged({
       phase: "disposing",
       webappId
     });
+    if (!await guestsClosed) throw new Error(t("webapp.pageCloseTimedOut"));
   });
   const startupEnvironmentRuntime = startupAssembly.assembleStartupEnvironment({
     get startupPlatform() { return startupPlatform; },
@@ -822,6 +825,7 @@ export function createMainProcessRuntime() {
       set nonCoreDesktopRuntimeStarted(value) { nonCoreDesktopRuntimeStarted = value; },
       get maintainDesktopSsoSession() { return maintainDesktopSsoSession; },
       get runNonCoreStartupTask() { return runNonCoreStartupTask; },
+      get webappManager() { return websFacade.webappManager; },
       get petRuntime() { return petRuntime; },
       get startupPlatform() { return startupPlatform; },
       get showDesktopPetWindow() { return showDesktopPetWindow; },

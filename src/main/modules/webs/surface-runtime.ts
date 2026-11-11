@@ -7,6 +7,7 @@ import {
 } from "../web-surfaces";
 import { listWebEntries } from "./ipc";
 import type { WebsFacade } from "./facade";
+import { waitForWebappGuestsClosed } from "./webapps/guest-lifecycle";
 import {
   BUILTIN_BROWSER_DEFAULT_URL,
   BUILTIN_BROWSER_ROUTE,
@@ -76,6 +77,16 @@ export function createWebSurfaceRuntime(options: WebSurfaceRuntimeOptions) {
     reportRegistrationDiagnostic: options.reportRegistrationDiagnostic,
     isWorkPanelHtmlPreviewGuest: options.isWorkPanelHtmlPreviewGuest,
   });
+
+  function waitForWebappPresentationClosed(webappId: string) {
+    const guests = browserSurfaceRegistry.listRegisteredSurfaces()
+      .filter((surface) => surface.surfaceRole === "webapp" && surface.entryKey === `webapp:${webappId}`)
+      .flatMap((surface) => surface.tabs.flatMap((tab) => {
+        const guest = browserSurfaceRegistry.findWebContentsById(tab.webContentsId);
+        return guest ? [guest] : [];
+      }));
+    return waitForWebappGuestsClosed(guests);
+  }
 
   async function openBrowserUrl(input: {
     url: string;
@@ -201,6 +212,7 @@ export function createWebSurfaceRuntime(options: WebSurfaceRuntimeOptions) {
       copilotDevToolsTarget = target;
     },
     listBrowserRegistryWebItems,
+    waitForWebappPresentationClosed,
     openBrowserUrl,
     activateBrowserSurface
   };

@@ -15,6 +15,7 @@ import { webappRuntime, type WebappRuntime } from "./runtime";
 import { readWebappItems } from "./store";
 import type { WebsIntegrationPorts } from "../integration-ports";
 import { DESKTOP_BROWSER_WEBVIEW_PARTITION } from "../../../../shared/browser-surfaces";
+import { waitForWebappGuestsClosed } from "./guest-lifecycle";
 
 type WebappWindowRecord = {
   window: BrowserWindow;
@@ -147,14 +148,14 @@ function buildWindowOptions(app: App, item: WebappEntry) {
 export class WebappWindowManager {
   private readonly windows = new Map<string, WebappWindowRecord>();
   private readonly disposingIds = new Map<string, number>();
-  private disposalListener: ((id: string) => void) | null = null;
+  private disposalListener: ((id: string) => void | Promise<void>) | null = null;
 
   constructor(
     private readonly integrationPorts?: WebsIntegrationPorts,
     private readonly runtime: WebappRuntime = webappRuntime
   ) {}
 
-  setDisposalListener(listener: ((id: string) => void) | null) {
+  setDisposalListener(listener: ((id: string) => void | Promise<void>) | null) {
     this.disposalListener = listener;
   }
 
@@ -190,35 +191,38 @@ export class WebappWindowManager {
       .map(([id]) => id);
   }
 
-  closeForDisposal(id: string) {
+  async closeForDisposal(id: string) {
     const normalizedId = id.trim();
-    try {
-      this.disposalListener?.(normalizedId);
-    } catch (error) {
-      console.warn(`[webapp-window] failed to announce disposal for ${normalizedId}`, error);
-    }
+    const record = this.windows.get(normalizedId);
+    const guestClosed = waitForWebappGuestsClosed(record ? [record.webappView.webContents] : []);
+    const presentationClosed = this.disposalListener?.(normalizedId);
     this.close(normalizedId);
+    const [, closed] = await Promise.all([presentationClosed, guestClosed]);
+    if (!closed) throw new Error(t("webapp.pageCloseTimedOut"));
   }
 
-  beginDisposal(id: string, options: { closeImmediately?: boolean } = {}) {
+  beginDisposal(id: string, options: { closeImmediately?: boolean; preventRuntimeStart?: boolean } = {}) {
     const normalizedId = id.trim();
     const previousCount = this.disposingIds.get(normalizedId) ?? 0;
     this.disposingIds.set(normalizedId, previousCount + 1);
+    // Package replacement keeps its UI closed while starting the new runtime
+    // for health validation. Explicit stop/removal also blocks runtime starts.
+    const releaseRuntime = options.preventRuntimeStart
+      ? this.runtime.beginDisposal(normalizedId)
+      : null;
     if (previousCount === 0 && options.closeImmediately !== false) {
-      this.closeForDisposal(normalizedId);
+      void this.closeForDisposal(normalizedId).catch((error) => {
+        console.warn(`[webapp-window] failed to close ${normalizedId}`, error);
+      });
     }
     let released = false;
     return () => {
-      if (released) {
-        return;
-      }
+      if (released) return;
       released = true;
+      releaseRuntime?.();
       const nextCount = (this.disposingIds.get(normalizedId) ?? 1) - 1;
-      if (nextCount <= 0) {
-        this.disposingIds.delete(normalizedId);
-      } else {
-        this.disposingIds.set(normalizedId, nextCount);
-      }
+      if (nextCount > 0) this.disposingIds.set(normalizedId, nextCount);
+      else this.disposingIds.delete(normalizedId);
     };
   }
 
@@ -228,7 +232,7 @@ export class WebappWindowManager {
     if (!item) {
       return fail(null, null, t("webapp.notFound"));
     }
-    if (this.disposingIds.has(normalizedId)) {
+    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId)) {
       return fail(item, this.runtime.getStatus(app, normalizedId), t("webapp.removing"));
     }
 
@@ -250,6 +254,9 @@ export class WebappWindowManager {
     this.windows.delete(normalizedId);
 
     const command = await this.runtime.start(app, normalizedId);
+    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId)) {
+      return fail(item, command.state, t("webapp.removing"));
+    }
     const gatewayUrl = command.state?.webUrl ?? "";
     if (!command.ok || !command.state || !gatewayUrl) {
       return command;
