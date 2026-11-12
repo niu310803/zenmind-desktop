@@ -7,6 +7,8 @@ installDesktopHistoryGesture();
 import { ipcRenderer, webFrame } from "electron";
 import { installConnectorAuthBrowser } from "./service-webview-connector-auth";
 installConnectorAuthBrowser();
+import { installArtifactDrag } from "./service-webview-artifact-drag";
+installArtifactDrag();
 import {
   AGENT_AUTH_REQUEST_TYPE,
   AGENT_AUTH_RESPONSE_TYPE

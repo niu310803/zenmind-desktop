@@ -1,5 +1,5 @@
 import { EllipsisOutlined, ExclamationCircleFilled, FolderOutlined, StarFilled } from "@ant-design/icons";
-import { useState, type DragEvent, type MouseEvent } from "react";
+import { useState, useRef, useEffect, type DragEvent, type MouseEvent } from "react";
 import type { DesktopArtifactFolder, DesktopArtifactIdentity, DesktopArtifactRecord } from "../../../shared/artifacts";
 import { formatEpochMillis } from "../../../shared/time-contract";
 import { useI18n } from "../../i18n/useI18n";
@@ -28,6 +28,23 @@ export function LibraryFileCard({ item, selected, layout, busy, onSelect, onOpen
 }) {
   const { t } = useI18n();
   const status = artifactStatus(item), name = artifactName(item);
+  const lease = useRef<{ token: string; expiresAt: number } | null>(null);
+  const preparing = useRef(false), generation = useRef(0);
+  const [dragState, setDragState] = useState<"idle" | "preparing" | "ready" | "failed">("idle");
+  useEffect(() => {
+    generation.current++; lease.current = null; preparing.current = false; setDragState("idle");
+    return () => { generation.current++; };
+  }, [item.chatId, item.runId, item.artifactId, item.sha256, item.sourceState, item.contentState]);
+  function prepareDrag() {
+    if (busy || status !== "ready" || preparing.current) return;
+    const version = generation.current;
+    preparing.current = true; setDragState("preparing");
+    void window.electronAPI.artifacts.prepareDrag(artifactIdentity(item)).then(result => {
+      if (version !== generation.current) return;
+      lease.current = result.ok ? result : null; setDragState(result.ok ? "ready" : "failed");
+    }).catch(() => { if (version === generation.current) setDragState("failed"); })
+      .finally(() => { if (version === generation.current) preparing.current = false; });
+  }
   return <article className={`library-file${selected ? " is-selected" : ""}`} data-library-key={artifactKey(item)} tabIndex={0} aria-label={name} aria-describedby={status !== "ready" ? `library-status-${encodeURIComponent(artifactKey(item))}` : undefined} draggable={!busy}
     onClick={event => onSelect({ shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey })} onDoubleClick={event => { if (!(event.target as HTMLElement).closest("button,input")) onOpen(); }}
     onContextMenu={event => { event.preventDefault(); onMenu(event); }} onDragStart={event => onDrag(event, item)}
@@ -38,7 +55,17 @@ export function LibraryFileCard({ item, selected, layout, busy, onSelect, onOpen
     }}>
     <input type="checkbox" className="library-file-check" checked={selected} aria-label={t("library.selectItem", { name })} onClick={event => event.stopPropagation()} onChange={event => { const native = event.nativeEvent as WindowEventMap["click"]; onSelect({ toggle: true, shiftKey: native.shiftKey, metaKey: native.metaKey, ctrlKey: native.ctrlKey }); }} />
     {item.favorite && <span className="library-file-star" aria-label={t("artifactManagement.favorite")}><StarFilled /></span>}
-    <LibraryFileVisual item={item} />
+    <LibraryFileVisual item={item} dragProps={{
+      draggable: !busy && status === "ready",
+      title: t(`library.exportDrag.${dragState}`),
+      onPointerEnter: prepareDrag, onPointerDown: prepareDrag,
+      onDragStart(event) {
+        event.preventDefault(); event.stopPropagation();
+        if (lease.current && lease.current.expiresAt > Date.now()) {
+          window.electronAPI.artifacts.startDrag(lease.current.token); generation.current++; preparing.current = false; lease.current = null; setDragState("idle");
+        } else prepareDrag();
+      },
+    }} />
     <div className="library-file-body"><strong title={name}>{name}</strong>{layout !== "small" && <div className="library-file-meta"><span>{t(`artifactManagement.category.${item.category}`)}</span><time dateTime={new Date(item.pushedAt).toISOString()}>{formatEpochMillis(item.pushedAt).split(" ")[0]}</time>{layout === "list" && <span>{formatArtifactSize(item.sizeBytes)}</span>}</div>}
       {status !== "ready" && <span className="library-file-state" title={t(`artifactManagement.status.${status}`)} id={`library-status-${encodeURIComponent(artifactKey(item))}`}>{layout === "small" && <ExclamationCircleFilled aria-hidden="true" />}<span className="library-file-state-label">{t(`artifactManagement.status.${status}`)}</span></span>}
     </div>

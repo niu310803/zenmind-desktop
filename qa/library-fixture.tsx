@@ -14,9 +14,11 @@ const data = names.map((name, index) => ({ chatId: 'chat-' + index, runId: index
 let sync = { phase: 'partial', completed: 9, total: 9, failed: 1, denied: 1 };
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(fn => fn());
-const qa = window.qa = { views: [], actions: [], patches: [], moves: [], queries: [], chats: [], syncs: 0, folderMutations: [], platform: 'darwin', fail: false, data, folders };
+const qa = window.qa = { exports: [], preparations: [], views: [], actions: [], patches: [], moves: [], queries: [], chats: [], syncs: 0, folderMutations: [], platform: 'darwin', fail: false, data, folders };
 const match = (item, id) => item.chatId === id.chatId && item.runId === id.runId && item.artifactId === id.artifactId;
 window.electronAPI = { settings: { getPlatform: async () => qa.platform }, assistant: { getChatInfo: async chatId => ({ chatId, agentKey: 'agent' }) }, artifacts: {
+  prepareDrag: async identity => { qa.preparations.push(identity); return { ok: true, token: 'qa-export', expiresAt: Date.now() + 120000 }; },
+  startDrag: token => qa.exports.push(token),
   list: async input => {
     qa.queries.push(input); if (qa.fail) throw Error('fixture failure');
     let records = data.filter(item => (!input.chatId || item.chatId === input.chatId) && (!input.favoritesOnly || item.favorite) && (!input.tag || item.tags.includes(input.tag)) && (input.folderId === undefined || item.folderId === input.folderId) && (!input.recent || item.pushedAt >= Date.now() - 3 * 86400000) && (!input.search || [item.name, item.displayName, item.chatName, ...item.tags].some(value => value.toLowerCase().includes(input.search.toLowerCase()))));

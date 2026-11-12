@@ -43,6 +43,12 @@ async function shot(name) { await delay(120); fs.writeFileSync(path.join(output,
   await js('window.qa.remount()'); await until('document.querySelectorAll(".layout-list .library-file").length===9');
   assert.equal(await js('localStorage.getItem("desktop.library.layout")'), 'list');
   await click('[aria-label="大卡片"]');
+  // File artwork exports a snapshot; the article retains its internal organization drag.
+  await js(`document.querySelector('.library-file .library-file-visual').dispatchEvent(new PointerEvent('pointerover',{bubbles:true}))`);
+  await until('window.qa.preparations.length>0');
+  await js(`document.querySelector('.library-file .library-file-visual').dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:new DataTransfer()}))`);
+  assert.equal(await js('window.qa.exports.at(-1)'), 'qa-export');
+  assert.equal(await js(`(()=>{const transfer=new DataTransfer();document.querySelector('.library-file').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));return transfer.types.includes('application/x-zenmind-library-items')})()`), true);
   await require('./library-selection-checks.cjs')({ win, js, until, delay, click, shot });
   // Folder hierarchy, direct contents and breadcrumb navigation.
   await click('.library-tree-chevron[aria-label="展开Research"]'); await click('.library-tree-chevron[aria-label="展开Brand"]');

@@ -909,6 +909,8 @@ export interface DesktopApi {
   };
   localDocuments: LocalDocumentsApi;
   artifacts: {
+    prepareDrag(input: import("./agent-webclient-bridge").ArtifactDragIdentity): Promise<import("./agent-webclient-bridge").ArtifactDragPreparation>;
+    startDrag(token: string): void;
     folder: (input: import("../artifacts").DesktopArtifactFolderInput) => Promise<import("../artifacts").DesktopArtifactMutationResult>;
     organizeMany: (input: import("../artifacts").DesktopArtifactBatchInput) => Promise<import("../artifacts").DesktopArtifactMutationResult>;
     thumbnail: (input: import("../artifacts").DesktopArtifactIdentity) => Promise<string | null>;

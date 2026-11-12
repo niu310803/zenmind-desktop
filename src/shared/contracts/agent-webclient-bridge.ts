@@ -843,3 +843,15 @@ export function readAgentWebclientHeaderLayoutBootstrap(search: string): AgentWe
     sidebarCollapsed: collapsed === "1", headerLeftInset: Number(inset) });
   return snapshot ? { sidebarCollapsed: snapshot.sidebarCollapsed, headerLeftInset: snapshot.headerLeftInset } : null;
 }
+
+// Independent native export capability; pages exchange identities and opaque leases, never paths.
+export const ARTIFACT_DRAG_GLOBAL = "__AGENT_WEBCLIENT_ARTIFACT_DRAG__" as const;
+export const ARTIFACT_DRAG_PREPARE_CHANNEL = "artifacts.drag.prepare" as const;
+export const ARTIFACT_DRAG_START_CHANNEL = "artifacts.drag.start" as const;
+export type ArtifactDragIdentity = { chatId: string; artifactId: string; runId?: string };
+export type ArtifactDragPreparation = { ok: true; token: string; expiresAt: number } | { ok: false };
+export interface ArtifactDragBridge {
+  readonly version: 1;
+  prepare(input: ArtifactDragIdentity): Promise<ArtifactDragPreparation>;
+  start(token: string): void;
+}

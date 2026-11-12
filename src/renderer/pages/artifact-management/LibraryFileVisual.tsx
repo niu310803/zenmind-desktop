@@ -1,5 +1,5 @@
 import { FileExcelOutlined, FileImageOutlined, FileMarkdownOutlined, FileOutlined, FilePdfOutlined, FilePptOutlined, FileTextOutlined, FileWordOutlined, FileZipOutlined, Html5Outlined, PlayCircleOutlined } from "@ant-design/icons";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes } from "react";
 import type { DesktopArtifactRecord } from "../../../shared/artifacts";
 import { artifactIdentity, artifactKey } from "./library-model";
 
@@ -41,7 +41,7 @@ export function LibraryFileIcon({ item }: { item: DesktopArtifactRecord }) {
   if (mime.includes("markdown") || ["md", "mdx"].includes(ext!)) return <FileMarkdownOutlined />;
   return item.category === "document" ? <FileTextOutlined /> : <FileOutlined />;
 }
-export function LibraryFileVisual({ item, detail = false }: { item: DesktopArtifactRecord; detail?: boolean }) {
+export function LibraryFileVisual({ item, detail = false, dragProps }: { item: DesktopArtifactRecord; detail?: boolean; dragProps?: HTMLAttributes<HTMLDivElement> }) {
   const loader = useContext(LibraryThumbnailContext);
   const [image, setImage] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -56,5 +56,5 @@ export function LibraryFileVisual({ item, detail = false }: { item: DesktopArtif
     if (ref.current) observer?.observe(ref.current);
     return () => { alive = false; observer?.disconnect(); };
   }, [loader, enabled, item.chatId, item.runId, item.artifactId, item.sha256, item.pushedAt, detail]);
-  return <div ref={ref} className={`library-file-visual category-${item.category}`} aria-hidden="true">{enabled && image ? <img src={image} alt="" draggable={false} onError={() => setImage(null)} /> : <LibraryFileIcon item={item} />}</div>;
+  return <div ref={ref} {...dragProps} className={`library-file-visual category-${item.category}`} aria-hidden="true">{enabled && image ? <img src={image} alt="" draggable={false} onError={() => setImage(null)} /> : <LibraryFileIcon item={item} />}</div>;
 }

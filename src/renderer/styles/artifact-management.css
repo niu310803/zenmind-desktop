@@ -259,3 +259,5 @@
 @media (pointer: coarse) {
   .library-tree-more, .library-file-more, .library-folder-more, .library-file-check { opacity: 1; }
 }
+
+.library-file-visual[draggable="true"] { cursor: grab; }

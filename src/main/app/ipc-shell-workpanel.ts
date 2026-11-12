@@ -1,4 +1,7 @@
-import { registerArtifactActionIpc } from "../modules/artifacts";
+import path from "node:path";
+import { nativeImage } from "electron";
+import { readAgentWebclientCanonicalChatSource } from "../../shared/canonical-chat-sync";
+import { registerArtifactDragIpc, registerArtifactActionIpc } from "../modules/artifacts";
 import { createWebsiteCredentials, registerWebsiteCredentialIpc } from "../modules/credentials";
 import { shell } from "electron";
 import { callAgentPlatform } from "../modules/desktop-actions";
@@ -90,6 +93,44 @@ export function registerShellWorkPanelIpc(options: MainIpcRegistrationOptions) {
       return null;
     }
   };
+
+  const dragRuntime = registerArtifactDragIpc(ipcMain, {
+    platform: options.platform,
+    tempRoot: path.join(app.getPath("temp"), `${app.getName()}-artifact-drag`),
+    authorize(event, identity) {
+      const window = options.getMainWindow();
+      if (!window || window.isDestroyed() || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame) return null;
+      if (event.sender === window.webContents) {
+        const context = options.artifactRuntime?.actionContext({ ...identity, runId: identity.runId || "" });
+        if (!context?.record || context.record.sourceState !== "active" || context.record.contentState !== "ready" || !context.isCurrent()) return null;
+        return JSON.stringify(["library", window.webContents.id, event.senderFrame.processId, event.senderFrame.routingId, event.senderFrame.url]);
+      }
+      if (!options.isTrustedAgentWebclientSession(event.sender)) return null;
+      const target = options.browserSurfaces.resolveWebviewSurfaceTarget(event.sender.id);
+      const route = readAgentWebclientCanonicalChatSource(event.sender.getURL());
+      if (!target?.active || target.serviceId !== "agent-webclient" || target.surfaceId !== "main-chat" ||
+        target.surfaceRole !== "main-chat" || target.surfaceLevel !== "root" || target.ownerWebContentsId !== window.webContents.id ||
+        target.ownerChatId !== identity.chatId || route?.chatId !== identity.chatId) return null;
+      return JSON.stringify([target.registrationId, target.surfaceIdentityKey, target.ownerChatId, event.senderFrame.processId, event.senderFrame.routingId, event.senderFrame.url]);
+    },
+    captureSourceGeneration: chatId => options.artifactRuntime?.captureSourceGeneration(chatId) ?? (() => false),
+    getChatInfo: chatId => assistantBridge.getChatInfo(chatId),
+    read: (identity, signal) => options.artifactRuntime!.read(identity, signal),
+    start(event, file) {
+      // Native drag needs a nonempty image on macOS; a compact document glyph works on both platforms.
+      const pixels = Buffer.alloc(32 * 32 * 4);
+      for (let y = 2; y < 30; y++) for (let x = 6; x < 26; x++) {
+        const line = x > 9 && x < 22 && [12, 17, 22].includes(y);
+        const border = x === 6 || x === 25 || y === 2 || y === 29;
+        const offset = (y * 32 + x) * 4;
+        pixels.fill(line || border ? 130 : 245, offset, offset + 3); pixels[offset + 3] = 255;
+      }
+      const icon = nativeImage.createFromBitmap(pixels, { width: 32, height: 32, scaleFactor: 1 });
+      if (options.platform === "darwin") event.sender.startDrag({ file, icon });
+      else if (options.platform === "win32") event.sender.startDrag({ file, icon });
+    },
+  });
+  app.once("will-quit", () => dragRuntime.dispose());
 
   registerArtifactActionIpc(ipcMain, {
     library: options.artifactRuntime,

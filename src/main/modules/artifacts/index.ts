@@ -1,3 +1,4 @@
+export { registerArtifactDragIpc } from "./native-drag";
 export { registerArtifactActionIpc, artifactRelativePath } from "./actions";
 export { createArtifactPlatformClient } from "./platform-client";
 export type { ArtifactPlatformApi } from "./platform-client";
@@ -230,6 +231,10 @@ export function createArtifactRuntime(options: {
       if (syncTask)
         requested = true;
       change(() => store.ingestPublished(event));
+    },
+    captureSourceGeneration(chatId: string) {
+      const generation = epoch, version = revision(chatId);
+      return () => !disposed && epoch === generation && revision(chatId) === version;
     },
     actionContext(identity: DesktopArtifactIdentity) {
       const record = store.get(identity), generation = epoch, version = revision(identity.chatId);
