@@ -1976,7 +1976,7 @@ test('same-identity reconnect preserves site authority while account rotation re
   assert.equal(h.contents.get(a.tabs[0].webContentsId).throttle, true);
 });
 
-for (const [from, to] of [["main_chat", "kanban_chat"], ["copilot_dock", "kanban_chat"], ["kanban_chat", "main_chat"], ["main_chat", "copilot_dock"]]) {
+for (const [from, to] of [["main_chat", "kanban_chat"], ["copilot_dock", "kanban_chat"], ["kanban_chat", "main_chat"], ["main_chat", "copilot_dock"], ["main_chat", "webapp_chat"], ["webapp_chat", "main_chat"]]) {
   test(`${from} to ${to} retires the old root and waits for detach before a different Chat attaches`, async (t) => {
     const { broker, socket, sockets, token } = createHarness(t);
     const first = rootObserver({ token: "first", kind: from });

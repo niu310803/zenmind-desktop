@@ -267,7 +267,8 @@ export const desktop = Object.freeze({
     getUserConfig
   }),
   chat: Object.freeze({
-    open: (input) => call("desktop.chat.open", input)
+    open: (input) => call("desktop.chat.open", input),
+    embed: (input) => call("desktop.chat.embed", input)
   }),
   copilot: Object.freeze({
     get: () => call("desktop.copilot.get"),

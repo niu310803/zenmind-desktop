@@ -1,3 +1,6 @@
+import { parseWebappChatEmbed } from "../../../shared/webapp-chat-embed";
+import { captureWebappContext } from "./webapp-platform-client";
+import { assertWebappChat } from "./webapp-connector";
 import { randomUUID } from "node:crypto";
 import { type AssistantAttachment } from "../../../shared/contracts";
 import { type DesktopActionCallResponse } from "../../../shared/desktop-actions";
@@ -18,6 +21,7 @@ import { executeNativeWebappAction } from "./webapp-native-actions";
 export const WEBAPP_PAGE_METHODS = new Set([
   "desktop.capabilities.list",
   "desktop.native.chat.open",
+  "desktop.native.chat.embed",
   "desktop.native.copilot.get",
   "desktop.native.copilot.open",
   "desktop.native.copilot.close",
@@ -39,6 +43,13 @@ export async function executeWebappPageMethod(
   args: Record<string, unknown>,
   webappId: string
 ): Promise<DesktopActionCallResponse> {
+  if(action==="desktop.native.chat.embed"){
+    const input=parseWebappChatEmbed(args);if(!input)return fail(action,"invalid_args","Use a Chat, view identity, revision and bounded viewport geometry.");
+    const context=await captureWebappContext(options,webappId);assertWebappChat(context.key,input.chatId);
+    const response=await options.callRendererAction({requestId:randomUUID(),action,args:{...input},source:{webappId}});
+    await context.check();
+    return response.ok?ok(action,response.result):fail(action,response.error?.code || "page_action_unavailable",response.error?.message || "Inline chat unavailable");
+  }
   if (["desktop.native.chat.open", "desktop.native.copilot.get", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(action)) {
     const chatId = readString(args, "chatId");
     const isChat = action === "desktop.native.chat.open";

@@ -382,6 +382,7 @@ function isAgentWebclientLifecycleSurface(
   surfaceIdentity: SurfaceIdentity,
 ) {
   if (isAgentWebclientLiveChatSurface(serviceId, surfaceId)) return true;
+  if(serviceId==="agent-webclient" && surfaceIdentity.surfaceRole==="webapp-chat")return true;
   return serviceId === "agent-webclient" &&
     surfaceIdentity.surfaceLevel === "child" &&
     surfaceIdentity.parentSurfaceId === MAIN_CHAT_SURFACE_ID &&

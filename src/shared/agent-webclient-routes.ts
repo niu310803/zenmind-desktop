@@ -317,9 +317,10 @@ export function createAgentWebclientOverviewPath(request: {
   return encodedChatId ? `/overview/${encodedChatId}` : "";
 }
 
-export function createAgentWebclientChatPreviewPath(request: { chatId: string }) {
+export function createAgentWebclientChatPreviewPath(request: { chatId: string; presentation?: "timeline" }) {
   const encodedChatId = encodeRoutePathSegment(request.chatId.trim());
-  return encodedChatId ? `/chat-preview/${encodedChatId}` : "";
+  if (!encodedChatId) return "";
+  return `/chat-preview/${encodedChatId}${request.presentation === "timeline" ? "?presentation=timeline" : ""}`;
 }
 
 export function createAgentWebclientBtwPath(request: { chatId: string }) {

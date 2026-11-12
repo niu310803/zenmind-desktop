@@ -42,6 +42,8 @@ import { DesktopGlobalSearchOverlay } from "./search/DesktopGlobalSearchOverlay"
 import { DesktopActionConfirmationDialog } from "./DesktopActionConfirmationDialog";
 import { DesktopShutdownOverlay } from "./DesktopShutdownOverlay";
 import { DesktopDisplayOverlay, type DesktopDisplayOverlayRequest } from "./DesktopDisplayOverlay";
+import { WebappEmbeddedChat } from "./history/WebappEmbeddedChat";
+import { parseWebappChatEmbed, type WebappChatEmbed } from "../../shared/webapp-chat-embed";
 import { WebappChatDialog } from "./history/WebappChatDialog";
 import { ChatHistoryDialog } from "./history/ChatHistoryDialog";
 import { ConversationShareDialog } from "./conversation-share/ConversationShareDialog";
@@ -781,6 +783,7 @@ export function AppShell() {
   const conversationShareOverlay = shellOverlay.activeOverlay?.kind === "conversationShare"
     ? shellOverlay.activeOverlay
     : null;
+  const [webappInlineChat,setWebappInlineChat]=useState<({webappId:string}&WebappChatEmbed)|null>(null);
   const [webappChatPreview, setWebappChatPreview] = useState<{ webappId: string; chatId: string } | null>(null);
   const closeWebappChatPreview = useCallback(() => setWebappChatPreview(null), []);
   const chatHistoryDialogRequestIdRef = useRef(0);
@@ -1298,7 +1301,7 @@ export function AppShell() {
         : undefined;
   const currentCopilotSession = assistantDockSessions[currentCopilotContextKey] ?? null;
   const assistantDockOpen = Boolean(currentCopilotSession);
-  const assistantCopilotOpen = assistantDockOpen && assistantLauncherVisible && copilotDockAllowed && !webappChatPreview;
+  const assistantCopilotOpen = assistantDockOpen && assistantLauncherVisible && copilotDockAllowed && !webappChatPreview && !webappInlineChat?.bounds;
   const currentAssistantDockOpenRequest =
     pendingAssistantDockOpenRequestRef.current?.contextKey === currentCopilotContextKey
       ? assistantDockOpenRequest
@@ -2300,10 +2303,16 @@ export function AppShell() {
   // Only the foreground app can control its existing Dock or use the shared
   // read-only Chat preview observer. Never act on another app's context.
   useEffect(() => registerDesktopActionProviderForScope("global", async (request) => {
-    if (!["desktop.native.chat.open", "desktop.native.copilot.get", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(request.action)) return null;
+    if (!["desktop.native.chat.embed", "desktop.native.chat.open", "desktop.native.copilot.get", "desktop.native.copilot.open", "desktop.native.copilot.close"].includes(request.action)) return null;
     if (!request.source?.webappId || activeWebEntry?.kind !== "webapp" ||
         activeWebEntry.id !== request.source.webappId || activeWebEntry.openMode === "dialog" || !copilotDockAllowed) {
       return { ok: false, error: { code: "webapp_ui_unavailable", message: "Open this WebApp in the main workspace first." } };
+    }
+    if(request.action==="desktop.native.chat.embed"){
+      const view=parseWebappChatEmbed(request.args);if(!view)return {ok:false,error:{code:"invalid_args",message:"Invalid inline chat geometry"}};
+      const webappId=request.source.webappId;
+      setWebappInlineChat(previous=>previous?.webappId===webappId && previous.viewId===view.viewId && previous.revision>=view.revision?previous:{webappId,...view});
+      return {ok:true,result:{chatId:view.chatId,status:view.bounds?"embedded":"hidden"}};
     }
     if (request.action === "desktop.native.chat.open") {
       const chatId = readString(request.args.chatId);
@@ -2328,7 +2337,8 @@ export function AppShell() {
     if (webappChatPreview && (activeWebEntry?.kind !== "webapp" || activeWebEntry.id !== webappChatPreview.webappId)) {
       setWebappChatPreview(null);
     }
-  }, [activeWebEntry, webappChatPreview]);
+    if(webappInlineChat && (activeWebEntry?.kind!=="webapp" || activeWebEntry.id!==webappInlineChat.webappId))setWebappInlineChat(null);
+  }, [activeWebEntry, webappChatPreview, webappInlineChat]);
 
   function handleCopilotCurrentEmbedPathChange(embedPath: string, agentKey: string, chatId?: string) {
     if (!assistantDockOpen) {
@@ -5499,6 +5509,7 @@ export function AppShell() {
         request={desktopActionConfirmation}
         onDecision={handleDesktopActionConfirmationDecision}
       />
+      {webappInlineChat && webappInlineChat.bounds ? <WebappEmbeddedChat webappId={webappInlineChat.webappId} view={webappInlineChat} hostTheme={resolvedTheme} /> : null}
       {webappChatPreview ? <WebappChatDialog chatId={webappChatPreview.chatId} hostTheme={resolvedTheme} t={t} onClose={closeWebappChatPreview} /> : null}
       {chatHistoryDialog ? (
         <ChatHistoryDialog

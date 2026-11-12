@@ -47,6 +47,7 @@ export function trustedKind(value: unknown): AgentWebclientSurfaceKind | null {
 }
 
 export function rootObserverKind(target: RegisteredWebviewSurfaceTarget) {
+  if(target.surfaceRole==="webapp-chat")return "webapp_chat" as const;
   if (target.surfaceId === MAIN_CHAT_SURFACE_ID && target.surfaceRole === "main-chat") return "main_chat" as const;
   if (target.surfaceId === COPILOT_DOCK_SURFACE_ID && target.surfaceRole === "copilot-dock") return "copilot_dock" as const;
   if (target.surfaceId === KANBAN_CHAT_SURFACE_ID && target.surfaceRole === "kanban-chat") return "kanban_chat" as const;

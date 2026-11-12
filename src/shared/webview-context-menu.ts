@@ -31,6 +31,7 @@ export function resolveAgentWebclientWebviewSurfaceType(
   switch (surfaceRole) {
     case "main-chat":
     case "kanban-chat":
+    case "webapp-chat":
       return "agent-chat";
     case "copilot-dock":
     case "copilot":

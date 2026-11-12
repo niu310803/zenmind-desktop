@@ -1,6 +1,7 @@
 export const SURFACE_ROLES = [
   "main-chat",
   "kanban-chat",
+  "webapp-chat",
   "browser",
   "website",
   "webapp",
@@ -64,6 +65,7 @@ const FIXED_ROLE_IDS: Partial<Record<SurfaceRole, string>> = {
 };
 
 const DYNAMIC_ROLE_PREFIXES: Partial<Record<SurfaceRole, string>> = {
+  "webapp-chat": "appchat",
   website: "site",
   webapp: "app",
   overview: "ov",
@@ -106,7 +108,7 @@ const CHILD_ROLES = new Set<SurfaceRole>([
 
 const UTILITY_ROLES = new Set<SurfaceRole>(["service", "help", "plugin-settings"]);
 const READ_ONLY_ROLES = new Set<SurfaceRole>([
-  "overview", "debug", "source", "artifact", "reference", "file", "planning",
+  "webapp-chat", "overview", "debug", "source", "artifact", "reference", "file", "planning",
 ]);
 
 export function stableSurfaceHash(value: string) {

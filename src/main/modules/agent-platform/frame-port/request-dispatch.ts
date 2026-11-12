@@ -81,9 +81,9 @@ export function createRequestDispatch(deps: RequestDispatchPort) {
       deps.sendFrame(session, frameError(frame.id, "capability_denied", "View request does not match its registered Chat/Run"));
       return;
     }
-    const isKanbanPreview = context.target.surfaceRole === "kanban-chat" &&
+    const isReadOnlyChatPreview = ["kanban-chat","webapp-chat"].includes(context.target.surfaceRole) &&
       Boolean(context.target.pageRoute?.startsWith("/chat-preview/"));
-    if (isKanbanPreview) {
+    if (isReadOnlyChatPreview) {
       const ownerChatId = context.target.ownerChatId?.trim() || "";
       const payload = isPlainBridgeRecord(frame.payload) ? frame.payload : {};
       const routeMatches = ownerChatId && new URL(event.sender.getURL()).pathname ===
@@ -98,7 +98,7 @@ export function createRequestDispatch(deps: RequestDispatchPort) {
           : frame.type === "/api/detach" && Boolean(session.rootObserverToken) &&
           [...session.streams.values()].some((binding) => binding.runId === readText(payload.runId));
       if (!routeMatches || !allowed) {
-        deps.sendFrame(session, frameError(frame.id, "capability_denied", "Kanban preview only observes its registered Chat"));
+        deps.sendFrame(session, frameError(frame.id, "capability_denied", "Chat preview only observes its registered Chat"));
         return;
       }
     }
@@ -174,7 +174,7 @@ export function createRequestDispatch(deps: RequestDispatchPort) {
       const allowedSurface = frame.type === "/api/query"
         ? isLiveChat
         : frame.type === "/api/btw" || frame.type === "/api/attach"
-          ? isLiveChat || isBTW || isSelectionExplain || isReadonlyVirtualAttach
+          ? isLiveChat || isBTW || isSelectionExplain || isReadonlyVirtualAttach || (frame.type === "/api/attach" && isReadOnlyChatPreview)
           : false;
       if (!allowedSurface || !context.target.active) {
         deps.sendFrame(session, frameError(frame.id, "surface_unavailable", "only the active Chat or BTW surface may open this live Run stream"));
@@ -359,13 +359,13 @@ export function createRequestDispatch(deps: RequestDispatchPort) {
     const refreshedContext = session.closed || event.sender.isDestroyed()
       ? null
       : authorizeSurface(event.sender, deps.options.browserSurfaces, deps.options.isTrustedAgentWebclientSession);
-    if (!refreshedContext || "ok" in refreshedContext || ((isLive || isKanbanPreview || isView) && (
+    if (!refreshedContext || "ok" in refreshedContext || ((isLive || isReadOnlyChatPreview || isView) && (
       refreshedContext.target.registrationId !== authorizedSurface.registrationId ||
       refreshedContext.target.surfaceId !== authorizedSurface.surfaceId ||
       refreshedContext.target.ownerChatId !== authorizedSurface.ownerChatId ||
       (refreshedContext.target.pageRouteIdentity || refreshedContext.target.pageRoute) !==
       authorizedSurface.route ||
-      ((isLive || isKanbanPreview || frame.type === "/api/view/invoke") && !refreshedContext.target.active)
+      ((isLive || isReadOnlyChatPreview || frame.type === "/api/view/invoke") && !refreshedContext.target.active)
     ))) {
       siteControlScope?.release("Surface changed while checking Platform availability.");
       finishExplicitDetachWrite(false);

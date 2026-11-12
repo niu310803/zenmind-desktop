@@ -232,3 +232,5 @@ for await (const event of agent.observe({ runId: accepted.runId })) {
 ```
 
 `hosting` 缺省 `desktop`，`platform` 表示独立单应用 Platform。第一期要求 `minPlatformVersion`、`target: any`，后端只能为 `node`；Desktop 专用 Agent 选择、Kanban 与隔离环境覆写均被拒绝。生成 validator 与 fixture 维护语义校验，JSON Schema 主要表达结构；包内 Agent/Skill 文件还由包校验与 Platform 的目录加载校验共同确认。
+
+页内运行视图使用 `desktop.chat.embed({chatId,viewId,revision,bounds})`，仅本机主工作区页面可调用。bounds 为 CSS 像素 `{x,y,width,height,viewportWidth,viewportHeight}`，传 null 释放视图；revision 为当前 viewId 下递增整数。Chat 必须由本应用实例返回。宿主负责可信 WebClient、认证、裁剪和只读观察；页面不提供 URL 或 token。新建 Chat 使用新 viewId；滚动/缩放更新几何，隐藏或退出释放。此方法与打开弹窗的 chat.open 独立。

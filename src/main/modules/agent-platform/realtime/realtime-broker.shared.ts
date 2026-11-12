@@ -37,7 +37,7 @@ export type RealtimeConnectionStates = Record<RealtimeLane, AgentPlatformRealtim
 
 export type RunChannelKey = { lane: RealtimeLane; runId: string };
 
-export type RootObserverKind = "main_chat" | "copilot_dock" | "kanban_chat" | "selection_explain";
+export type RootObserverKind = "main_chat" | "copilot_dock" | "kanban_chat" | "webapp_chat" | "selection_explain";
 
 export type RootObserverIdentity = {
   token: string;

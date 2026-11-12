@@ -427,7 +427,7 @@ export function createSessionController(options: FramePortOptions) {
           onPush: (frame) => {
             const current = authorizeSurface(session.sender, options.browserSurfaces, options.isTrustedAgentWebclientSession);
             if ("ok" in current) return;
-            if (current.target.surfaceRole === "kanban-chat") {
+            if (["kanban-chat","webapp-chat"].includes(current.target.surfaceRole)) {
               const chatId = current.target.ownerChatId?.trim();
               if (!current.target.active || !chatId || (!isPlainBridgeRecord(frame.data) || frame.data.chatId !== chatId)) return;
             }
