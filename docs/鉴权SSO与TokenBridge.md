@@ -126,11 +126,11 @@ Frame Port contract 与 Agent WebClient bundle、vendored contract hash 和 Desk
 
 ### 内置服务与 Host Bash
 
-Desktop 通过 `--sso-id-token-file` 把 `sso-id-token.txt` 的绝对路径交给 `agent-platform`；双方启动契约同批发布，不兼容旧参数。Platform 仅向已验证的单条直接 oneid CLI 子进程及 oneid stdio MCP 提供 `AP_ID_TOKEN`，HTTP MCP 按请求从同一文件生成 Bearer；普通 Host Bash、Terminal 和 Container 不自动获得身份。连接器模板统一为 `${AP_ID_TOKEN}`，旧身份变量名不提供兼容。token 不进入 Desktop 全局环境或服务启动参数。
+Desktop 通过 `--sso-id-token-file` 把 `sso-id-token.txt` 的绝对路径交给 `agent-platform`；双方启动契约同批发布，不兼容旧参数。Platform 向 Agent 已验证的单条直接 oneid CLI，以及经过通用执行授权的 oneid CLI 子进程和 oneid stdio MCP 提供 `AP_ID_TOKEN`，HTTP MCP 按请求从同一文件生成 Bearer；普通 Host Bash、Terminal 和 Container 不自动获得身份。连接器模板统一为 `${AP_ID_TOKEN}`，旧身份变量名不提供兼容。token 不进入 Desktop 全局环境或服务启动参数。
 
 Platform 的第二个消费方是声明 `useSsoIdToken: true` 的模型 Provider：每次出站模型请求重新读取该文件，只发往该 Provider 的 `baseUrl`，所有协议统一使用 `Authorization: Bearer`。该 Provider 不再使用 YAML 中的 `apiKey`，也不把 token 写回 registry、日志或 Provider 摘要。KBX 与记忆 worker 只在单次调用的私有配置中携带当次读取的 token，不常驻保存。当前不维护 Provider 地址白名单：能修改该 Provider YAML 的执行面可以改写 `baseUrl` 并收到账号级 token，因此 registry 写权限必须保持受控。静态 `apiKey` 对能读取 registry 的执行面同样可见，但 SSO token 的作用范围更大；若需收紧，由 Platform 固定 `useSsoIdToken` Provider 的目标地址。
 
-WebApp 免安装远程 MCP 是另一个显式注入入口：受信应用提供目标 URL，Desktop 只用本地宿主 JWT 向 Platform 转发，不读取或下发 SSO token；Platform 根据该请求的认证模式读取 canonical 业务投影并注入出站 Bearer。安装信任包含向应用指定的 HTTPS 目标使用当前身份，目标服务会持有该 token；页面、SDK 返回和错误中不包含宿主注入值，不跟随重定向，也不自动重放业务调用。此入口不放宽通用连接器执行对 oneid 的限制。Linux Compose 独立供应其服务端身份文件，缺失时拒绝 SSO 调用；调用能力本身不实现登录、续期或多用户身份映射。
+WebApp 免安装远程 MCP 是另一个显式注入入口：受信应用提供目标 URL，Desktop 只用本地宿主 JWT 向 Platform 转发，不读取或下发 SSO token；Platform 根据该请求的认证模式读取 canonical 业务投影并注入出站 Bearer。安装信任包含向应用指定的 HTTPS 目标使用当前身份，目标服务会持有该 token；页面、SDK 返回和错误中不包含宿主注入值，不跟随重定向，也不自动重放业务调用。已安装连接器的 WebApp 与 VIEW 通用执行也复用 Platform 当前 SSO 身份文件，支持 CLI、HTTP MCP 和 stdio MCP；Desktop 只转发既有执行授权，不把 SSO token 交给页面或托管后端，VIEW 的资源授权与写操作确认保持不变。Linux Compose 独立供应其服务端身份文件，缺失时拒绝 SSO 调用；调用能力本身不实现登录、续期或多用户身份映射。
 
 Workspace Terminal、容器、代理、ACP、MCP、LSP 与其他 sidecar 默认不继承该凭据。扩展新的注入面必须单独完成威胁分析和授权设计。
 

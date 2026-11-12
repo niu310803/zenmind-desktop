@@ -1927,3 +1927,9 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - 验证跨应用 Chat、越界/非法几何、后端与发布页调用被拒绝；旧修订不能覆盖新布局，隐藏或失效实例不能留下悬浮视图。
 
 - WebApp Agent Lab 的页内时间线与正式 WebClient 使用相同显示档位：对照字体、行高、正文宽度、推理、工具输出和任务分组；能查看此前 Run，并实时追加当前 Run，手动展开状态不被增量覆盖。
+
+### WebApp / VIEW 通用执行 OneID
+
+- [ ] macOS / Windows：分别使用 oneid CLI、HTTP MCP、stdio MCP，在 WebApp 页面和托管后端调用 connector.invoke；VIEW 声明的查询与用户确认的写动作也能执行，返回真实业务结果。无自定义 env 模板的 CLI 同样可用。
+- [ ] 不重启 Platform 更新 SSO 身份后下一次调用使用新身份；退出登录后新调用显示需登录 Desktop，VIEW 不误报 Platform 会话失效。重新登录后恢复。
+- [ ] 未授权应用、跨 Chat VIEW、已撤销写动作仍拒绝；重复写请求不重复执行。页面、后端 SDK 返回及收据元数据不包含宿主注入的身份 token。
