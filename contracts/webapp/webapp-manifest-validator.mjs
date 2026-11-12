@@ -6505,6 +6505,12 @@ const webappBackendSchema = strictObject({
   health: discriminatedUnion("type", [httpHealthSchema, tcpHealthSchema]),
   shutdownTimeoutMs: number().int().min(1e3).max(3e4).default(3e3)
 });
+const authPathSchema = string().min(2).max(256).regex(/^\/[A-Za-z0-9_./-]+$/u).refine((value) => !value.includes("//") && !value.split("/").some((part) => part === "." || part === "..") && !/^\/__(?:webapp|auth|internal|desktop)(?:\/|$)/u.test(value), "Use a normalized, non-reserved same-origin path.");
+const webappAuthenticationSchema = discriminatedUnion("mode", [
+  strictObject({ mode: literal("none") }),
+  strictObject({ mode: literal("sso"), protocol: literal("oidc"), providerRef: string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u) }),
+  strictObject({ mode: literal("custom"), checkPath: authPathSchema, loginPath: authPathSchema, publicPaths: array(authPathSchema).max(32).default([]) })
+]);
 const webappManifestV2Schema = strictObject({
   schemaVersion: literal(WEBAPP_MANIFEST_VERSION),
   id: string().regex(WEBAPP_ID_PATTERN),
@@ -6522,6 +6528,7 @@ const webappManifestV2Schema = strictObject({
   ]),
   hosting: _enum(["desktop", "platform"]).default("desktop"),
   minPlatformVersion: string().regex(SEMVER_PATTERN).optional(),
+  authentication: webappAuthenticationSchema.optional(),
   appConfig: webappAppConfigSchema.default({}),
   userConfig: webappUserConfigSchema.optional(),
   frontend: strictObject({
@@ -6568,6 +6575,12 @@ const webappManifestV2Schema = strictObject({
     });
   } else if (value.backend?.command.type === "node") {
     context.addIssue({ code: "custom", path: ["backend", "command", "type"], message: "node requires platform hosting; use electron-node for Desktop hosting." });
+  }
+  if (value.authentication?.mode === "custom") {
+    const auth = value.authentication;
+    if (!value.backend || auth.checkPath.endsWith("/") || auth.checkPath === auth.loginPath || [auth.loginPath, ...auth.publicPaths].some((p) => auth.checkPath === p || p.endsWith("/") && auth.checkPath.startsWith(p))) {
+      context.addIssue({ code: "custom", path: ["authentication"], message: "custom requires a backend and a private checkPath outside public routes." });
+    }
   }
   if (jsonBytes(value) > WEBAPP_MANIFEST_MAX_BYTES) {
     context.addIssue({
@@ -6678,6 +6691,7 @@ export {
   parseWebappManifest,
   safeParseWebappManifest,
   webappAppConfigSchema,
+  webappAuthenticationSchema,
   webappBackendSchema,
   webappManifestSchema,
   webappUserConfigFieldSchema,
