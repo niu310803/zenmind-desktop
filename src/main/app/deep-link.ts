@@ -1,4 +1,5 @@
 import type { App } from "electron";
+import { readDesktopNavigationUrl } from "../../shared/desktop-navigation";
 import { DESKTOP_OPEN_PROTOCOL_SCHEME } from "../../shared/brand";
 import { NATIVE_SHARE_PROTOCOL_HOST, NATIVE_SHARE_PROTOCOL_SCHEME, type NativeShareTransfer } from "../../shared/native-share";
 
@@ -71,4 +72,17 @@ export function registerDesktopOpenProtocolClient(
     return app.setAsDefaultProtocolClient(DESKTOP_OPEN_PROTOCOL_SCHEME, options.execPath, [options.appEntryPath]);
   }
   return false;
+}
+
+/** Existing exact open links remain unchanged; navigation is a separate action. */
+export function readDesktopLaunchPath(value: unknown): string | null {
+  return isDesktopOpenDeepLink(value) ? "/" : readDesktopNavigationUrl(value);
+}
+
+export function findDesktopLaunchPath(commandLine: readonly string[]): string | null {
+  for (const argument of commandLine) {
+    const path = readDesktopLaunchPath(argument);
+    if (path !== null) return path;
+  }
+  return null;
 }

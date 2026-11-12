@@ -329,6 +329,7 @@ export function createAppShellRuntime(options: AppShellRuntimeOptions) {
       onMainRendererFocused: () => {
         state.focusedWebviewDevToolsTargetId = null;
       },
+      navigateMainWindow,
       getHelpUrl: options.getHelpUrl,
       isHelpWebview: (contents) =>
         contents.session === options.session.fromPartition(DESKTOP_HELP_WEBVIEW_PARTITION),

@@ -58,3 +58,22 @@ test("desktop protocol registration keeps packaged and Windows development paths
     appEntryPath: "/workspace/index.js"
   }), false);
 });
+
+const { DESKTOP_NAVIGATION_PATHS, readDesktopNavigationUrl } = await import("../dist-electron/shared/desktop-navigation.js");
+for (const scheme of ["zenmind", "cutej"]) {
+  test(`${scheme} navigation accepts static product pages only`, () => {
+    for (const path of DESKTOP_NAVIGATION_PATHS) {
+      assert.equal(readDesktopNavigationUrl(`${scheme}://navigate?${new URLSearchParams({ path })}`, scheme), path);
+    }
+    for (const path of ["https://evil.test", "//evil.test", "/settings/browser?token=x", "/agents/private", "/settings/../debug", "/unknown", "/%73ettings/browser"]) {
+      assert.equal(readDesktopNavigationUrl(`${scheme}://navigate?${new URLSearchParams({ path })}`, scheme), null);
+    }
+    for (const url of [
+      `${scheme}://navigate?path=/settings&path=/agents`, `${scheme}://navigate?path=/settings&action=delete`,
+      `${scheme}://navigate?path=/settings#`, `${scheme}://navigate?path=/settings#x`,
+      `${scheme}://navigate?path=/settings\n`, `${scheme}://navigate?path=/set\ttings`,
+      `${scheme}://navigate/?path=/settings`, `${scheme}://user@navigate?path=/settings`,
+      `${scheme}://navigate:80?path=/settings`, `other://navigate?path=/settings`,
+    ]) assert.equal(readDesktopNavigationUrl(url, scheme), null, url);
+  });
+}

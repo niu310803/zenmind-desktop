@@ -94,3 +94,34 @@ for (const platform of ["darwin", "win32"]) {
     assert.deepEqual(fixture.shown, [undefined]);
   });
 }
+
+for (const platform of ["darwin", "win32"]) {
+  test(`${platform} navigation deep links survive startup and work on second launch`, async () => {
+    const url = path => `${DESKTOP_OPEN_PROTOCOL_SCHEME}://navigate?${new URLSearchParams({ path })}`;
+    const fixture = createOptions(platform, ["desktop", url("/kbases")]);
+    registerMainAppEvents(fixture.options);
+    await flushReadyHandlers();
+    assert.deepEqual(fixture.shown, ["/kbases"]);
+    fixture.options.app.emit("second-instance", {}, ["desktop", url("/settings/browser")]);
+    assert.deepEqual(fixture.shown, ["/kbases", "/settings/browser"]);
+    if (platform === "darwin") {
+      let prevented = false;
+      fixture.options.app.emit("open-url", { preventDefault() { prevented = true; } }, url("/connectors"));
+      assert.equal(prevented, true);
+      assert.equal(fixture.shown.at(-1), "/connectors");
+    }
+  });
+}
+test("latest valid macOS navigation is retained while startup is pending", async () => {
+  const fixture = createOptions("darwin");
+  let finish;
+  fixture.options.onReady = () => new Promise(resolve => { finish = resolve; });
+  registerMainAppEvents(fixture.options);
+  await flushReadyHandlers();
+  const url = path => `${DESKTOP_OPEN_PROTOCOL_SCHEME}://navigate?${new URLSearchParams({ path })}`;
+  for (const path of ["/kbases", "/settings/browser", "/unknown"]) {
+    fixture.options.app.emit("open-url", { preventDefault() {} }, url(path));
+  }
+  finish(); await flushReadyHandlers();
+  assert.deepEqual(fixture.shown, ["/settings/browser"]);
+});

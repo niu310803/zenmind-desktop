@@ -115,6 +115,7 @@ export type AttachedWebviewLike = {
   session?: unknown;
   getURL(): string;
   isFocused?(): boolean;
+  isDestroyed?(): boolean;
   on(eventName: string, listener: (...args: any[]) => void): unknown;
   copy(): void;
   cut(): void;
@@ -155,6 +156,7 @@ export type AttachedWebviewOptions<
   shouldOpenPopupInWorkPanelTab?(contents: TGuestContents): boolean;
   shouldOpenPopupExternally?(contents: TGuestContents): boolean;
   resolveBlobPopupTarget?(contents: TGuestContents): BlobPopupTarget | null;
+  navigateMainWindow?(targetPath: string): void;
   getHelpUrl?(): string;
   isHelpWebview?(contents: TGuestContents): boolean;
   restrictedDocumentPreview?: boolean;

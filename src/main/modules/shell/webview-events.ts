@@ -1,3 +1,4 @@
+import { readDesktopNavigationUrl } from "../../../shared/desktop-navigation";
 import type { MainRendererDevToolsContentsLike, AttachedWebviewLike, AttachedWebviewOptions } from "./window-model";
 import { isAllowedHelpNavigationUrl, isSafeHelpExternalUrl } from "../../../shared/help";
 import { resolveWorkPanelBrowserShortcut, WORK_PANEL_BROWSER_SHORTCUT_CHANNEL } from "../../../shared/work-panel-browser";
@@ -27,6 +28,20 @@ export function configureAttachedWebview<
     } catch (error) {
       options.report("failed to start webview download", { url, error });
     }
+  };
+  const handleHelpDeepLink = (url: string) => {
+    if (!isHelpWebview || !options.getHelpUrl ||
+        !isAllowedHelpNavigationUrl(options.getHelpUrl(), contents.getURL())) return false;
+    const path = readDesktopNavigationUrl(url);
+    if (path === null) return false;
+    options.schedule(() => {
+      // Revalidate the actual guest after crossing the scheduling boundary.
+      const main = options.getMainWindow();
+      if (!main || main.isDestroyed() || contents.isDestroyed?.() || options.isHelpWebview?.(contents) !== true ||
+          !isAllowedHelpNavigationUrl(options.getHelpUrl!(), contents.getURL())) return;
+      options.navigateMainWindow?.(path);
+    });
+    return true;
   };
   const blockUnexpectedHelpNavigation = (event: { preventDefault(): void }, url: string) => {
     if (
@@ -179,6 +194,7 @@ export function configureAttachedWebview<
   if (options.restrictedDocumentPreview) return;
 
   contents.on("will-navigate", (event, url) => {
+    if (handleHelpDeepLink(url)) { event.preventDefault(); return; }
     if (blockUnexpectedHelpNavigation(event, url)) {
       return;
     }
@@ -222,6 +238,7 @@ export function configureAttachedWebview<
   });
 
   contents.setWindowOpenHandler(({ url, referrer }) => {
+    if (handleHelpDeepLink(url)) return { action: "deny" };
     if (isBlobSchemeUrl(url)) {
       const normalizedBlobUrl = normalizeWebviewBlobPopupForSource(
         url,

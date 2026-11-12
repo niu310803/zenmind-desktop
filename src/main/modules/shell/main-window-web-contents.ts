@@ -43,6 +43,7 @@ export function configureMainWindowWebContents<
     attachWebviewContextMenu?(contents: TGuestContents): void;
     onWebviewFocusChanged?(webContentsId: number, focused: boolean): void;
     onMainRendererFocused?(): void;
+    navigateMainWindow?(targetPath: string): void;
     getHelpUrl?(): string;
     isHelpWebview?(contents: TGuestContents): boolean;
     openExternal(url: string): Promise<unknown>;
@@ -169,6 +170,7 @@ export function configureMainWindowWebContents<
       shouldOpenPopupInWorkPanelTab: options.shouldOpenPopupInWorkPanelTab,
       shouldOpenPopupExternally: options.shouldOpenPopupExternally,
       resolveBlobPopupTarget: options.resolveBlobPopupTarget,
+      navigateMainWindow: options.navigateMainWindow,
       getHelpUrl: options.getHelpUrl,
       isHelpWebview: options.isHelpWebview,
       openExternal: options.openExternal,

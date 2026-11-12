@@ -2,7 +2,7 @@ import type { App, GlobalShortcut } from "electron";
 import type { MainAppState } from "./state";
 import { hasInstallerShutdownArg } from "./lifecycle/single-instance";
 import type { ShutdownReport } from "../../shared/shutdown";
-import { findDesktopOpenDeepLink, isDesktopOpenDeepLink, readDesktopShareOpenRequest, type DesktopShareOpenRequest } from "./deep-link";
+import { findDesktopLaunchPath, readDesktopLaunchPath, readDesktopShareOpenRequest, type DesktopShareOpenRequest } from "./deep-link";
 import type { NativeShareTransfer } from "../../shared/native-share";
 import { findDesktopDocumentPaths, isSupportedDesktopDocumentPath } from "./open-file";
 
@@ -48,7 +48,7 @@ export function registerMainAppEvents(options: MainAppEventsOptions) {
   let readyCompleted = false;
   const initialInstallerShutdown = options.initialCommandLine.some((argument) => options.installerShutdownArgs.has(argument));
   const initialWorkingDirectory = options.initialWorkingDirectory ?? process.cwd();
-  let pendingDesktopOpen = !initialInstallerShutdown && Boolean(findDesktopOpenDeepLink(options.initialCommandLine));
+  let pendingDesktopPath = initialInstallerShutdown ? null : findDesktopLaunchPath(options.initialCommandLine);
   let pendingMainWindowOpen = false;
   const pendingLocalDocuments = initialInstallerShutdown
     ? []
@@ -85,12 +85,12 @@ export function registerMainAppEvents(options: MainAppEventsOptions) {
     }
   };
 
-  const openDesktopHome = () => {
+  const openDesktopPath = (path: string) => {
     if (!readyCompleted) {
-      pendingDesktopOpen = true;
+      pendingDesktopPath = path;
       return;
     }
-    options.showMainWindow("/");
+    options.showMainWindow(path);
   };
 
   if (options.platform === "darwin") {
@@ -108,11 +108,10 @@ export function registerMainAppEvents(options: MainAppEventsOptions) {
         openNativeShare(shareRequest);
         return;
       }
-      if (!isDesktopOpenDeepLink(url)) {
-        return;
-      }
+      const path = readDesktopLaunchPath(url);
+      if (path === null) return;
       event.preventDefault();
-      openDesktopHome();
+      openDesktopPath(path);
     });
   }
 
@@ -128,14 +127,18 @@ export function registerMainAppEvents(options: MainAppEventsOptions) {
         return;
       }
     }
+    if (options.platform === "darwin") {
+      const path = findDesktopLaunchPath(commandLine);
+      if (path !== null) { openDesktopPath(path); return; }
+    }
     if (options.platform === "win32") {
-      const desktopOpen = Boolean(findDesktopOpenDeepLink(commandLine));
+      const desktopPath = findDesktopLaunchPath(commandLine);
       const documentPaths = findDesktopDocumentPaths(commandLine, options.platform, workingDirectory || initialWorkingDirectory);
-      if (desktopOpen) {
-        openDesktopHome();
+      if (desktopPath !== null) {
+        openDesktopPath(desktopPath);
       }
       openLocalDocuments(documentPaths);
-      if (desktopOpen || documentPaths.length > 0) {
+      if (desktopPath !== null || documentPaths.length > 0) {
         return;
       }
     }
@@ -149,10 +152,11 @@ export function registerMainAppEvents(options: MainAppEventsOptions) {
   void options.app.whenReady().then(async () => {
     await options.onReady();
     readyCompleted = true;
-    if (pendingDesktopOpen) {
-      pendingDesktopOpen = false;
+    if (pendingDesktopPath !== null) {
+      const path = pendingDesktopPath;
+      pendingDesktopPath = null;
       pendingMainWindowOpen = false;
-      options.showMainWindow("/");
+      options.showMainWindow(path);
     } else if (pendingMainWindowOpen) {
       pendingMainWindowOpen = false;
       options.showMainWindow();
