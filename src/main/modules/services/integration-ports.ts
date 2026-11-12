@@ -1,6 +1,7 @@
 import type { App } from "electron";
 
 export type ServicesIntegrationPorts = {
+  stopWebappPlatformsForBundleReplacement?: (app: App) => Promise<void>;
   issueAgentAccessToken: (app: App, reason: any) => Promise<any>;
   getDesktopDeviceId: (app: App) => string;
   getDesktopDeviceInfo: (app: App) => any;

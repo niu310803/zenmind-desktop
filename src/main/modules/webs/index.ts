@@ -10,7 +10,7 @@ export type { WebsIntegrationPorts } from "./integration-ports";
 export { authorizeWebappActionToken, invalidateWebappActionTokens } from "./webapps/action-tokens";
 export { disposeWebappInstallation } from "./webapps/actions";
 export { consumeWebappImageUpload } from "./webapps/image-upload-registry";
-export { activateWebappInstall, commitWebappInstall, recoverWebappInstallTransactions, rollbackWebappInstall } from "./webapps/install-transaction";
+export { preserveWebappInstallForRecovery, activateWebappInstall, commitWebappInstall, recoverWebappInstallTransactions, rollbackWebappInstall } from "./webapps/install-transaction";
 export type { WebappInstallTransaction } from "./webapps/install-transaction";
 export { WebappManager, WebappRuntimeRequiredError, webappManager } from "./webapps/manager";
 export { WebappInstallError, WebappInstallPolicyError } from "./webapps/install-errors";
@@ -31,3 +31,5 @@ export { createWebsiteItem, getWebsiteDir, readWebsiteItems, writeWebsiteItem } 
 export { registerWebappAuth } from "./auth-session";
 
 export { validateWebappArchiveLayout } from "./webapps/package-validation.js";
+
+export { webappPlatformLayout, PLATFORM_PACKAGE_ENTRIES } from "./webapps/platform-layout";

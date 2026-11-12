@@ -1277,7 +1277,7 @@ export function AppShell() {
   const isAgentWebclientMainRoute =
     location.pathname === ASSISTANT_TARGET_PATH ||
     isSingleAgentWebclientRoute(location.pathname);
-  const copilotDockAllowed = !isKanbanRoute && !isAgentWebclientMainRoute;
+  const copilotDockAllowed = !isKanbanRoute && !isAgentWebclientMainRoute && !(activeWebEntry?.kind === "webapp" && activeWebEntry.hosting === "platform");
   const assistantLauncherVisible = copilotDockAllowed && currentCopilotPreference?.enabled !== false;
   const currentCopilotContextKey = activeWebEntryKey || (
     location.pathname === BUILTIN_BROWSER_ROUTE
@@ -1561,6 +1561,7 @@ export function AppShell() {
     }
     if (item.kind === "webapp") {
       disposeWebappPresentation(item);
+      if (item.hosting === "platform") return;
       webappStopInFlightRef.current.add(item.id);
       try {
         const result = await window.electronAPI.webs.webapps.stop(item.id);

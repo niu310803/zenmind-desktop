@@ -20,7 +20,7 @@ export class WebappInstallError extends Error {
 
 export class WebappInstallPolicyError extends WebappInstallError {
   constructor(
-    code: "invalid_id" | "version_content_conflict" | "downgrade_not_allowed",
+    code: "invalid_id" | "version_content_conflict" | "downgrade_not_allowed" | "hosting_change_not_allowed",
     message: string,
     details: Record<string, unknown>
   ) {

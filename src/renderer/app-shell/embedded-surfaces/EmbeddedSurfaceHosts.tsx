@@ -41,6 +41,7 @@ const ServiceWebviewSurface = lazy(() =>
 );
 
 type EmbeddedSidebarItem = {
+  hosting?: "desktop" | "platform";
   id?: string;
   kind?: "website" | "webapp";
   label: string;
@@ -417,6 +418,7 @@ function CanonicalWebappSurface({
           surfaceLabel={item.label}
           title={item.label}
           url={item.url}
+          partition={item.hosting === "platform" ? `webapp-platform:${item.id}` : undefined}
           chrome={item.chrome}
           ownerChatId={ownerChatId}
           presentationScope={owner.scope === "workpanel" ? "workpanel" : "main-workspace"}

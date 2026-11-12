@@ -14,6 +14,8 @@ export function configureMainWindowWebContents<
   options: {
     platform: DesktopPlatform;
     getMainWindow(): TMainWindow | null;
+    platformWebappPartitionForUrl?(url: string): string | null;
+    configurePlatformWebappGuest?(contents: TGuestContents): boolean;
     servicePreloadPath: string;
     servicePreloadUrl: string;
     isSafeServiceUrl(value: string): unknown;
@@ -71,6 +73,14 @@ export function configureMainWindowWebContents<
   });
 
   targetWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    const platformPartition = options.platformWebappPartitionForUrl?.(String(params.src || ""));
+    if (platformPartition) {
+      delete webPreferences.preload; delete params.preload;
+      params.partition = platformPartition;
+      Object.assign(webPreferences, { partition: platformPartition, nodeIntegration: false, nodeIntegrationInSubFrames: false, nodeIntegrationInWorker: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: false, allowRunningInsecureContent: false });
+      return;
+    }
+    if (String(params.partition || "").startsWith("webapp-platform:")) { event.preventDefault(); return; }
     const authGuest = prepareIsolatedAuthGuest((targetWindow.webContents as { id?: number }).id, webPreferences, params);
     if (authGuest !== undefined) {
       if (!authGuest) event.preventDefault();
@@ -128,6 +138,7 @@ export function configureMainWindowWebContents<
   });
 
   targetWindow.webContents.on("did-attach-webview", (_event, contents: TGuestContents) => {
+    options.configurePlatformWebappGuest?.(contents);
     if (configureIsolatedAuthGuest(contents)) return;
     const publishFocused = () => options.onWebviewFocusChanged?.(contents.id, true);
     const publishBlurred = () => options.onWebviewFocusChanged?.(contents.id, false);

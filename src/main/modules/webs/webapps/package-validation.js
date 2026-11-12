@@ -4,6 +4,8 @@ const { WEBAPP_PACKAGE_LIMITS, WebappPackageValidationError, assertSafeRelativeP
 
 const DISALLOWED_PACKAGE_SEGMENT = /^(?:\.env(?:\..*)?|\.git|node_modules|__pycache__|\.pytest_cache|\.mypy_cache|dist-cache|coverage|logs?)$/iu;
 const NATIVE_EXTENSIONS = new Set([".dll", ".dylib", ".node", ".pyd", ".so"]);
+// Skill identities shipped by Platform native connectors; no Desktop-installed skills are consulted.
+const PLATFORM_BUILTIN_SKILLS = new Set(["platform-control", "task-control", "web-control", "kanban-control", "kbase-control"]);
 const MACH_O_HEADERS = new Set(["cafebabe", "bebafeca", "feedface", "feedfacf", "cefaedfe", "cffaedfe"]);
 
 /**
@@ -108,7 +110,7 @@ function resolveRequiredPath(rootPath, relativePath, expectedType, displayPath =
 /**
  * @param {string} rootPath
  * @param {any} manifest
- * @param {{outputPath?: string}} [options]
+ * @param {{outputPath?: string, installedRuntime?: boolean, builtinSkills?: string[]}} [options]
  */
 function validateWebappPackageDirectory(rootPath, manifest, options = {}) {
   const absoluteRoot = path.resolve(rootPath);
@@ -127,6 +129,7 @@ function validateWebappPackageDirectory(rootPath, manifest, options = {}) {
   /** @param {string} directory */
   const visit = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (directory === root && manifest.hosting === "platform" && options.installedRuntime && !["webapp.json", "assets", "frontend", "backend", "agents", "skills-center", "connectors-center"].includes(entry.name)) continue;
       const absolutePath = path.join(directory, entry.name);
       if (resolvedOutput && path.resolve(absolutePath) === resolvedOutput) {
         continue;
@@ -170,6 +173,23 @@ function validateWebappPackageDirectory(rootPath, manifest, options = {}) {
       }
     }
   };
+  if (manifest.hosting === "platform") {
+    const entries = new Set(["webapp.json", "assets", "frontend", "backend", "agents", "skills-center", "connectors-center"]);
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entries.has(entry.name)) {
+        if (options.installedRuntime) continue;
+        throw new WebappPackageValidationError("package", "runtime_data_forbidden", `Platform packages cannot contain runtime data: ${entry.name}`);
+      }
+    }
+    if (manifest.copilot) {
+      const agentRoot = resolveRequiredPath(root, `agents/${manifest.copilot.agentKey}`, "directory");
+      if (!["agent.yml"].some(name => fs.existsSync(path.join(agentRoot, name)))) throw new WebappPackageValidationError("package", "copilot_agent_missing", "Copilot Agent must be included in agents/.");
+      for (const reference of manifest.copilot.references) {
+        if (PLATFORM_BUILTIN_SKILLS.has(reference.id) || options.builtinSkills?.includes(reference.id)) continue;
+        resolveRequiredPath(root, `skills-center/${reference.id}/SKILL.md`, "file");
+      }
+    }
+  }
   visit(root);
 
   const frontendRoot = resolveRequiredPath(root, manifest.frontend.root, "directory");
@@ -218,7 +238,7 @@ function validateWebappPackageDirectory(rootPath, manifest, options = {}) {
   if (command) {
     const entryPath = resolveRequiredPath(root, command.entry, "file");
     const extension = path.extname(entryPath).toLowerCase();
-    if (command.type === "electron-node" && ![".js", ".cjs", ".mjs"].includes(extension)) {
+    if ((command.type === "electron-node" || command.type === "node") && ![".js", ".cjs", ".mjs"].includes(extension)) {
       throw new WebappPackageValidationError(
         "package",
         "invalid_backend_entry",

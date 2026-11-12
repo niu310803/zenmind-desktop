@@ -1,5 +1,5 @@
 import path from "node:path";
-import { BrowserWindow, type App, type IpcMainInvokeEvent } from "electron";
+import { dialog, BrowserWindow, type App, type IpcMainInvokeEvent } from "electron";
 import fs from "node:fs/promises";
 import type {
   DesktopMobileWebappItem,
@@ -355,7 +355,14 @@ export function registerWebIpcHandlers(ipcMain: any, options: WebIpcHandlerOptio
     return result;
   });
   ipcMain.handle("webs.webapps.uninstall", async (_event: any, id: string) => {
-    const result = await webappManager.remove(app, id);
+    const item = webappManager.list(app).find(candidate => candidate.id === id);
+    let preserveUserData: boolean | undefined;
+    if (item?.hosting === "platform") {
+      const choice = await dialog.showMessageBox({ type: "question", title: t("settings.webapps.remove"), message: t("webapp.platform.removeData", { label: item.label }), buttons: [t("webapp.platform.keepData"), t("webapp.platform.deleteData"), t("common.cancel")], defaultId: 0, cancelId: 2, noLink: true });
+      if (choice.response === 2) return { ok: false, item, items: webappManager.list(app), message: t("common.cancel") };
+      preserveUserData = choice.response === 0;
+    }
+    const result = await webappManager.remove(app, id, preserveUserData);
     if (result.ok) {
       webappWindowManager.close(id);
     }
@@ -400,7 +407,7 @@ export function registerWebIpcHandlers(ipcMain: any, options: WebIpcHandlerOptio
   });
   ipcMain.handle("webs.webapps.getUserConfig", async (_event: any, id: string) => {
     try {
-      const result = webappManager.readUserConfigState(app, id);
+      const result = await webappManager.readUserConfigState(app, id);
       return {
         ok: true,
         values: result.values,
@@ -417,7 +424,7 @@ export function registerWebIpcHandlers(ipcMain: any, options: WebIpcHandlerOptio
   });
   ipcMain.handle("webs.webapps.saveUserConfig", async (_event: any, id: string, input: any) => {
     try {
-      const result = webappManager.saveUserConfig(app, id, input);
+      const result = await webappManager.saveUserConfig(app, id, input);
       if (!result.ok) {
         return {
           ...result,
@@ -426,7 +433,7 @@ export function registerWebIpcHandlers(ipcMain: any, options: WebIpcHandlerOptio
       }
       const item = webappManager.list(app).find((candidate) => candidate.id === id) ?? null;
       const state = webappManager.runtime.getStatus(app, id);
-      if (item?.backend && state?.status === "running") {
+      if (item?.hosting !== "platform" && item?.backend && state?.status === "running") {
         await webappManager.runtime.restart(app, id);
       }
       options.emitWebappChanged?.("updated", id);

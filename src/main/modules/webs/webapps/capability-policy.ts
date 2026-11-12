@@ -7,7 +7,8 @@ import {
 
 export type WebappCapabilityScope = "backendActionToken" | "localPageGateway";
 
-export function getWebappAllowedActions(_item: WebappEntry, scope: WebappCapabilityScope) {
+export function getWebappAllowedActions(item: WebappEntry, scope: WebappCapabilityScope) {
+  if (item.hosting === "platform") return [];
   const actions = new Set<string>();
   if (scope === "localPageGateway") {
     actions.add(WEBAPP_BRIDGE_ACTIONS.capabilitiesList);

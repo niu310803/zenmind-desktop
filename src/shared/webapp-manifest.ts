@@ -309,6 +309,10 @@ const tcpHealthSchema = z.strictObject({
 
 const backendCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({
+    type: z.literal("node"),
+    entry: safeRelativePathSchema
+  }),
+  z.strictObject({
     type: z.literal("electron-node"),
     entry: safeRelativePathSchema
   }),
@@ -347,6 +351,8 @@ const webappManifestV2Schema = z.strictObject({
     "win32-arm64",
     "win32-x64"
   ]),
+  hosting: z.enum(["desktop", "platform"]).default("desktop"),
+  minPlatformVersion: z.string().regex(SEMVER_PATTERN).optional(),
   appConfig: webappAppConfigSchema.default({}),
   userConfig: webappUserConfigSchema.optional(),
   frontend: z.strictObject({
@@ -377,6 +383,24 @@ const webappManifestV2Schema = z.strictObject({
   }).default({ version: 1 })
 }).superRefine((value, context) => {
 
+  if (value.hosting === "platform") {
+    const reject = (path: (string | number)[], message: string) => context.addIssue({ code: "custom", path, message });
+    if (!value.minPlatformVersion) reject(["minPlatformVersion"], "platform hosting requires minPlatformVersion.");
+    if (value.backend && value.backend.command.type !== "node") reject(["backend", "command"], "platform hosting currently supports only Node 24 backends.");
+    for (const key of Object.keys(value.backend?.env ?? {})) {
+      const normalized = key.toUpperCase();
+      if (["NODE_OPTIONS", "NODE_PATH", "HOME", "PATH", "TMP", "TEMP", "TMPDIR", "SYSTEMROOT"].includes(normalized) || /^(?:ELECTRON_|LD_|DYLD_|AP_)/u.test(normalized)) reject(["backend", "env", key], "platform hosting cannot override runtime isolation environment.");
+    }
+    if (value.target !== "any") reject(["target"], "platform hosting currently requires target any.");
+    if (value.frontend.root !== "frontend") reject(["frontend", "root"], "platform hosting requires frontend root frontend.");
+    if (value.backend && !value.backend.command.entry.startsWith("backend/")) reject(["backend", "command", "entry"], "platform backend entry must be inside backend/.");
+    if (value.desktopBridge.kanbanRead) reject(["desktopBridge", "kanbanRead"], "platform hosting cannot use Desktop Kanban.");
+    value.userConfig?.fields.forEach((field, index) => {
+      if ("source" in field) reject(["userConfig", "fields", index, "source"], "platform hosting cannot use desktop.agents.");
+    });
+  } else if (value.backend?.command.type === "node") {
+    context.addIssue({ code: "custom", path: ["backend", "command", "type"], message: "node requires platform hosting; use electron-node for Desktop hosting." });
+  }
   if (jsonBytes(value) > WEBAPP_MANIFEST_MAX_BYTES) {
     context.addIssue({
       code: "custom",

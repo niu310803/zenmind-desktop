@@ -37,6 +37,8 @@ import { assertInstalledWebappId, isInstalledWebappId } from "./identity";
 import { parseInstalledWebappManifest } from "./installed-manifest";
 import type { WebsIntegrationPorts } from "../integration-ports";
 
+import { webappPlatformLayout, webappPlatformsRoot } from "./platform-layout";
+
 const { validateWebappPackageDirectory } = packageValidation;
 
 export const WEBAPP_FILE = "webapp.json";
@@ -101,6 +103,8 @@ export function webappTargetMatchesCurrentPlatform(
 }
 
 export function getWebappDir(app: App, id: string, platform: NodeJS.Platform = process.platform) {
+  const standalone = webappPlatformLayout(app, id, platform).runtime;
+  if (fs.existsSync(path.join(standalone, WEBAPP_FILE))) return standalone;
   return path.join(getDesktopWebappsDataRoot(app, platform), assertInstalledWebappId(id));
 }
 
@@ -344,31 +348,32 @@ function manifestToEntry(
   manifest: WebappManifest,
   webappDir: string,
   preference: WebappPreference = {},
-  userConfigValues: WebappUserConfigValues = {}
+  userConfigValues: WebappUserConfigValues = {},
+  installedRuntime = false
 ): WebappEntry {
   if (!webappTargetMatchesCurrentPlatform(manifest.target)) {
     throw new Error(`webapp target ${manifest.target} is not compatible with this Desktop.`);
   }
-  validateWebappPackageDirectory(webappDir, manifest);
+  validateWebappPackageDirectory(webappDir, manifest, { installedRuntime: installedRuntime && manifest.hosting === "platform" });
   const manifestStat = fs.statSync(path.join(webappDir, WEBAPP_FILE));
   const iconDataUrl = readWebappIconDataUrl(webappDir, manifest.frontend);
   return {
     ...manifest,
     label: preference.label ?? manifest.label,
     openMode: preference.openMode ?? "workspace",
-    allowLanAccess: preference.allowLanAccess === true,
-    authMode: preference.authMode ?? "passthrough",
+    allowLanAccess: manifest.hosting !== "platform" && preference.allowLanAccess === true,
+    authMode: manifest.hosting === "platform" ? "passthrough" : preference.authMode ?? "passthrough",
     id: manifest.id,
     installPath: webappDir,
     entryKey: createWebappEntryKey(manifest.id),
     kind: "webapp",
     ...(iconDataUrl ? { iconDataUrl } : {}),
-    ...(manifest.copilot
+    ...(manifest.hosting !== "platform" && manifest.copilot
       ? {
           copilotAgentKey: manifest.copilot.agentKey,
           copilotReferences: manifest.copilot.references.map(reference => ({...reference}))
         }
-      : typeof userConfigValues.agentKey === "string" && WEBAPP_AGENT_KEY_PATTERN.test(userConfigValues.agentKey)
+      : manifest.hosting !== "platform" && typeof userConfigValues.agentKey === "string" && WEBAPP_AGENT_KEY_PATTERN.test(userConfigValues.agentKey)
         ? { copilotAgentKey: userConfigValues.agentKey }
         : {}),
     createdAt: manifestStat.birthtimeMs || manifestStat.ctimeMs,
@@ -376,9 +381,9 @@ function manifestToEntry(
   };
 }
 
-export function readWebappManifestFromDir(webappDir: string, expectedId = path.basename(webappDir)) {
+export function readWebappManifestFromDir(webappDir: string, expectedId = "") {
   const manifest = readManifestFile(webappDir, parseInstalledWebappManifest);
-  const directoryId = assertInstalledWebappId(expectedId);
+  const directoryId = assertInstalledWebappId(expectedId || (manifest.hosting === "platform" ? path.basename(path.dirname(webappDir)) : path.basename(webappDir)));
   if (manifest.id !== directoryId) {
     throw new Error(`webapp id must match its installation directory: ${directoryId}.`);
   }
@@ -415,26 +420,27 @@ export function readWebappItems(
 }
 
 export function readInstalledWebappItems(app: App, platform: NodeJS.Platform = process.platform) {
-  const root = getDesktopWebappsDataRoot(app, platform);
-  if (!fs.existsSync(root)) {
-    return [];
-  }
+  const roots = [getDesktopWebappsDataRoot(app, platform), webappPlatformsRoot(app, platform)];
   const preferences = readPreferences(app);
   const items: WebappEntry[] = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !isInstalledWebappId(entry.name)) {
-      continue;
-    }
-    const webappDir = path.join(root, entry.name);
-    if (!fs.existsSync(path.join(webappDir, WEBAPP_FILE))) {
-      continue;
-    }
-    try {
-      const manifest = readWebappManifestFromDir(webappDir);
-      const userConfigValues = readWebappUserConfigValues(app, manifest.id);
-      items.push(manifestToEntry(manifest, webappDir, preferences[manifest.id], userConfigValues));
-    } catch (error) {
-      console.warn("failed to read webapp item", path.join(webappDir, WEBAPP_FILE), error);
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !isInstalledWebappId(entry.name)) {
+        continue;
+      }
+      const webappDir = root === roots[1] ? path.join(root, entry.name, "runtime") : path.join(root, entry.name);
+      if (!fs.existsSync(path.join(webappDir, WEBAPP_FILE))) {
+        continue;
+      }
+      try {
+        const manifest = readWebappManifestFromDir(webappDir, entry.name);
+        if ((manifest.hosting === "platform") !== (root === roots[1])) continue;
+        const userConfigValues = readWebappUserConfigValues(app, manifest.id);
+        items.push(manifestToEntry(manifest, webappDir, preferences[manifest.id], userConfigValues, true));
+      } catch (error) {
+        console.warn("failed to read webapp item", path.join(webappDir, WEBAPP_FILE), error);
+      }
     }
   }
   return sortWebEntries(sanitizeWebappItems(items));
@@ -462,6 +468,7 @@ export function writeWebappPreferenceFields(
   if (manifest.id !== webappId) {
     throw new Error(`webapp id mismatch: expected ${webappId}, received ${manifest.id}.`);
   }
+  if (manifest.hosting === "platform" && (input.allowLanAccess === true || input.authMode === "managed")) throw new Error("Independent Platform apps do not support Desktop LAN or authentication preferences.");
   const preferences = readPreferences(app);
   const current = preferences[webappId] ?? {};
   const next: WebappPreference = { ...current };
@@ -494,7 +501,7 @@ export function writeWebappPreferenceFields(
   writePreferences(app, preferences);
   return withWebappManagementMetadata(
     app,
-    manifestToEntry(manifest, webappDir, next, readWebappUserConfigValues(app, webappId)),
+    manifestToEntry(manifest, webappDir, next, readWebappUserConfigValues(app, webappId), true),
     ports
   );
 }

@@ -44,6 +44,7 @@ type SidebarWebContextMenuTargetBase = {
   openMode: "dialog" | "window";
   canClose: boolean;
   canOpenAlternative: boolean;
+  hosting?: "desktop" | "platform";
   canExport: boolean;
   canRemove: boolean;
   showRemove: boolean;

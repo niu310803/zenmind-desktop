@@ -167,18 +167,22 @@ export class WebappManager {
   }
 
   readUserConfigState(app: App, id: string) {
+    const item = this.list(app).find(item => item.id === id);
+    if (item?.hosting === "platform") return this.runtime.platformInstances.userConfig(app, item);
     return readWebappUserConfigState(app, id);
   }
 
   saveUserConfig(app: App, id: string, input: unknown) {
+    const item = this.list(app).find(item => item.id === id);
+    if (item?.hosting === "platform") return this.runtime.platformInstances.userConfig(app, item, input);
     return writeWebappUserConfigValues(app, id, input);
   }
 
-  remove(app: App, id: string) {
+  remove(app: App, id: string, preserveUserData?: boolean) {
     return removeWebappItem(app, id, this.integrationPorts, {
       runtime: this.runtime,
       windowManager: this.windowManager
-    });
+    }, preserveUserData);
   }
 
   dispose(app: App, target: WebappDisposalTarget, stopMessage: string) {

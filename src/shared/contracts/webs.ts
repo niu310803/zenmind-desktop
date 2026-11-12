@@ -15,7 +15,7 @@ export type WebappRuntimeStatus = "stopped" | "starting" | "running" | "blocked"
 export type WebappLogTarget = "main" | "error";
 export type WebappSourceKind = "market" | "local" | "plugin";
 export type WebappOpenMode = "workspace" | "dialog";
-export type WebappLauncherKind = "none" | "electron-node" | "executable" | "runtime";
+export type WebappLauncherKind = "platform" | "node" | "none" | "electron-node" | "executable" | "runtime";
 export type WebappBackendOwnership = "desktop";
 export type WebappTarget = WebappManifest["target"];
 export interface WebappRuntimeSettings {
@@ -64,6 +64,8 @@ export interface WebappEntry extends WebEntryBase {
   key: WebappManifest["key"];
   version: WebappManifest["version"];
   target: WebappTarget;
+  hosting?: WebappManifest["hosting"];
+  minPlatformVersion?: string;
   openMode: WebappOpenMode;
   allowLanAccess?: boolean;
   authMode?: WebappAuthMode;

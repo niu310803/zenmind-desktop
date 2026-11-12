@@ -1879,3 +1879,13 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - 关闭测试开关后，局域网 HTTP OneID 拒绝；公网 HTTP、未登记 guest、跨源路径和重定向始终拒绝。
 - 普通浏览器访问新版 Auth Lab 的局域网 HTTP 分享链接，统一认证跳转 Google 并返回同一分享地址；变化的私有 IP/端口无需逐个登记，仍检查 state/nonce/PKCE、完整 callback 与票据重放。
 - 不可用的认证入口显示明确提示，不能跳转空 URL 刷新页面。macOS/Windows 分别核验原生确认和 Cookie 写入。
+
+## WebApp 独立 Platform（第一期）
+
+- macOS / Windows 分别导入纯前端、Node 24 包；旧包缺省 Desktop 托管。校验 hosting、最低版本、Node 类型、包内 Agent/技能、Desktop Agent 选择、Kanban、NODE_OPTIONS 等非法环境、运行数据混入 ZIP 和符号链接；拒绝时不留下已安装应用。
+- 同一个 ZIP 在 Desktop 和原生 Linux 容器使用。确认独立 runtime/config/run/logs、API/app 两个 origin，主 registries 只读且没有共享用户 Agent、技能或凭证。低版本 Platform 和错误 Node 主版本拒绝运行。
+- 主工作区、WorkPanel 与独立窗口验证 owner 换票、顶层 POST、HttpOnly 会话、刷新；页面没有 Desktop preload，不能打开主 Copilot、调用原生能力或主 Platform。设置不显示 LAN/发布，侧栏不提供未经换票的访问链接；浏览器复用空 Cookie 不能访问受保护页面。
+- 关闭页面/窗口保留实例，停止/重启正常；异常退出和持续健康失败有重试上限，故障日志可查看。空闲 30 分钟但有请求、Run 或人工等待时不回收，状态请求失败不回收；空闲完成后停止。Desktop 正常退出与崩溃分别检查所有 Platform/Node 后代退出。
+- 升级保留 chats/memory/pan/owner/root/registries/webapp-data/.state；缺省目录删除、新增目录和空目录正确；候选健康失败、每项 rename 之间中断与提交前中断恢复旧程序。损坏/越界 journal 保留并阻止启动。拒绝直接改变 hosting。
+- 导出只包含包内资源；卸载分别选择保留/删除数据，保留后重装相同应用可读原业务数据。Platform 单例程序替换及 Desktop 退出期间，独立实例先清理，不留下其他进程组。
+- macOS 开发环境自动冒烟：构建 Main 与当前 Platform 后，用 stock Electron 执行 `qa/webapp-platform-smoke.cjs <Platform绝对路径> <已准备开发壳的主程序绝对路径>`。第二个路径只用于解析后台 Helper，不能直接启动品牌壳执行此测试。脚本使用 canonical 临时目录与临时 profile，验证两种 WebView 顶层 POST、Node 24 权限、无 Desktop preload 和后代清理。Windows 与打包 macOS 的 Node 隔离仍须真机验证。

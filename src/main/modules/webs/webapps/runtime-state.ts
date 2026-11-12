@@ -1,3 +1,4 @@
+import { webappPlatformLayout } from "./platform-layout";
 import { type WebappEntry, type WebappRuntimeState, type WebappLauncherKind, type WebappLogTarget } from "../../../../shared/contracts";
 import { type ChildProcess } from "node:child_process";
 import { type WebappGateway } from "./gateway";
@@ -31,11 +32,11 @@ export function nowIso() {
 }
 
 export function launcherForItem(item: WebappEntry): WebappLauncherKind {
-  return item.backend?.command.type ?? "none";
+  return item.hosting === "platform" ? "platform" : item.backend?.command.type ?? "none";
 }
 
 export function ownershipForItem(item: WebappEntry) {
-  if (!item.backend) {
+  if (!item.backend && item.hosting !== "platform") {
     return null;
   }
   return "desktop" as const;
@@ -46,7 +47,8 @@ export function getStatePath(app: App, webappId: string) {
 }
 
 export function getLogPath(app: App, webappId: string, target: WebappLogTarget) {
-  return path.join(getDesktopWebappLogsRoot(app, webappId), target === "error" ? ERROR_LOG_FILE : MAIN_LOG_FILE);
+  const root = fs.existsSync(path.join(webappPlatformLayout(app, webappId).runtime, "webapp.json")) ? webappPlatformLayout(app, webappId).logs : getDesktopWebappLogsRoot(app, webappId);
+  return path.join(root, target === "error" ? ERROR_LOG_FILE : MAIN_LOG_FILE);
 }
 
 export function writeState(app: App, state: WebappRuntimeState) {
@@ -74,7 +76,9 @@ export function normalizeStoredLauncher(
   value: unknown,
   fallback: WebappRuntimeState["launcher"]
 ): WebappRuntimeState["launcher"] {
-  return value === "none" ||
+  return value === "platform" ||
+    value === "node" ||
+    value === "none" ||
     value === "electron-node" ||
     value === "executable" ||
     value === "runtime"

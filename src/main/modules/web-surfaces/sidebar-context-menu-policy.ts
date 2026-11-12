@@ -147,8 +147,9 @@ export function normalizeSidebarContextMenuRequest(
       (target.canPin !== undefined && !isBoolean(target.canPin)) ||
       (target.webKind === "website" && !hasOnlyKeys(target, commonKeys)) ||
       (target.webKind === "webapp" && (
-        !hasOnlyKeys(target, [...commonKeys, "hasPublicShareUrl"]) ||
-        !isBoolean(target.hasPublicShareUrl)
+        !hasOnlyKeys(target, [...commonKeys, "hasPublicShareUrl", "hosting"]) ||
+        !isBoolean(target.hasPublicShareUrl) ||
+        (target.hosting !== undefined && target.hosting !== "desktop" && target.hosting !== "platform")
       ))
     ) {
       return null;
@@ -168,7 +169,8 @@ export function normalizeSidebarContextMenuRequest(
       ? {
           ...commonTarget,
           webKind: "webapp",
-          hasPublicShareUrl: target.hasPublicShareUrl as boolean
+          hasPublicShareUrl: target.hasPublicShareUrl as boolean,
+          ...(target.hosting === "platform" ? { hosting: "platform" as const } : {})
         }
       : { ...commonTarget, webKind: "website" };
   } else {
@@ -292,8 +294,10 @@ export function buildSidebarContextMenuPolicy(
         group: 1,
         enabled: target.canOpenAlternative
       },
-      { id: "web.open-in-browser", group: 1, enabled: true },
-      { id: "web.copy-access-url", group: 1, enabled: true },
+      ...(target.hosting === "platform" ? [] : [
+        { id: "web.open-in-browser" as const, group: 1, enabled: true },
+        { id: "web.copy-access-url" as const, group: 1, enabled: true }
+      ]),
       { id: "web.configure", group: 1, enabled: true }
     );
     if (target.showRemove) {

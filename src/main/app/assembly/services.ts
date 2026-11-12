@@ -31,6 +31,13 @@ export function assembleServicesIntegration(
   dependencies: AssembleServicesIntegrationDependencies
 ): ServicesIntegrationPorts {
   return {
+    stopWebappPlatformsForBundleReplacement: async (app) => {
+      const manager = dependencies.websFacade.webappManager;
+      for (const item of manager.list(app).filter(item => item.hosting === "platform")) {
+        const result = await manager.runtime.stop(app, item.id);
+        if (!result.ok) throw new Error(result.message);
+      }
+    },
     issueAgentAccessToken: dependencies.issueAgentAccessToken,
     getDesktopDeviceId,
     getDesktopDeviceInfo,

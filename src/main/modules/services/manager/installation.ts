@@ -204,6 +204,7 @@ export async function installBuiltinServiceInternal(
       !isInstallHealthy(service, finalInstallDir) ||
       isAssetNewerThanInstall(assetPath, layout, options.archivePath ? undefined : app, service);
 
+    if (needsExtract && serviceId === "agent-platform") await options.integrationPorts?.stopWebappPlatformsForBundleReplacement?.(app);
     await reconcileBuiltinSiblingInstallDirs(app, service, finalInstallDir);
 
     if (!needsExtract) {

@@ -70,6 +70,8 @@ export type AppShellRuntimeOptions = {
   isDevToolsShortcut: (platform: NodeJS.Platform, input: any) => boolean;
   isGlobalSearchShortcut: (platform: NodeJS.Platform, input: any) => boolean;
   isDesktopCloseShortcut: (platform: NodeJS.Platform, input: any) => boolean;
+  platformWebappPartitionForUrl?: (url: string) => string | null;
+  configurePlatformWebappGuest?: (contents: Electron.WebContents) => boolean;
   canAttachLocalDocument?: (url: string, partition: string, ownerWebContentsId: number) => boolean;
   configureLocalDocumentGuest?: (contents: Electron.WebContents) => boolean;
   isWorkPanelWebview: (contents: Electron.WebContents) => boolean;
@@ -290,6 +292,8 @@ export function createAppShellRuntime(options: AppShellRuntimeOptions) {
     configureMainWindowWebContents<BrowserWindow, Electron.WebContents>(targetWindow, {
       platform: options.platform,
       getMainWindow: () => state.mainWindow,
+      platformWebappPartitionForUrl: options.platformWebappPartitionForUrl,
+      configurePlatformWebappGuest: options.configurePlatformWebappGuest,
       servicePreloadPath: getServiceWebviewPreloadPath(),
       servicePreloadUrl: getServiceWebviewPreloadUrl(),
       isSafeServiceUrl: options.parseSafeLoopbackWebUrl,

@@ -1,3 +1,4 @@
+import { webappPlatformLayout } from "./platform-layout";
 import fs from "node:fs";
 import path from "node:path";
 import type { App } from "electron";
@@ -56,10 +57,10 @@ function createMetadata(
 
 export function resolveWebappManagementMetadata(
   app: App,
-  item: Pick<WebappEntry, "id">,
+  item: Pick<WebappEntry, "id" | "hosting">,
   ports?: WebsIntegrationPorts
 ) {
-  const installPath = path.join(getDesktopWebappsDataRoot(app), assertInstalledWebappId(item.id));
+  const installPath = item.hosting === "platform" ? webappPlatformLayout(app, item.id).runtime : path.join(getDesktopWebappsDataRoot(app), assertInstalledWebappId(item.id));
   const pluginOwner = findPluginOwner(app, item.id);
   if (pluginOwner) {
     return createMetadata("plugin", installPath, {

@@ -1,3 +1,5 @@
+import { hasActivePlatformInstall, recoverPlatformInstall } from "./platform-install";
+import { WebappPlatformInstances } from "./platform-instances";
 import {
   type RuntimeRecord,
   nowIso,
@@ -57,6 +59,7 @@ import { getWebappDir, readWebappItems } from "./store";
 import { readServiceLogFile } from "../../../support/logging/service-logs";
 
 export class WebappRuntime {
+  readonly platformInstances = new WebappPlatformInstances(id => this.emitLifecycleChange("updated", id));
   private readonly records = new Map<string, RuntimeRecord>();
   private publicationChangeListener: ((reason: DesktopWebappChangedReason, webappId: string) => void) | null = null;
 
@@ -181,7 +184,7 @@ export class WebappRuntime {
         message: t("webapp.notFound")
       };
     }
-    const check = checkWebappBackendPrerequisites(
+    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : checkWebappBackendPrerequisites(
       createLauncherContext(app, item, null, undefined, "", this.integrationPorts)
     );
     return {
@@ -202,7 +205,7 @@ export class WebappRuntime {
     item: WebappEntry,
     webappDir: string
   ): WebappLauncherCheck & { message: string } {
-    const check = checkWebappBackendPrerequisites(
+    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : checkWebappBackendPrerequisites(
       createLauncherContext(app, item, null, webappDir, "", this.integrationPorts)
     );
     return {
@@ -233,6 +236,8 @@ export class WebappRuntime {
 
   getStatus(app: App, webappId: string) {
     const id = webappId.trim();
+    const independent = this.platformInstances.status(id);
+    if (independent) return independent;
     const record = this.records.get(id);
     if (record) {
       this.refreshRecordProcessState(app, record);
@@ -261,10 +266,13 @@ export class WebappRuntime {
 
   async start(app: App, webappId: string): Promise<WebappCommandResult> {
     const id = webappId.trim();
+    try { if (!hasActivePlatformInstall(app, id)) recoverPlatformInstall(app, id); }
+    catch (error) { return { ok: false, item: null, state: null, message: error instanceof Error ? error.message : String(error) }; }
     const item = findWebapp(app, id, this.integrationPorts);
     if (!item) {
       return { ok: false, item: null, state: null, message: t("webapp.notFound") };
     }
+    if (item.hosting === "platform") return this.platformInstances.start(app, item);
     const existing = this.records.get(id);
     if (existing?.state.status === "running") {
       return { ok: true, item, state: { ...existing.state, lanUrls: existing.gateway?.lanUrls ?? [] }, message: t("webapp.alreadyRunning", { label: item.label }) };
@@ -484,6 +492,7 @@ export class WebappRuntime {
   ): Promise<WebappCommandResult> {
     const id = webappId.trim();
     const item = findWebapp(app, id, this.integrationPorts);
+    if (item?.hosting === "platform") return this.platformInstances.stop(app, item);
     const record = this.records.get(id);
     if (record) {
       stopRecordHealthMonitor(record);
@@ -632,13 +641,15 @@ export class WebappRuntime {
   }
 
   async restart(app: App, webappId: string) {
-    await this.stop(app, webappId);
+    const stopped = await this.stop(app, webappId);
+    if (!stopped.ok) return stopped;
     return this.start(app, webappId);
   }
 
   async stopAll(app: App) {
     const ids = new Set([
       ...this.records.keys(),
+      ...this.platformInstances.ids(),
       ...readWebappItems(app, process.platform, this.integrationPorts)
         .filter((item) => {
           const stored = readStoredState(app, item);

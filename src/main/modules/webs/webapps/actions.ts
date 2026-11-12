@@ -1,3 +1,4 @@
+import { PLATFORM_PACKAGE_ENTRIES, webappPlatformLayout } from "./platform-layout";
 import fs from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -30,10 +31,12 @@ async function addWebappDirectoryToZip(
   zip: JSZip,
   rootPath: string,
   currentPath: string = rootPath,
-  archiveRoot: string = path.basename(rootPath)
+  archiveRoot: string = path.basename(rootPath),
+  platformRuntime = false
 ): Promise<void> {
   const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
   for (const entry of entries) {
+    if (platformRuntime && currentPath === rootPath && !(PLATFORM_PACKAGE_ENTRIES as readonly string[]).includes(entry.name)) continue;
     const sourcePath = path.join(currentPath, entry.name);
     const relativePath = path.relative(rootPath, sourcePath).split(path.sep).join("/");
     const archivePath = `${archiveRoot}/${relativePath}`;
@@ -45,7 +48,7 @@ async function addWebappDirectoryToZip(
       if ((await fs.promises.readdir(sourcePath)).length === 0) {
         zip.folder(`${archivePath}/`);
       }
-      await addWebappDirectoryToZip(zip, rootPath, sourcePath, archiveRoot);
+      await addWebappDirectoryToZip(zip, rootPath, sourcePath, archiveRoot, platformRuntime);
       continue;
     }
     if (!stat.isFile()) {
@@ -76,7 +79,7 @@ export async function exportWebappArchive(
   const installPath = item.installPath || getWebappDir(app, item.id);
   try {
     const zip = new JSZip();
-    await addWebappDirectoryToZip(zip, installPath);
+    await addWebappDirectoryToZip(zip, installPath, installPath, item.id, item.hosting === "platform");
     await fs.promises.mkdir(path.dirname(archivePath), { recursive: true });
     await pipeline(
       zip.generateNodeStream({
@@ -132,10 +135,11 @@ export async function disposeWebappInstallation(
   try {
     // Stopping a resource plugin removes its program but retains user data and
     // the successful unpublish state. Uninstall must still clean that data.
+    const independent = (target.installPath || getWebappDir(app, target.id)) === webappPlatformLayout(app, target.id).runtime;
     const publication = readWebappPublishState(app, target.id);
     const alreadyUnpublished = !fs.existsSync(target.installPath || getWebappDir(app, target.id)) &&
       publication?.status === "unpublished" && publication.active === false;
-    const unpublished = alreadyUnpublished
+    const unpublished = independent || alreadyUnpublished
       ? { ok: true, message: "" }
       : await unpublishWebapp(app, target.id, ports);
     if (!unpublished.ok) {
@@ -158,10 +162,9 @@ export async function disposeWebappInstallation(
       };
     }
     dependencies.windowManager.closeForDisposal(target.id);
-    fs.rmSync(target.installPath || getWebappDir(app, target.id), {
-      recursive: true,
-      force: true
-    });
+    if (independent && target.preserveUserData) {
+      for (const name of PLATFORM_PACKAGE_ENTRIES) fs.rmSync(path.join(webappPlatformLayout(app, target.id).runtime, name), { recursive: true, force: true });
+    } else fs.rmSync(independent ? webappPlatformLayout(app, target.id).root : target.installPath || getWebappDir(app, target.id), { recursive: true, force: true });
     if (!target.preserveUserData) {
       fs.rmSync(getDesktopWebappDataRoot(app, target.id), { recursive: true, force: true });
       fs.rmSync(getDesktopWebappStateRoot(app, target.id), { recursive: true, force: true });
@@ -238,7 +241,8 @@ export async function removeWebappItem(
   app: App,
   id: string,
   ports?: WebsIntegrationPorts,
-  dependencies?: WebappDisposalDependencies
+  dependencies?: WebappDisposalDependencies,
+  preserveUserData?: boolean
 ): Promise<WebappDeleteResult> {
   const items = readWebappItems(app, process.platform, ports);
   const target = findWebapp(items, id);
@@ -267,7 +271,8 @@ export async function removeWebappItem(
       id: target.id,
       label: target.label,
       installPath: target.installPath,
-      removeMarketRecord: target.sourceKind === "market"
+      removeMarketRecord: target.sourceKind === "market",
+      preserveUserData: preserveUserData ?? target.hosting === "platform"
     },
     message,
     ports,

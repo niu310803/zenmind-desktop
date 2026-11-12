@@ -127,7 +127,7 @@ test("shutdown coordinator is staged, report-driven, and does not leave a total 
   assert.ok(reportIndex >= 0 && markCompleteIndex > reportIndex);
 });
 
-test("shutdown coordinator starts graceful resources in parallel and marks complete only after its report", async () => {
+test("shutdown coordinator stops WebApps before their shared Platform bundle and completes after verification", async () => {
   const { createShutdownCleanupRunner } = require("../dist-electron/main/app/lifecycle/shutdown.js");
   const starts = [];
   const phases = [];
@@ -176,11 +176,12 @@ test("shutdown coordinator starts graceful resources in parallel and marks compl
 
   const resultPromise = runner();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(starts, ["static", "webapps", "services", "tunnel"]);
+  assert.deepEqual(starts, ["webapps", "static", "tunnel"]);
   assert.equal(completedReport, null);
   releaseStops();
 
   const report = await resultPromise;
+  assert.deepEqual(starts, ["webapps", "static", "tunnel", "services"]);
   assert.equal(report.ok, true);
   assert.equal(completedReport, report);
   assert.deepEqual(phases, [
@@ -393,7 +394,7 @@ test("WebApp removal closes its UI and refuses file deletion after a failed runt
   const disposalIndex = actions.indexOf("dependencies.windowManager.beginDisposal");
   const stopIndex = actions.indexOf("await dependencies.runtime.stop");
   const stopGuardIndex = actions.indexOf("if (!stopped.ok)");
-  const deleteIndex = actions.indexOf("fs.rmSync(target.installPath");
+  const deleteIndex = actions.indexOf("fs.rmSync(", stopGuardIndex);
 
   assert.ok(disposalIndex >= 0 && disposalIndex < stopIndex);
   assert.ok(stopIndex < stopGuardIndex && stopGuardIndex < deleteIndex);

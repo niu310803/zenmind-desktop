@@ -1,3 +1,4 @@
+import { releasePlatformInstall, activatePlatformInstall, commitPlatformInstall, rollbackPlatformInstall, recoverPlatformInstall, type PlatformInstallTransaction } from "./platform-install";
 import fs from "node:fs";
 import path from "node:path";
 import type { App } from "electron";
@@ -15,7 +16,7 @@ const RENAME_RETRY_DELAY_MS = 100;
 
 type InstallTransactionPhase = "prepared" | "backed-up" | "activated";
 
-export type WebappInstallTransaction = {
+type DesktopInstallTransaction = {
   schemaVersion: 1;
   id: string;
   phase: InstallTransactionPhase;
@@ -26,11 +27,13 @@ export type WebappInstallTransaction = {
   updatedAt: string;
 };
 
+export type WebappInstallTransaction = DesktopInstallTransaction | PlatformInstallTransaction;
+
 function transactionPath(app: App, id: string) {
   return path.join(getDesktopWebappStateRoot(app, id), TRANSACTION_FILE);
 }
 
-function writeTransaction(app: App, transaction: WebappInstallTransaction) {
+function writeTransaction(app: App, transaction: DesktopInstallTransaction) {
   const filePath = transactionPath(app, transaction.id);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(transaction, null, 2)}\n`, "utf8");
@@ -68,14 +71,14 @@ function pathIsInside(parentPath: string, candidatePath: string) {
   return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
 }
 
-function isSafeTransaction(app: App, transaction: WebappInstallTransaction) {
+function isSafeTransaction(app: App, transaction: DesktopInstallTransaction) {
   const expectedInstallPath = path.join(getDesktopWebappsDataRoot(app), transaction.id);
   return path.resolve(transaction.installPath) === path.resolve(expectedInstallPath) &&
     pathIsInside(getDesktopWebappInstallStagingRoot(app), transaction.stagingPath) &&
     pathIsInside(getDesktopWebappInstallBackupRoot(app), transaction.backupPath);
 }
 
-function restoreFailedActivation(app: App, transaction: WebappInstallTransaction) {
+function restoreFailedActivation(app: App, transaction: DesktopInstallTransaction) {
   if (fs.existsSync(transaction.backupPath)) {
     removeIfExists(transaction.installPath);
     renameWithRetry(transaction.backupPath, transaction.installPath);
@@ -91,14 +94,16 @@ export function activateWebappInstall(options: {
   id: string;
   installPath: string;
   stagingPath: string;
+  hosting?: "desktop" | "platform";
 }) {
+  if (options.hosting === "platform") return activatePlatformInstall(options.app, options.id, options.stagingPath);
   const backupRoot = getDesktopWebappInstallBackupRoot(options.app);
   fs.mkdirSync(backupRoot, { recursive: true });
   const backupPath = path.join(
     backupRoot,
     `${options.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`
   );
-  const transaction: WebappInstallTransaction = {
+  const transaction: DesktopInstallTransaction = {
     schemaVersion: 1,
     id: options.id,
     phase: "prepared",
@@ -133,7 +138,12 @@ export function activateWebappInstall(options: {
   }
 }
 
+export function preserveWebappInstallForRecovery(app: App, transaction: WebappInstallTransaction) {
+  if (transaction.schemaVersion === 2) releasePlatformInstall(app, transaction.id);
+}
+
 export function commitWebappInstall(app: App, transaction: WebappInstallTransaction) {
+  if (transaction.schemaVersion === 2) return commitPlatformInstall(app, transaction);
   for (const targetPath of [transaction.backupPath, transaction.stagingPath]) {
     try {
       removeIfExists(targetPath);
@@ -149,6 +159,7 @@ export function commitWebappInstall(app: App, transaction: WebappInstallTransact
 }
 
 export function rollbackWebappInstall(app: App, transaction: WebappInstallTransaction) {
+  if (transaction.schemaVersion === 2) return rollbackPlatformInstall(app, transaction);
   if (fs.existsSync(transaction.backupPath)) {
     removeIfExists(transaction.installPath);
     renameWithRetry(transaction.backupPath, transaction.installPath);
@@ -161,9 +172,9 @@ export function rollbackWebappInstall(app: App, transaction: WebappInstallTransa
   fs.rmSync(transactionPath(app, transaction.id), { force: true });
 }
 
-function readTransaction(filePath: string): WebappInstallTransaction | null {
+function readTransaction(filePath: string): DesktopInstallTransaction | null {
   try {
-    const value = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<WebappInstallTransaction>;
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<DesktopInstallTransaction>;
     if (
       value.schemaVersion !== 1 ||
       typeof value.id !== "string" ||
@@ -177,7 +188,7 @@ function readTransaction(filePath: string): WebappInstallTransaction | null {
     return {
       ...value,
       hadExisting: value.hadExisting === true
-    } as WebappInstallTransaction;
+    } as DesktopInstallTransaction;
   } catch {
     return null;
   }
@@ -193,6 +204,7 @@ export function recoverWebappInstallTransactions(app: App) {
     if (!entry.isDirectory()) {
       continue;
     }
+    if (recoverPlatformInstall(app, entry.name)) recovered.push(entry.name);
     const filePath = path.join(stateRoot, entry.name, TRANSACTION_FILE);
     if (!fs.existsSync(filePath)) {
       continue;

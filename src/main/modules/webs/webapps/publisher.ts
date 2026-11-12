@@ -276,6 +276,10 @@ export async function publishWebapp(
     const state = createState({ id: id.trim() }, { status: "error", message: t("webapp.notFound") });
     return { ok: false, info, state, message: state.message };
   }
+  if (item.hosting === "platform") {
+    const state = createState(item, { status: "error", message: t("webapp.platform.noPublish") });
+    return { ok: false, info, state, message: state.message };
+  }
   const previous = readWebappPublishState(app, item.id);
   let state = createState(item, {
     ...previous,
@@ -364,6 +368,7 @@ export async function syncPublishedWebappRoute(
   ports?: WebsIntegrationPorts
 ) {
   const previous = readWebappPublishState(app, item.id);
+  if (item.hosting === "platform") return null;
   if (!previous?.active || runtime.status !== "running" || !runtime.webUrl) {
     return previous;
   }

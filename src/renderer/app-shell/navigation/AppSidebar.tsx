@@ -2512,6 +2512,7 @@ export function AppSidebar({
       canClose:
         runtime.webOpenEntryKeys.includes(item.entryKey) &&
         !runtime.webClosePendingEntryKey,
+      ...(item.kind === "webapp" && item.hosting === "platform" ? { hosting: "platform" as const } : {}),
       canOpenAlternative: isWebapp
         ? item.openMode === "dialog"
           ? Boolean(runtime.onOpenWebappWorkspace)

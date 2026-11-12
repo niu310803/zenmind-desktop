@@ -284,12 +284,16 @@ export function createShutdownCleanupRunner(options: ShutdownCleanupRunnerOption
     const gracefulStopTimeoutMs = mode === "installer"
       ? (platform === "win32" ? 35_000 : 4_500)
       : 3_500;
+    // Independent WebApps execute the same Platform bundle. Finish their owned
+    // process-tree cleanup before service cleanup can act on that program root.
+    const stoppingWebapps = dependencies.stopWebapps(options.app);
+    const stoppingServices = stoppingWebapps.catch(() => undefined).then(() => dependencies.stopServices(options.app, {
+      stopCommandTimeoutMs: gracefulStopTimeoutMs
+    }));
     const [staticSitesResult, webappsResult, servicesResult, tunnelResult] = await Promise.allSettled([
       dependencies.stopStaticSites(),
-      dependencies.stopWebapps(options.app),
-      dependencies.stopServices(options.app, {
-        stopCommandTimeoutMs: gracefulStopTimeoutMs
-      }),
+      stoppingWebapps,
+      stoppingServices,
       dependencies.stopTunnel()
     ]);
 

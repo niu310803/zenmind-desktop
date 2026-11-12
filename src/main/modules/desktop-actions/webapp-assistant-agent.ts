@@ -3,6 +3,7 @@ import type { WebappEntry } from "../../../shared/contracts";
 import { ConnectorError } from "./webapp-platform-client";
 
 export async function selectWebappAssistantAgent(options: DesktopActionBridgeOptions, item: WebappEntry, requestedAgentKey?: unknown) {
+  if (item.hosting === "platform") throw new ConnectorError("assistant_agent_unavailable");
   if (requestedAgentKey !== undefined) {
     if (typeof requestedAgentKey !== "string" || !requestedAgentKey.trim() || requestedAgentKey.length > 256) throw new ConnectorError("invalid_args");
     const agents = await options.assistantBridge.listAgents();

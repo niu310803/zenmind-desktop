@@ -11,7 +11,7 @@ import { createMobileTunnelWebappUrl } from "./mobile-access";
 import { createDesktopMobileWebappItem } from "./mobile-view";
 
 function readOrderedWebappItems(app: App, manager: WebappManager): WebappEntry[] {
-  return applyWebOrder(app, manager.list(app)) as WebappEntry[];
+  return (applyWebOrder(app, manager.list(app)) as WebappEntry[]).filter(item => item.hosting !== "platform");
 }
 
 export function readDesktopMobileWebappItem(

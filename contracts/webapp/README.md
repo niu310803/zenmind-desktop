@@ -2,7 +2,7 @@
 
 机器契约由 `npm run webapp-contract:generate` 从源码生成；`webapp-contract:check` 检查漂移。`bridge.mjs` 与运行时 `/__desktop/bridge.js` 内容一致，生成文件不能手改。
 
-Manifest v2 的 `target` 包含 `linux-x64`，供 Linux Compose 包表达目标平台；不支持 `linux-arm64` 或 `linux-amd64` 别名。Desktop 识别语法后仍按本机平台拒绝 Linux 包。`fixtures/manifest-v2.json` 保存可复用的完整合法/非法输入（`schemaVersion: 1`，每个 case 的 `valid` 仅表示 Manifest 语法校验结果），由源码与生成 validator 共同验证；包内文件和宿主能力需要另外校验。Platform 安装器尚未实现，后续接入时应消费相同 fixture，不把该契约更新视为托管能力交付。
+Manifest v2 的 `target` 包含 `linux-x64`，供 Linux Compose 包表达目标平台；不支持 `linux-arm64` 或 `linux-amd64` 别名。Desktop 识别语法后仍按本机平台拒绝 Linux 包。`fixtures/manifest-v2.json` 保存可复用的完整合法/非法输入（`schemaVersion: 1`，每个 case 的 `valid` 仅表示 Manifest 语法校验结果），由源码与生成 validator 共同验证；包内文件和宿主能力需要另外校验。Platform Compose 与 single 消费同一 schema/fixture；运行能力、隔离前置条件与目标平台验收以 Platform 文档为准。
 
 浏览器：
 
@@ -230,3 +230,5 @@ for await (const event of agent.observe({ runId: accepted.runId })) {
   if (event.type === 'text.delta') renderText(event.text);
 }
 ```
+
+`hosting` 缺省 `desktop`，`platform` 表示独立单应用 Platform。第一期要求 `minPlatformVersion`、`target: any`，后端只能为 `node`；Desktop 专用 Agent 选择、Kanban 与隔离环境覆写均被拒绝。生成 validator 与 fixture 维护语义校验，JSON Schema 主要表达结构；包内 Agent/Skill 文件还由包校验与 Platform 的目录加载校验共同确认。

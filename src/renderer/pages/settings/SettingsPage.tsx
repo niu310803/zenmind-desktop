@@ -5389,12 +5389,13 @@ export function SettingsPage({
                           </div>
                           <div className="webapp-detail-meta">
                             <span className="webapp-state-badge"><span className={`status-dot ${getWebappRuntimeStatusClass(runtimeState)}`} aria-hidden="true" />{getWebappRuntimeStatusLabel(runtimeState)}</span>
-                            <span>{publishStatusLabel}</span>
+                            <span>{selectedWebapp.hosting === "platform" ? t("settings.webapps.platformHosting") : publishStatusLabel}</span>
                             <span>{selectedWebapp.version}</span>
                           </div>
                         </div>
                       </div>
                       <div className="service-title-actions service-primary-actions">
+                        {selectedWebapp.hosting !== "platform" && (
                         <SettingsActionButton
                           icon="publish"
                           label={webappPublishPendingId === selectedWebapp.id
@@ -5406,6 +5407,7 @@ export function SettingsPage({
                           loading={webappPublishPendingId === selectedWebapp.id}
                           onClick={() => void handlePublishWebapp(selectedWebapp)}
                         />
+                        )}
                         <SettingsActionButton
                           label={t("settings.webapps.start")}
                           tone="primary"
@@ -5441,7 +5443,7 @@ export function SettingsPage({
                         <SettingsActionButton label={t("settings.webapps.detailsAction")} icon="info" onClick={() => setWebappDetailsOpen(true)} />
                       </div>
                     </div>
-                    {publishState?.active && publishState.url ? (
+                    {selectedWebapp.hosting !== "platform" && publishState?.active && publishState.url ? (
                       <div className="webapp-public-url">
                         <span>{t("settings.webapps.publishUrl")}</span>
                         <button
@@ -5473,7 +5475,7 @@ export function SettingsPage({
                           required
                         />
                       </label>
-                      <div className="webapp-system-access-row">
+                      {selectedWebapp.hosting !== "platform" && <div className="webapp-system-access-row">
                         <div className="web-detail-form-item">
                           <span className="web-detail-label-with-help">
                             {t("settings.webapps.allowLanAccess")}
@@ -5521,7 +5523,7 @@ export function SettingsPage({
                             ]}
                           />
                         </div>
-                      </div>
+                      </div>}
                       <div className="webapp-user-config-heading"><h3>{t("settings.webapps.userConfigTitle")}</h3></div>
                       {webappUserConfigLoading ? (
                         <div className="webapp-user-config-empty">{t("settings.webapps.userConfigLoading")}</div>
@@ -5577,7 +5579,7 @@ export function SettingsPage({
                     onCancel={() => setWebappDetailsOpen(false)}
                   >
                     <Tabs
-                      defaultActiveKey="publish"
+                      defaultActiveKey={selectedWebapp.hosting === "platform" ? "runtime" : "publish"}
                       items={[
                         {
                           key: "publish",
@@ -5622,7 +5624,7 @@ export function SettingsPage({
                                   ? new Date(publishState.updatedAt).toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US")
                                   : "")}
                               </div>
-                              {publishState?.active && publishState.url ? (
+                              {selectedWebapp.hosting !== "platform" && publishState?.active && publishState.url ? (
                                 <div className="web-publish-share-card">
                                   <QRCode
                                     value={publishState.url}
@@ -5680,6 +5682,7 @@ export function SettingsPage({
                           children: (
                             <div className="webapp-details-tab">
                               <div className="web-detail-grid">
+                                {selectedWebapp.hosting === "platform" ? renderWebDetailRow(t("settings.webapps.ownership"), t("settings.webapps.platformHosting")) : null}
                                 {renderWebDetailRow(t("settings.webapps.status"), getWebappRuntimeStatusLabel(runtimeState))}
                                 {renderWebDetailRow(t("settings.webapps.webUrl"), runtimeState?.webUrl)}
                                 {renderWebDetailRow(t("settings.webapps.backendUrl"), runtimeState?.backendUrl)}
@@ -5779,7 +5782,7 @@ export function SettingsPage({
                             </div>
                           )
                         }
-                      ]}
+                      ].filter(tab => selectedWebapp.hosting !== "platform" || tab.key !== "publish")}
                     />
                   </Modal>
                 </article>

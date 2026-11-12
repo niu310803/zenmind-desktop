@@ -17,6 +17,8 @@ import type { WebsIntegrationPorts } from "../integration-ports";
 import { DESKTOP_BROWSER_WEBVIEW_PARTITION } from "../../../../shared/browser-surfaces";
 
 type WebappWindowRecord = {
+  app: App;
+  item: WebappEntry;
   window: BrowserWindow;
   webappView: WebContentsView;
   ownerWindow: BrowserWindow | null;
@@ -119,7 +121,7 @@ function buildWindowOptions(app: App, item: WebappEntry) {
     modal: false,
     backgroundColor: "#FFFFFF",
     webPreferences: {
-      partition: DESKTOP_BROWSER_WEBVIEW_PARTITION,
+      partition: item.hosting === "platform" ? `webapp-platform:${item.id}` : DESKTOP_BROWSER_WEBVIEW_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -259,8 +261,8 @@ export class WebappWindowManager {
     const targetWindow = new BrowserWindow(buildWindowOptions(app, item));
     const webappView = new WebContentsView({
       webPreferences: {
-        preload: this.authPreloadPath || undefined,
-        partition: DESKTOP_BROWSER_WEBVIEW_PARTITION,
+        preload: item.hosting === "platform" ? undefined : this.authPreloadPath || undefined,
+        partition: item.hosting === "platform" ? `webapp-platform:${item.id}` : DESKTOP_BROWSER_WEBVIEW_PARTITION,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -269,6 +271,7 @@ export class WebappWindowManager {
       }
     });
     const record: WebappWindowRecord = {
+      app, item,
       window: targetWindow,
       webappView,
       ownerWindow,
@@ -332,7 +335,7 @@ export class WebappWindowManager {
         return;
       }
       this.windows.delete(normalizedId);
-      if (current.suppressRuntimeStop) {
+      if (current.suppressRuntimeStop || current.item.hosting === "platform") {
         return;
       }
       void this.runtime.stop(app, normalizedId).finally(() => {
@@ -350,7 +353,7 @@ export class WebappWindowManager {
       )}`;
       await Promise.all([
         targetWindow.loadURL(shellUrl),
-        webappView.webContents.loadURL(gatewayUrl)
+        (item.hosting === "platform" ? this.runtime.platformInstances.openGuest(app, item.id, webappView.webContents) : webappView.webContents.loadURL(gatewayUrl))
       ]);
       layoutWebappView();
       return command;
@@ -408,7 +411,7 @@ export class WebappWindowManager {
       return;
     }
     record.gatewayUrl = gatewayUrl;
-    await record.webappView.webContents.loadURL(gatewayUrl);
+    await (record.item.hosting === "platform" ? this.runtime.platformInstances.openGuest(record.app, record.item.id, record.webappView.webContents) : record.webappView.webContents.loadURL(gatewayUrl));
   }
 }
 

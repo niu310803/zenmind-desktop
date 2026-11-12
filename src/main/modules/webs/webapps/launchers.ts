@@ -146,11 +146,15 @@ function managedEnv(context: WebappLauncherContext) {
     PORT: String(context.backendPort ?? ""),
     WEBAPP_ID: context.item.id,
     WEBAPP_ROOT: context.webappDir,
+    WEBAPP_DIR: context.webappDir,
+    WEBAPP_KEY: context.item.key,
+    NODE_ENV: "production",
     WEBAPP_DATA_DIR: context.dataDir,
     WEBAPP_STATE_DIR: context.stateDir,
     WEBAPP_LOG_DIR: context.logDir,
     WEBAPP_MANIFEST_PATH: path.join(context.webappDir, WEBAPP_FILE),
     WEBAPP_USER_CONFIG_PATH: path.join(context.stateDir, "user-config.json"),
+    WEBAPP_USER_CONFIG_FILE: path.join(context.stateDir, "user-config.json"),
     DESKTOP_ACTION_BRIDGE_URL: scopedActions
       ? `http://${HOST}:${requireWebsIntegrationPorts(context.integrationPorts).getConfiguredDesktopActionBridgePort(context.app)}/webapps`
       : `http://${HOST}:${requireWebsIntegrationPorts(context.integrationPorts).getConfiguredDesktopActionBridgePort(context.app)}`,

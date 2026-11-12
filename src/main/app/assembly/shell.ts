@@ -105,6 +105,8 @@ export function assembleAppShell(dependencies: AssembleAppShellDependencies) {
     isDevToolsShortcut,
     isGlobalSearchShortcut,
     isDesktopCloseShortcut,
+    platformWebappPartitionForUrl: (url) => dependencies.websFacade.webappRuntime.platformInstances.partitionForUrl(url),
+    configurePlatformWebappGuest: (contents) => dependencies.websFacade.webappRuntime.platformInstances.configureGuest(app, contents),
     canAttachLocalDocument: (url, partition, ownerWebContentsId) => dependencies.localDocuments.canAttach(url, partition, ownerWebContentsId),
     configureLocalDocumentGuest: (contents) => dependencies.localDocuments.configureGuest(contents),
     isWorkPanelWebview: (contents) => {
