@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { App } from "electron";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   getDesktopWebappInstallBackupRoot,
   getDesktopWebappInstallStagingRoot,
@@ -8,12 +9,14 @@ import {
   getDesktopWebappsDataRoot,
   getDesktopWebappsStateRoot
 } from "../../../infrastructure/filesystem/user-paths";
+import { removeWebappDirectory } from "./remove-directory";
 
 const TRANSACTION_FILE = "install-transaction.json";
 const RENAME_RETRY_COUNT = 5;
 const RENAME_RETRY_DELAY_MS = 100;
+const WINDOWS_RENAME_LOCK_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOTEMPTY"]);
 
-type InstallTransactionPhase = "prepared" | "backed-up" | "activated";
+type InstallTransactionPhase = "prepared" | "backed-up" | "activated" | "rolling-back";
 
 export type WebappInstallTransaction = {
   schemaVersion: 1;
@@ -30,37 +33,70 @@ function transactionPath(app: App, id: string) {
   return path.join(getDesktopWebappStateRoot(app, id), TRANSACTION_FILE);
 }
 
-function writeTransaction(app: App, transaction: WebappInstallTransaction) {
+export function hasPendingWebappInstallTransaction(app: App, id: string) {
+  return fs.existsSync(transactionPath(app, id));
+}
+
+async function writeTransaction(app: App, transaction: WebappInstallTransaction, exclusive = false) {
   const filePath = transactionPath(app, transaction.id);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(transaction, null, 2)}\n`, "utf8");
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  const content = `${JSON.stringify(transaction, null, 2)}\n`;
+  if (exclusive) {
+    await fs.promises.writeFile(filePath, content, { encoding: "utf8", flag: "wx" });
+    return;
+  }
+  const temporaryPath = `${filePath}.${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    await fs.promises.writeFile(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+    await renameWithRetry(temporaryPath, filePath);
+  } catch (error) {
+    await fs.promises.rm(temporaryPath, { force: true }).catch((cleanupError) => {
+      console.warn("failed to clean temporary WebApp install journal", transaction.id, cleanupError);
+    });
+    throw error;
+  }
 }
 
-function waitForRenameRetry() {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_RETRY_DELAY_MS);
+async function setTransactionPhase(
+  app: App,
+  transaction: WebappInstallTransaction,
+  phase: InstallTransactionPhase
+) {
+  const updated = { ...transaction, phase, updatedAt: new Date().toISOString() };
+  await writeTransaction(app, updated);
+  Object.assign(transaction, updated);
 }
 
-function renameWithRetry(sourcePath: string, targetPath: string) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < RENAME_RETRY_COUNT; attempt += 1) {
+async function renameWithRetry(
+  sourcePath: string,
+  targetPath: string,
+  platform: NodeJS.Platform = process.platform
+) {
+  if (platform === "darwin") {
+    await fs.promises.rename(sourcePath, targetPath);
+    return;
+  }
+  if (platform !== "win32") {
+    await fs.promises.rename(sourcePath, targetPath);
+    return;
+  }
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      fs.renameSync(sourcePath, targetPath);
+      await fs.promises.rename(sourcePath, targetPath);
       return;
     } catch (error) {
-      lastError = error;
-      if (process.platform !== "win32") {
-        break;
+      const code = error && typeof error === "object" && "code" in error ? error.code : "";
+      if (attempt >= RENAME_RETRY_COUNT || typeof code !== "string" || !WINDOWS_RENAME_LOCK_CODES.has(code)) {
+        throw error;
       }
-      waitForRenameRetry();
+      // Let Electron finish releasing handles while Windows retains a short lock.
+      await delay(RENAME_RETRY_DELAY_MS);
     }
   }
-  throw lastError;
 }
 
 function removeIfExists(targetPath: string) {
-  if (fs.existsSync(targetPath)) {
-    fs.rmSync(targetPath, { recursive: true, force: true });
-  }
+  return removeWebappDirectory(targetPath);
 }
 
 function pathIsInside(parentPath: string, candidatePath: string) {
@@ -75,25 +111,22 @@ function isSafeTransaction(app: App, transaction: WebappInstallTransaction) {
     pathIsInside(getDesktopWebappInstallBackupRoot(app), transaction.backupPath);
 }
 
-function restoreFailedActivation(app: App, transaction: WebappInstallTransaction) {
-  if (fs.existsSync(transaction.backupPath)) {
-    removeIfExists(transaction.installPath);
-    renameWithRetry(transaction.backupPath, transaction.installPath);
-  } else if (transaction.phase === "activated") {
-    removeIfExists(transaction.installPath);
-  }
-  removeIfExists(transaction.stagingPath);
-  fs.rmSync(transactionPath(app, transaction.id), { force: true });
+export async function markWebappInstallRollback(app: App, transaction: WebappInstallTransaction) {
+  if (transaction.phase === "rolling-back") return;
+  await setTransactionPhase(app, transaction, "rolling-back");
 }
 
-export function activateWebappInstall(options: {
+export async function activateWebappInstall(options: {
   app: App;
   id: string;
   installPath: string;
   stagingPath: string;
 }) {
+  if (hasPendingWebappInstallTransaction(options.app, options.id)) {
+    throw new Error(`Cannot install WebApp ${options.id}: an installation transaction is pending recovery.`);
+  }
   const backupRoot = getDesktopWebappInstallBackupRoot(options.app);
-  fs.mkdirSync(backupRoot, { recursive: true });
+  await fs.promises.mkdir(backupRoot, { recursive: true });
   const backupPath = path.join(
     backupRoot,
     `${options.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -108,24 +141,21 @@ export function activateWebappInstall(options: {
     backupPath,
     updatedAt: new Date().toISOString()
   };
-  writeTransaction(options.app, transaction);
+  // Never overwrite recovery evidence left by a failed or competing install.
+  await writeTransaction(options.app, transaction, true);
 
   try {
     if (fs.existsSync(options.installPath)) {
-      renameWithRetry(options.installPath, backupPath);
+      await renameWithRetry(options.installPath, backupPath);
     }
-    transaction.phase = "backed-up";
-    transaction.updatedAt = new Date().toISOString();
-    writeTransaction(options.app, transaction);
+    await setTransactionPhase(options.app, transaction, "backed-up");
 
-    renameWithRetry(options.stagingPath, options.installPath);
-    transaction.phase = "activated";
-    transaction.updatedAt = new Date().toISOString();
-    writeTransaction(options.app, transaction);
+    await renameWithRetry(options.stagingPath, options.installPath);
+    await setTransactionPhase(options.app, transaction, "activated");
     return transaction;
   } catch (error) {
     try {
-      restoreFailedActivation(options.app, transaction);
+      await rollbackWebappInstall(options.app, transaction);
     } catch (restoreError) {
       console.warn("failed to restore WebApp after install activation error", options.id, restoreError);
     }
@@ -133,32 +163,49 @@ export function activateWebappInstall(options: {
   }
 }
 
-export function commitWebappInstall(app: App, transaction: WebappInstallTransaction) {
+export async function commitWebappInstall(app: App, transaction: WebappInstallTransaction) {
+  let cleaned = true;
   for (const targetPath of [transaction.backupPath, transaction.stagingPath]) {
     try {
-      removeIfExists(targetPath);
+      await removeIfExists(targetPath);
     } catch (error) {
+      cleaned = false;
       console.warn("failed to clean committed WebApp install artifact", transaction.id, targetPath, error);
     }
   }
+  // A later startup must still be able to find artifacts whose locks outlived commit.
+  if (!cleaned) return;
   try {
-    fs.rmSync(transactionPath(app, transaction.id), { force: true });
+    await fs.promises.rm(transactionPath(app, transaction.id), { force: true });
   } catch (error) {
     console.warn("failed to remove committed WebApp install journal", transaction.id, error);
   }
 }
 
-export function rollbackWebappInstall(app: App, transaction: WebappInstallTransaction) {
+export async function rollbackWebappInstall(app: App, transaction: WebappInstallTransaction) {
+  if (transaction.phase === "prepared" && !fs.existsSync(transaction.backupPath)) {
+    if (transaction.hadExisting && !fs.existsSync(transaction.installPath)) {
+      throw new Error(`Cannot rollback WebApp ${transaction.id}: original directory is missing.`);
+    }
+    await removeIfExists(transaction.stagingPath);
+    await fs.promises.rm(transactionPath(app, transaction.id), { force: true });
+    return;
+  }
+  await markWebappInstallRollback(app, transaction);
   if (fs.existsSync(transaction.backupPath)) {
-    removeIfExists(transaction.installPath);
-    renameWithRetry(transaction.backupPath, transaction.installPath);
+    await removeIfExists(transaction.installPath);
+    // With the failed package gone, prepared recovery can restore the backup
+    // whether the process exits before or after the rename below.
+    await setTransactionPhase(app, transaction, "prepared");
+    await renameWithRetry(transaction.backupPath, transaction.installPath);
   } else if (!transaction.hadExisting) {
-    removeIfExists(transaction.installPath);
+    await removeIfExists(transaction.installPath);
+    await setTransactionPhase(app, transaction, "prepared");
   } else {
     throw new Error(`Cannot rollback WebApp ${transaction.id}: backup directory is missing.`);
   }
-  removeIfExists(transaction.stagingPath);
-  fs.rmSync(transactionPath(app, transaction.id), { force: true });
+  await removeIfExists(transaction.stagingPath);
+  await fs.promises.rm(transactionPath(app, transaction.id), { force: true });
 }
 
 function readTransaction(filePath: string): WebappInstallTransaction | null {
@@ -167,7 +214,7 @@ function readTransaction(filePath: string): WebappInstallTransaction | null {
     if (
       value.schemaVersion !== 1 ||
       typeof value.id !== "string" ||
-      (value.phase !== "prepared" && value.phase !== "backed-up" && value.phase !== "activated") ||
+      (value.phase !== "prepared" && value.phase !== "backed-up" && value.phase !== "activated" && value.phase !== "rolling-back") ||
       typeof value.installPath !== "string" ||
       typeof value.stagingPath !== "string" ||
       typeof value.backupPath !== "string"
@@ -183,13 +230,22 @@ function readTransaction(filePath: string): WebappInstallTransaction | null {
   }
 }
 
-export function recoverWebappInstallTransactions(app: App) {
+function isSameTransaction(left: WebappInstallTransaction, right: WebappInstallTransaction) {
+  return left.id === right.id && left.phase === right.phase && left.hadExisting === right.hadExisting &&
+    left.installPath === right.installPath && left.stagingPath === right.stagingPath &&
+    left.backupPath === right.backupPath && left.updatedAt === right.updatedAt;
+}
+
+export async function recoverWebappInstallTransactions(
+  app: App,
+  options: { beforeRecovery?: (transaction: WebappInstallTransaction) => Promise<boolean> } = {}
+) {
   const stateRoot = getDesktopWebappsStateRoot(app);
   if (!fs.existsSync(stateRoot)) {
     return [];
   }
   const recovered: string[] = [];
-  for (const entry of fs.readdirSync(stateRoot, { withFileTypes: true })) {
+  for (const entry of await fs.promises.readdir(stateRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) {
       continue;
     }
@@ -197,23 +253,35 @@ export function recoverWebappInstallTransactions(app: App) {
     if (!fs.existsSync(filePath)) {
       continue;
     }
-    const transaction = readTransaction(filePath);
+    let transaction = readTransaction(filePath);
     if (
       !transaction ||
       transaction.id !== entry.name ||
       !isSafeTransaction(app, transaction)
     ) {
-      fs.rmSync(filePath, { force: true });
+      // An exclusive journal creation can still be writing its first bytes.
+      // Malformed or unsafe evidence must never be deleted by recovery.
+      console.warn("ignored invalid WebApp install transaction journal", filePath);
       continue;
     }
     try {
-      if (!fs.existsSync(transaction.installPath) && fs.existsSync(transaction.backupPath)) {
-        renameWithRetry(transaction.backupPath, transaction.installPath);
-      } else if (fs.existsSync(transaction.installPath)) {
-        removeIfExists(transaction.backupPath);
+      if (options.beforeRecovery && !await options.beforeRecovery(transaction)) continue;
+      const current = readTransaction(filePath);
+      // Admission may wait for runtime cleanup. Do not apply an old snapshot to
+      // a journal another operation has replaced or already completed.
+      if (!current || !isSameTransaction(transaction, current) || !isSafeTransaction(app, current)) continue;
+      transaction = current;
+      if (transaction.phase === "rolling-back") {
+        await rollbackWebappInstall(app, transaction);
+      } else {
+        if (!fs.existsSync(transaction.installPath) && fs.existsSync(transaction.backupPath)) {
+          await renameWithRetry(transaction.backupPath, transaction.installPath);
+        } else if (fs.existsSync(transaction.installPath)) {
+          await removeIfExists(transaction.backupPath);
+        }
+        await removeIfExists(transaction.stagingPath);
+        await fs.promises.rm(filePath, { force: true });
       }
-      removeIfExists(transaction.stagingPath);
-      fs.rmSync(filePath, { force: true });
       recovered.push(transaction.id);
     } catch (error) {
       console.warn("failed to recover WebApp install transaction", transaction.id, error);
@@ -224,5 +292,7 @@ export function recoverWebappInstallTransactions(app: App) {
 
 export const __installTransactionTestInternals = {
   TRANSACTION_FILE,
-  transactionPath
+  transactionPath,
+  renameWithRetry,
+  RENAME_RETRY_COUNT
 };

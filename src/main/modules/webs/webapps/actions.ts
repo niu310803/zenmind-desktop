@@ -20,6 +20,8 @@ import {
 import { webappRuntime } from "./runtime";
 import { readWebappPublishState, unpublishWebapp } from "./publisher";
 import { webappWindowManager } from "./window-manager";
+import { removeWebappDirectory } from "./remove-directory";
+import { hasPendingWebappInstallTransaction } from "./install-transaction";
 
 function findWebapp(items: WebappEntry[], id: string) {
   const normalizedId = id.trim();
@@ -128,8 +130,17 @@ export async function disposeWebappInstallation(
     windowManager: webappWindowManager
   }
 ) {
-  const releaseDisposal = dependencies.windowManager.beginDisposal(target.id, { closeImmediately: false });
+  if (dependencies.runtime.isDisposing(target.id)) {
+    return { ok: false, message: t("webapp.removing") };
+  }
+  const releaseDisposal = dependencies.windowManager.beginDisposal(target.id, {
+    closeImmediately: false,
+    preventRuntimeStart: true
+  });
   try {
+    if (hasPendingWebappInstallTransaction(app, target.id)) {
+      return { ok: false, message: t("webapp.installRecoveryRequired") };
+    }
     // Stopping a resource plugin removes its program but retains user data and
     // the successful unpublish state. Uninstall must still clean that data.
     const publication = readWebappPublishState(app, target.id);
@@ -157,15 +168,12 @@ export async function disposeWebappInstallation(
         })
       };
     }
-    dependencies.windowManager.closeForDisposal(target.id);
-    fs.rmSync(target.installPath || getWebappDir(app, target.id), {
-      recursive: true,
-      force: true
-    });
+    await dependencies.windowManager.closeForDisposal(target.id);
+    await removeWebappDirectory(target.installPath || getWebappDir(app, target.id));
     if (!target.preserveUserData) {
-      fs.rmSync(getDesktopWebappDataRoot(app, target.id), { recursive: true, force: true });
-      fs.rmSync(getDesktopWebappStateRoot(app, target.id), { recursive: true, force: true });
-      fs.rmSync(getDesktopWebappLogsRoot(app, target.id), { recursive: true, force: true });
+      await removeWebappDirectory(getDesktopWebappDataRoot(app, target.id));
+      await removeWebappDirectory(getDesktopWebappStateRoot(app, target.id));
+      await removeWebappDirectory(getDesktopWebappLogsRoot(app, target.id));
       removeWebappPreferences(app, target.id);
     }
     if (target.removeMarketRecord) {

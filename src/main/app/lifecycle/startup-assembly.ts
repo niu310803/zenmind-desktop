@@ -34,7 +34,7 @@ import { type AppShellRuntime } from "../../modules/shell";
 import {
   startTunnelHubRuntimeIfEnabled
 } from "../../modules/tunnel";
-import { recoverWebappInstallTransactions } from "../../modules/webs";
+import { type WebappManager } from "../../modules/webs";
 import { initializeMainI18n, setMainLocale, t } from "../../support/i18n/main-i18n";
 import { safeConsoleError } from "../../support/logging/safe-console";
 import {
@@ -177,6 +177,7 @@ export interface StartNonCoreDesktopRuntimeDependencies {
   nonCoreDesktopRuntimeStarted: boolean;
   readonly maintainDesktopSsoSession: () => Promise<string>;
   readonly runNonCoreStartupTask: (label: string, task: () => void) => void;
+  readonly webappManager: Pick<WebappManager, "recoverInstallations">;
   readonly petRuntime: Pick<DesktopPetRuntime, "getSettings">;
   readonly startupPlatform: NodeJS.Platform;
   readonly showDesktopPetWindow: DesktopPetRuntime["showWindow"];
@@ -214,7 +215,11 @@ export function startNonCoreDesktopRuntime(dependencies: StartNonCoreDesktopRunt
     powerMonitor?.removeListener("resume", resumeSso);
   });
   dependencies.runNonCoreStartupTask("webapp install recovery", () => {
-    recoverWebappInstallTransactions(app);
+    void dependencies.webappManager.recoverInstallations(app).catch((error: unknown) => {
+      safeConsoleError("failed to recover WebApp installations", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   });
   dependencies.runNonCoreStartupTask("desktop pet", () => {
     const desktopPetSettings = dependencies.petRuntime.getSettings();
