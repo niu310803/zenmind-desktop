@@ -902,7 +902,7 @@ export const zhCNMessages = {
   "sidebar.bootstrapGuide.dismiss": "关闭新手引导",
   "sidebar.common.processing": "处理中...",
   "sidebar.chat.exportFailed": "导出对话失败。",
-  "sidebar.chat.dragExportHint": "向右拖出保存为 Markdown。准备期间请保持按住鼠标。",
+  "sidebar.chat.dragExportHint": "向左或向右拖到 Finder 或资源管理器保存为 Markdown；若尚在准备，请稍后重新拖动。",
   "sidebar.chat.dragExportPreparing": "准备导出…",
   "sidebar.chat.exportHtmlFailed": "导出静态 HTML 失败。",
   "sidebar.chat.exportedTo": "已导出到：\n{path}",

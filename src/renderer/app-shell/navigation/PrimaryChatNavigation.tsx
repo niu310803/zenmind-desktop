@@ -16,7 +16,7 @@ type Props = {
   onOpen: (agent: AssistantNavAgentItem) => void;
   onContextMenu: (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, agent: AssistantNavAgentItem) => void;
   itemProps: (id: string) => HTMLAttributes<HTMLButtonElement>;
-  fileDragProps?: (chatId: string) => HTMLAttributes<HTMLButtonElement>;
+  fileDragProps?: (chatId: string, revision?: number) => HTMLAttributes<HTMLButtonElement>;
 };
 
 export function PrimaryChatNavigation(props: Props) {
@@ -32,7 +32,7 @@ export function PrimaryChatNavigation(props: Props) {
       const roving = props.itemProps(`primary:${agent.agentKey}`);
       return <div key={agent.agentKey} className="primary-chat-row">
         <button data-agent-pointer-idle="" data-agent-identity="" data-primary-agent-key={agent.agentKey}
-          type="button" {...roving} {...(chat && props.fileDragProps?.(chat.chatId))} className={`primary-chat-item${active ? " is-active" : ""}`}
+          type="button" {...roving} {...(chat && props.fileDragProps?.(chat.chatId, chat.updatedAt))} className={`primary-chat-item${active ? " is-active" : ""}`}
           aria-current={active ? "page" : undefined}
           title={`${agent.displayName}\n${preview}${status ? ` · ${status}` : ""}${chat ? `\n${t("sidebar.chat.dragExportHint")}` : ""}`}
           aria-label={`${agent.displayName}, ${preview}${status ? `, ${status}` : ""}`}

@@ -5302,7 +5302,7 @@ export function AppSidebar({
         onDoubleClick={(event) => handleAssistantChatDoubleClick(event, chat)}
         {...getSidebarRovingItemProps(focusId, roving)}
         {...dragActivator?.listeners}
-        {...chatFileDrag.bind(chat.chatId)}
+        {...chatFileDrag.bind(chat.chatId, chat.updatedAt)}
         title={t("sidebar.chat.dragExportHint")}
         aria-disabled={dragActivator?.attributes["aria-disabled"]}
         aria-pressed={dragActivator?.attributes["aria-pressed"]}

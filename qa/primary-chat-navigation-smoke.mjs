@@ -22,7 +22,7 @@ import {createTranslator} from './src/shared/i18n';
 import './src/renderer/styles.css';
 window.electronAPI={assistant:{archiveChat:async id=>{window.qa.archives.push(id);window.qa.clearMain(id);return {ok:true};},getProjectCreationOptions:async()=>({ok:false,message:'fixture'})},sidebarContextMenu:{popup:async request=>{window.qa.menus.push(request);const actionId=window.qa.menuAction;window.qa.menuAction=null;return {actionId};}}};
 Object.assign(window.electronAPI.assistant, {
- prepareChatFileDrag:request=>{window.qa.exports.push(request);return new Promise(resolve=>{window.qa.resolveExport=resolve;});},
+ prepareChatFileDrag:request=>{window.qa.exports.push(request);return window.qa.deferExport?new Promise(resolve=>{window.qa.resolveExport=resolve;}):Promise.resolve({ok:true});},
  startChatFileDrag:async id=>{window.qa.fileDrags.push(id);return {ok:true};},
  cancelChatFileDrag:id=>window.qa.cancelledExports.push(id),
 });
@@ -31,7 +31,8 @@ const chat=(id,agentKey,patch={})=>({chatId:id,chatName:id,agentKey,createdAt:ep
 const initialAgents=Array.from({length:18},(_,i)=>({agentKey:'agent-'+i,displayName:['普通助理','编程项目','知识库','协作团队','执行器','代理'][i%6]+' '+i,mode:i<5?'BOT':['GENERAL','CODER','KBASE','TEAM','EXECUTOR','PROXY'][i%6],workspaceDir:i===0?'':'/fixture/project-'+i,role:'',recentChats:[chat('recent-'+i,'agent-'+i)],projectChats:[chat('recent-'+i,'agent-'+i)],primaryChat:i===1?undefined:chat('primary-'+i,'agent-'+i,{hasActiveRun:i===2,hasPendingAwaiting:i===3,isRead:i!==4}),chatCount:1,unreadCount:0,unreadChatCount:0,hasPendingAwaiting:false,latestChatId:'recent-'+i,latestPreview:'preview'}));
 window.confirm=()=>window.qa.confirm!==false;
 window.qa={archives:[],routes:[],histories:[],orders:[],chatOrders:[],menus:[],agentOrders:[],set:null,state:null};
-Object.assign(window.qa,{exports:[],fileDrags:[],cancelledExports:[]});
+Object.assign(window.qa,{exports:[],fileDrags:[],cancelledExports:[],nativeDragStarts:0});
+document.addEventListener('dragstart',()=>{window.qa.nativeDragStarts++;},true);
 function Fixture(){
  const [agents,setAgents]=useState(initialAgents);window.qa.clearMain=id=>setAgents(items=>items.map(agent=>agent.primaryChat?.chatId===id?{...agent,primaryChat:undefined}:agent));window.qa.resetOrder=()=>setAgents(initialAgents);window.qa.removeBots=()=>setAgents(items=>items.filter(agent=>agent.mode!=='BOT'));window.qa.longText=()=>setAgents(items=>items.map(agent=>agent.agentKey==='agent-4'?{...agent,displayName:'机器人名称很长时应当渐隐而不是省略号'.repeat(4),primaryChat:{...agent.primaryChat,isRead:true,lastRunContent:'机器人回复内容很长时应当渐隐而不是省略号'.repeat(4)}}:agent));
  const [options,setOptions]=useState({debug:false,collapsed:false,windows:false,fullScreen:false,error:''});
@@ -72,29 +73,37 @@ const click=selector=>js('document.querySelector('+JSON.stringify(selector)+').c
 async function verifyChatFileDrag(selector) {
  await js('document.querySelector('+JSON.stringify(selector)+').scrollIntoView({block:"center",behavior:"instant"})');
  const rect=await js('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');
- const from={x:Math.round(rect.left+30),y:Math.round(rect.top+rect.height/2)}, to={x:Math.round(rect.left+110),y:Math.round(rect.top+rect.height/2)};
+ const from={x:Math.round(rect.left+30),y:Math.round(rect.top+rect.height/2)};
+ const right={x:from.x+80,y:from.y},left={x:from.x-24,y:from.y},outside={x:400,y:from.y};
  const mouse=(type,point,held)=>win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...point,button:type==='mouseMoved'&&!held?'none':'left',buttons:held?1:0,clickCount:type==='mouseMoved'?0:1});
- const before=await js('({exports:window.qa.exports.length,drags:window.qa.fileDrags.length,orders:window.qa.chatOrders.length,routes:window.qa.routes.length})');
- const start=async()=>{await mouse('mouseMoved',from,false);await mouse('mousePressed',from,true);await mouse('mouseMoved',to,true);};
- // Slow export released before completion must not start a late OS drag.
- await start();await until('window.qa.exports.length==='+String(before.exports+1));
- await mouse('mouseReleased',to,false);
+ const before=await js('({drags:window.qa.fileDrags.length,orders:window.qa.chatOrders.length,routes:window.qa.routes.length,native:window.qa.nativeDragStarts})');
+ const hover=async()=>{await mouse('mouseMoved',outside,false);await mouse('mouseMoved',from,false);};
+ const start=async to=>{await mouse('mousePressed',from,true);await mouse('mouseMoved',to,true);};
+ await js('window.qa.deferExport=false');await hover();
+ await until('!document.querySelector('+JSON.stringify(selector)+').hasAttribute("aria-busy")');
+ await start(right);await until('window.qa.fileDrags.length==='+String(before.drags+1));
+ await mouse('mouseReleased',right,false);
+ // A slow preparation never starts an OS session from its promise callback.
+ await js('window.qa.deferExport=true;window.qa.resolveExport=null');await hover();
+ await until('!!window.qa.resolveExport');
+ await start(right);await mouse('mouseReleased',right,false);
  await js('window.qa.resolveExport({ok:true})');await delay(40);
- assert.equal(await js('window.qa.fileDrags.length'),before.drags);
- // Escape cancels the pending export as well.
- await start();await until('window.qa.exports.length==='+String(before.exports+2));
- await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
- await js('window.qa.resolveExport({ok:true})');await mouse('mouseReleased',to,false);await delay(40);
- assert.equal(await js('window.qa.fileDrags.length'),before.drags);
- // Hold until ready, then the native bridge receives exactly this gesture.
- await start();await until('window.qa.exports.length==='+String(before.exports+3));
- await js('window.qa.resolveExport({ok:true})');
- await until('window.qa.fileDrags.length==='+String(before.drags+1));
+ assert.equal(await js('window.qa.fileDrags.length'),before.drags+1);
+ // Retry with the prepared export. Finder can be on either side of the window.
+ await hover();await start(left);await until('window.qa.fileDrags.length==='+String(before.drags+2));
  assert.equal(await js('window.qa.fileDrags.at(-1)'),await js('window.qa.exports.at(-1).gestureId'));
- await mouse('mouseReleased',to,false);await delay(40);
+ await mouse('mouseReleased',left,false);
+ // Escape while pressing cancels preparation; resolving it later stays inert.
+ await js('window.qa.resolveExport=null');await hover();await until('!!window.qa.resolveExport');
+ await mouse('mousePressed',from,true);
+ await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await mouse('mouseReleased',from,false);await js('window.qa.resolveExport({ok:true})');await delay(40);
+ assert.equal(await js('window.qa.fileDrags.length'),before.drags+2);
+ assert.ok(await js('window.qa.nativeDragStarts')>=before.native+3,'horizontal export must originate in Chromium dragstart');
  assert.equal(await js('window.qa.chatOrders.length'),before.orders);
  assert.equal(await js('window.qa.routes.length'),before.routes);
  assert.equal(await js('!!document.querySelector(".sidebar-chat-drag-overlay")'),false);
+ await js('window.qa.deferExport=false');
 }
 async function verifyOrdinaryChatDrag() {
  const source='[data-sidebar-chat-id=ordinary]';
