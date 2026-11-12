@@ -18,6 +18,7 @@ export type PreparedWebappInstall = {
   version: string;
   sha256: string;
   archiveBytes: number;
+  overwrite: boolean;
 };
 
 export function isAbsoluteWebappArchivePath(value: string, platform: NodeJS.Platform) {
@@ -54,8 +55,11 @@ export async function prepareWebappInstall(
   if (invocation.kind !== "desktop" && invocation.kind !== "agentPlatform") {
     return reject(fail(action, "forbidden", "WebApp installation requires an authorized Desktop or Agent Platform caller."));
   }
-  const invalid = rejectUnexpectedArgs(action, args, ["archivePath", "expectedId"]);
+  const invalid = rejectUnexpectedArgs(action, args, ["archivePath", "expectedId", "overwrite"]);
   if (invalid) return reject(fail(action, "invalid_args", invalid.error?.message || "Invalid installation arguments.", { stage: "arguments", executionState: "not_started" }));
+  if (Object.hasOwn(args, "overwrite") && typeof args.overwrite !== "boolean") {
+    return reject(fail(action, "invalid_args", "overwrite must be a boolean.", { stage: "arguments", executionState: "not_started" }));
+  }
   const requestedPath = readString(args, "archivePath");
   if (!requestedPath) return reject(fail(action, "invalid_args", "archivePath is required.", { stage: "arguments", executionState: "not_started" }));
   const hasExpectedId = Object.hasOwn(args, "expectedId");
@@ -120,7 +124,7 @@ export async function prepareWebappInstall(
     }
     return { ok: true, prepared: { archivePath, publicArchivePath, workspaceRootToRedact,
       expectedId: result.id, label: result.label, version: result.version,
-      sha256: result.sha256, archiveBytes: result.archiveBytes } };
+      sha256: result.sha256, archiveBytes: result.archiveBytes, overwrite: args.overwrite === true } };
   } catch (error) {
     if (error instanceof WebappToolingError) {
       if (error.stage === "internal") {

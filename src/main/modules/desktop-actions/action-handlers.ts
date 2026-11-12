@@ -112,7 +112,7 @@ export async function handleActionCallRaw(
     }
     if (requiresConfirmation) {
       const confirmationArgs = preparedInstall ? { archivePath: preparedInstall.archivePath, webappId: preparedInstall.expectedId,
-        label: preparedInstall.label, version: preparedInstall.version } : args;
+        label: preparedInstall.label, version: preparedInstall.version, overwrite: preparedInstall.overwrite } : args;
       const confirmationResponse = await confirmDesktopActionIfNeeded(
         options,
         normalizedRequest,

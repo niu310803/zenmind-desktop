@@ -45,7 +45,7 @@ import {
 import { getDesktopWebappInstallStagingRoot } from "../../../infrastructure/filesystem/user-paths";
 import { recoverWebappInstallTransactions } from "./install-transaction";
 
-type WebappInstallArchiveOptions = Record<string, unknown> & { expectedId?: string };
+type WebappInstallArchiveOptions = Record<string, unknown> & { expectedId?: string; overwrite?: boolean };
 
 function addDirectoryToZip(
   zip: JSZip,

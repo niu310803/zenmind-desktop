@@ -78,7 +78,7 @@ function fixture(t, { hosting } = {}) {
     fs.writeFileSync(archivePath, await zip.generateAsync({ type: "nodebuffer" }));
     return archivePath;
   };
-  const install = archivePath => installWebsiteAppArchiveFromPath(app, archivePath, { webs, recordInstallation: false });
+  const install = (archivePath, options = {}) => installWebsiteAppArchiveFromPath(app, archivePath, { webs, recordInstallation: false, ...options });
   const version = () => JSON.parse(fs.readFileSync(path.join(installPath, "webapp.json"), "utf8")).version;
   const journalPath = path.join(getDesktopWebappStateRoot(app, id), "install-transaction.json");
   t.after(async () => {
@@ -87,6 +87,35 @@ function fixture(t, { hosting } = {}) {
     fs.rmSync(root, { recursive: true, force: true });
   });
   return { root, app, id, runtime, windowManager, manager, archive, install, installPath, version, sentinel, journalPath };
+}
+
+for (const hosting of ["desktop", "platform"]) {
+  test(`same-version overwrite replaces ${hosting} package contents and preserves business data`, async t => {
+    const f = fixture(t, { hosting });
+    if (hosting === "platform") mockPlatform(t, f);
+    const archive = await f.archive("1.0.0");
+    await assert.rejects(f.install(archive), error => error.code === "version_content_conflict");
+    await assert.rejects(f.install(archive, { overwrite: false }), error => error.code === "version_content_conflict");
+    const start = t.mock.method(f.runtime, "startRuntime", f.runtime.startRuntime.bind(f.runtime));
+    assert.equal((await f.install(archive, { overwrite: true })).ok, true);
+    assert.equal(start.mock.callCount(), 1);
+    assert.equal(f.version(), "1.0.0");
+    assert.equal(fs.readFileSync(path.join(f.installPath, "frontend", "index.html"), "utf8"), "<!doctype html><title>1.0.0</title>");
+    assert.equal(fs.readFileSync(f.sentinel, "utf8"), "keep business data");
+    assert.equal(fs.existsSync(f.journalPath), false);
+    await assert.rejects(f.install(await f.archive("0.9.0"), { overwrite: true }), error => error.code === "downgrade_not_allowed");
+  });
+
+  test(`failed same-version overwrite rolls back ${hosting} contents`, async t => {
+    const f = fixture(t, { hosting });
+    if (hosting === "platform") mockPlatform(t, f);
+    t.mock.method(f.runtime, "startRuntime", async () => ({ ok: false, message: "candidate unhealthy" }));
+    await assert.rejects(f.install(await f.archive("1.0.0"), { overwrite: true }), error => error.code === "startup_failed");
+    assert.equal(f.version(), "1.0.0");
+    assert.equal(fs.readFileSync(path.join(f.installPath, "frontend", "index.html"), "utf8"), "<!doctype html><title>old</title>");
+    assert.equal(fs.readFileSync(f.sentinel, "utf8"), "keep business data");
+    assert.equal(fs.existsSync(f.journalPath), false);
+  });
 }
 
 test("ZIP replacement waits for stop and guest destruction, and blocks competing starts and mutations", async t => {

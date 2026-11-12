@@ -2123,6 +2123,46 @@ test("desktop.webapp.install only installs a local archive and validates its arg
   }
 });
 
+test("agent WebApp install supports explicit same-version overwrite and rejects invalid flags before confirmation", async (t) => {
+  const { calls, options } = createDesktopActionOptions(t);
+  const action = "desktop.webapp.install";
+  const source = { runId: "overwrite-run", chatId: "overwrite-chat", agentKey: "zenmi" };
+  const invoke = args => handleAgentPlatformDesktopActionRequest(options, { action, source, args, permissionMode: "full_access" });
+  const confirmations = [];
+  options.getMainWindow = () => ({ isDestroyed: () => false, webContents: { send() {} } });
+  options.confirmRendererAction = async request => {
+    confirmations.push(request);
+    return { requestId: request.requestId, decision: "cancel" };
+  };
+  const key = "overwrite-test";
+  const id = webappId(key);
+  const archivePath = await writeStaticWebappArchive(options.app.getPath("home"), key);
+  for (const overwrite of ["true", 1, null, {}, []]) {
+    const result = await handleAgentPlatformDesktopActionRequest(options, { action, source, args: { archivePath, overwrite } });
+    assert.equal(result.error.code, "invalid_args");
+    assert.equal(result.error.details.executionState, "not_started");
+  }
+  assert.equal(confirmations.length, 0);
+  assert.equal((await invoke({ archivePath })).ok, true);
+  await writeStaticWebappArchive(options.app.getPath("home"), key, "Changed without version bump");
+  for (const args of [{ archivePath }, { archivePath, overwrite: false }]) {
+    const result = await invoke(args);
+    assert.equal(result.error.details.diagnostic.code, "version_content_conflict");
+  }
+  const cancelled = await handleAgentPlatformDesktopActionRequest(options, { action, source, args: { archivePath, overwrite: true } });
+  assert.equal(cancelled.error.code, "user_cancelled");
+  assert.equal(confirmations.length, 1);
+  assert.match(JSON.stringify(confirmations[0]), /overwrite=true/u);
+  assert.notEqual(options.webs.webappManager.list(options.app).find(item => item.id === id).label, "Changed without version bump");
+  assert.deepEqual(await invoke({ archivePath, overwrite: true }), {
+    ok: true, action, result: { webappId: id, operation: "updated" }
+  });
+  const item = options.webs.webappManager.list(options.app).find(item => item.id === id);
+  assert.equal(item.label, "Changed without version bump");
+  assert.equal(item.version, "1.0.0");
+  assert.deepEqual(calls.navigation, []);
+});
+
 test("desktop.webapp.install asks for a missing Java runtime and stores only a local binding", async (t) => {
   const { calls, options } = createDesktopActionOptions(t);
   const id = webappId("runtime-app");

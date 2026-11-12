@@ -115,7 +115,7 @@ export async function installWebapp(
       .filter((item) => item.kind === "webapp")
       .map((item) => item.id)
   );
-  const installOptions = { expectedId, version: prepared.version, sha256: prepared.sha256 };
+  const installOptions = { expectedId, version: prepared.version, sha256: prepared.sha256, overwrite: prepared.overwrite };
   let installResult;
   try {
     installResult = await options.webs.webappManager.installArchive(options.app, archivePath, installOptions);

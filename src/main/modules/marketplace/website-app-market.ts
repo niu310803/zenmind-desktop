@@ -63,6 +63,7 @@ type WebsiteAppCatalogResult = {
 
 type WebsiteAppArchiveInstallOptions = {
   expectedId?: string;
+  overwrite?: boolean;
   marketItemId?: string;
   displayName?: string;
   version?: string;
@@ -416,7 +417,8 @@ export async function installWebsiteAppArchiveFromPath(
           { id: webapp.id, installedVersion: installed.version, incomingVersion: webapp.version }
         );
       }
-      if (versionOrder === 0) {
+      // Explicit development reinstalls still use the full replacement transaction.
+      if (versionOrder === 0 && options.overwrite !== true) {
         const incomingDigest = calculateDirectoryDigest(webappRoot);
         const installedDigest = calculateDirectoryDigest(installPath, webapp.hosting === "platform");
         if (incomingDigest !== installedDigest) {
