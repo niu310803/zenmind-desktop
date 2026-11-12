@@ -19,11 +19,16 @@ import { waitForWebappGuestsClosed } from "./guest-lifecycle";
 
 type WebappWindowRecord = {
   window: BrowserWindow;
-  webappView: WebContentsView;
+  webappView: WebContentsView | null;
   ownerWindow: BrowserWindow | null;
   gatewayUrl: string;
   suppressRuntimeStop: boolean;
+  replacement: { closedByUser: boolean } | null;
 };
+
+type WebappWindowDisposalChange =
+  | { phase: "replacing" }
+  | { phase: "replacement-finished"; state: WebappRuntimeState | null };
 
 function findWebapp(app: App, id: string, ports?: WebsIntegrationPorts) {
   const normalizedId = id.trim();
@@ -147,15 +152,16 @@ function buildWindowOptions(app: App, item: WebappEntry) {
 
 export class WebappWindowManager {
   private readonly windows = new Map<string, WebappWindowRecord>();
+  private readonly closingGuests = new Map<string, WebContents>();
   private readonly disposingIds = new Map<string, number>();
-  private disposalListener: ((id: string) => void | Promise<void>) | null = null;
+  private disposalListener: ((id: string, change?: WebappWindowDisposalChange) => void | Promise<void>) | null = null;
 
   constructor(
     private readonly integrationPorts?: WebsIntegrationPorts,
     private readonly runtime: WebappRuntime = webappRuntime
   ) {}
 
-  setDisposalListener(listener: ((id: string) => void | Promise<void>) | null) {
+  setDisposalListener(listener: ((id: string, change?: WebappWindowDisposalChange) => void | Promise<void>) | null) {
     this.disposalListener = listener;
   }
 
@@ -194,11 +200,83 @@ export class WebappWindowManager {
   async closeForDisposal(id: string) {
     const normalizedId = id.trim();
     const record = this.windows.get(normalizedId);
-    const guestClosed = waitForWebappGuestsClosed(record ? [record.webappView.webContents] : []);
+    const guest = record?.webappView?.webContents ?? this.closingGuests.get(normalizedId);
+    const guestClosed = waitForWebappGuestsClosed(guest ? [guest] : []);
     const presentationClosed = this.disposalListener?.(normalizedId);
     this.close(normalizedId);
     const [, closed] = await Promise.all([presentationClosed, guestClosed]);
     if (!closed) throw new Error(t("webapp.pageCloseTimedOut"));
+  }
+
+  beginReplacement(id: string) {
+    const normalizedId = id.trim();
+    const record = this.windows.get(normalizedId);
+    const view = record?.webappView;
+    const guest = view?.webContents ?? this.closingGuests.get(normalizedId);
+    const replacement = { closedByUser: false };
+    if (record) record.replacement = replacement;
+    let suspension: Promise<void> | undefined;
+    let finished: Promise<void> | undefined;
+
+    return {
+      suspend: () => suspension ??= (async () => {
+        const presentationClosed = (async () => this.disposalListener?.(normalizedId, { phase: "replacing" }))();
+        const guestClosed = (async () => {
+          const closed = waitForWebappGuestsClosed(guest ? [guest] : []);
+          if (record && view && record.webappView === view) this.detachGuest(normalizedId, record);
+          if (!await closed) throw new Error(t("webapp.pageCloseTimedOut"));
+        })();
+        // Both waits must settle even if the renderer fails before the native
+        // guest finishes closing. A later open still checks the closing guest.
+        const results = await Promise.allSettled([presentationClosed, guestClosed]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure) throw failure.reason;
+      })(),
+      finish: (app: App, state: WebappRuntimeState | null) => finished ??= (async () => {
+        let restoredState: WebappRuntimeState | null = null;
+        try {
+          const suspended = suspension && await suspension.then(() => true, () => false);
+          if (state?.id === normalizedId) {
+            const currentState = this.runtime.getStatus(app, normalizedId);
+            if (currentState?.version === state.version) restoredState = currentState;
+          }
+          if (suspended && restoredState?.status === "running" && restoredState.webUrl && record &&
+              this.windows.get(normalizedId) === record && !record.window.isDestroyed() &&
+              !record.webappView && !this.closingGuests.has(normalizedId)) {
+            const item = findWebapp(app, normalizedId, this.integrationPorts);
+            if (!item || item.version !== restoredState.version) throw new Error(t("webapp.notFound"));
+            const gatewayUrl = restoredState.webUrl;
+            const nextView = this.attachGuest(app, item, record, gatewayUrl);
+            // The new guest is attached. Slow page resources must not hold
+            // the installation lease or delay the renderer's own restoration.
+            void nextView.webContents.loadURL(gatewayUrl).catch((error) => {
+              if (this.windows.get(normalizedId) === record && record.webappView === nextView) {
+                console.warn(`[webapp-window] failed to restore ${normalizedId}`, error);
+              }
+            });
+          }
+        } catch (error) {
+          if (!record || this.windows.get(normalizedId) === record) {
+            console.warn(`[webapp-window] failed to restore ${normalizedId}`, error);
+          }
+        } finally {
+          if (record?.replacement === replacement) record.replacement = null;
+          if (replacement.closedByUser) {
+            restoredState = null;
+            // The native close button was used while the installer owned stop.
+            // Honor that request now that the transaction has finished.
+            await this.stopAfterNativeClose(app, normalizedId, record?.ownerWindow ?? null);
+          }
+          if (suspension) {
+            try {
+              await this.disposalListener?.(normalizedId, { phase: "replacement-finished", state: restoredState });
+            } catch (error) {
+              console.warn(`[webapp-window] failed to notify replacement completion for ${normalizedId}`, error);
+            }
+          }
+        }
+      })()
+    };
   }
 
   beginDisposal(id: string, options: { closeImmediately?: boolean; preventRuntimeStart?: boolean } = {}) {
@@ -232,18 +310,12 @@ export class WebappWindowManager {
     if (!item) {
       return fail(null, null, t("webapp.notFound"));
     }
-    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId)) {
+    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId) || this.closingGuests.has(normalizedId)) {
       return fail(item, this.runtime.getStatus(app, normalizedId), t("webapp.removing"));
     }
 
     const existing = this.windows.get(normalizedId);
-    if (existing && !existing.window.isDestroyed()) {
-      if (existing.window.isMinimized()) {
-        existing.window.restore();
-      }
-      existing.window.show();
-      existing.window.focus();
-      existing.window.moveTop();
+    if (existing?.webappView && !existing.webappView.webContents.isDestroyed() && this.focus(normalizedId)) {
       return {
         ok: true,
         item,
@@ -251,10 +323,8 @@ export class WebappWindowManager {
         message: t("webapp.started", { label: item.label })
       };
     }
-    this.windows.delete(normalizedId);
-
     const command = await this.runtime.start(app, normalizedId);
-    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId)) {
+    if (this.disposingIds.has(normalizedId) || this.runtime.isDisposing(normalizedId) || this.closingGuests.has(normalizedId)) {
       return fail(item, command.state, t("webapp.removing"));
     }
     const gatewayUrl = command.state?.webUrl ?? "";
@@ -262,8 +332,84 @@ export class WebappWindowManager {
       return command;
     }
 
-    const ownerWindow = resolveOwnerWindow(sender);
+    // Concurrent callers may have shared the same runtime start. Check again
+    // before creating a shell or attaching another guest.
+    const current = this.windows.get(normalizedId);
+    const existingShell = current && !current.window.isDestroyed() ? current : null;
+    if (existingShell?.webappView && !existingShell.webappView.webContents.isDestroyed()) {
+      this.focus(normalizedId);
+      return command;
+    }
+    const record = existingShell ?? this.createShell(app, item, resolveOwnerWindow(sender));
+    let view: WebContentsView | undefined;
+    try {
+      if (record.webappView) this.detachGuest(normalizedId, record);
+      view = this.attachGuest(app, item, record, gatewayUrl);
+      const shellUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(buildWebappWindowShellHtml(item.label))}`;
+      await Promise.all([
+        existingShell ? undefined : record.window.loadURL(shellUrl),
+        view.webContents.loadURL(gatewayUrl)
+      ]);
+      if (this.windows.get(normalizedId) !== record || record.webappView !== view || record.replacement) {
+        return fail(item, command.state, t("webapp.removing"));
+      }
+      this.layoutGuest(record);
+      if (existingShell) this.focus(normalizedId);
+      return command;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A retired load can fail after replacement or a later open. It must
+      // never remove the current window or stop the new runtime.
+      if (this.windows.get(normalizedId) !== record || (view && record.webappView !== view) || record.replacement) {
+        return fail(item, command.state, message);
+      }
+      this.close(normalizedId);
+      const stopped = await this.runtime.stop(app, normalizedId).catch(() => null);
+      return fail(item, stopped?.state ?? command.state, message);
+    }
+  }
+
+  private createShell(app: App, item: WebappEntry, ownerWindow: BrowserWindow | null): WebappWindowRecord {
+    const id = item.id;
     const targetWindow = new BrowserWindow(buildWindowOptions(app, item));
+    const record: WebappWindowRecord = {
+      window: targetWindow,
+      webappView: null,
+      ownerWindow,
+      gatewayUrl: "",
+      suppressRuntimeStop: false,
+      replacement: null
+    };
+    this.windows.set(id, record);
+
+    targetWindow.setMenuBarVisibility(false);
+    targetWindow.on("resize", () => this.layoutGuest(record));
+    targetWindow.webContents.on("did-finish-load", () => this.layoutGuest(record));
+    targetWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    targetWindow.once("ready-to-show", () => {
+      if (this.windows.get(id) !== record || targetWindow.isDestroyed()) return;
+      if (record.replacement) targetWindow.showInactive();
+      else this.focus(id);
+    });
+    targetWindow.on("closed", () => {
+      const wasCurrent = this.windows.get(id) === record;
+      if (wasCurrent) this.windows.delete(id);
+      try {
+        this.detachGuest(id, record);
+      } catch (error) {
+        console.warn(`[webapp-window] failed to close guest for ${id}`, error);
+      }
+      if (!wasCurrent || record.suppressRuntimeStop) return;
+      if (record.replacement) {
+        record.replacement.closedByUser = true;
+        return;
+      }
+      void this.stopAfterNativeClose(app, id, record.ownerWindow);
+    });
+    return record;
+  }
+
+  private attachGuest(app: App, item: WebappEntry, record: WebappWindowRecord, gatewayUrl: string) {
     const webappView = new WebContentsView({
       webPreferences: {
         preload: this.authPreloadPath || undefined,
@@ -275,104 +421,75 @@ export class WebappWindowManager {
         devTools: !app.isPackaged
       }
     });
-    const record: WebappWindowRecord = {
-      window: targetWindow,
-      webappView,
-      ownerWindow,
-      gatewayUrl,
-      suppressRuntimeStop: false
-    };
-    this.windows.set(normalizedId, record);
-
-    targetWindow.setMenuBarVisibility(false);
+    const targetWindow = record.window;
+    record.webappView = webappView;
+    record.gatewayUrl = gatewayUrl;
+    targetWindow.setTitle(item.label);
     targetWindow.contentView.addChildView(webappView);
-    const layoutWebappView = () => {
-      if (targetWindow.isDestroyed() || webappView.webContents.isDestroyed()) {
-        return;
-      }
-      const bounds = targetWindow.getContentBounds();
-      webappView.setBounds({
-        x: 0,
-        y: 0,
-        width: bounds.width,
-        height: bounds.height
-      });
-    };
-    layoutWebappView();
-    targetWindow.on("resize", layoutWebappView);
-    targetWindow.webContents.on("did-finish-load", layoutWebappView);
+    this.layoutGuest(record);
     webappView.webContents.on("page-title-updated", (event) => {
       event.preventDefault();
-      targetWindow.setTitle(item.label);
+      if (record.webappView === webappView && !targetWindow.isDestroyed()) targetWindow.setTitle(item.label);
     });
     webappView.webContents.on("will-navigate", (event, url) => {
-      if (isAllowedWebappWindowNavigation(url, record.gatewayUrl)) {
-        return;
-      }
+      const currentGuest = record.webappView === webappView;
+      if (currentGuest && isAllowedWebappWindowNavigation(url, record.gatewayUrl)) return;
       event.preventDefault();
-      if (isSafeWebappExternalUrl(url)) {
+      if (currentGuest && isSafeWebappExternalUrl(url)) {
         void shell.openExternal(url).catch(() => undefined);
       }
     });
     webappView.webContents.setWindowOpenHandler(({ url }) => {
+      if (record.webappView !== webappView) return { action: "deny" };
       if (isAllowedWebappWindowNavigation(url, record.gatewayUrl)) {
-        void webappView.webContents.loadURL(url);
+        void webappView.webContents.loadURL(url).catch(() => undefined);
       } else if (isSafeWebappExternalUrl(url)) {
         void shell.openExternal(url).catch(() => undefined);
       }
       return { action: "deny" };
     });
-    targetWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    targetWindow.once("ready-to-show", () => {
-      if (!targetWindow.isDestroyed()) {
-        targetWindow.show();
-        targetWindow.focus();
-        targetWindow.moveTop();
-      }
-    });
-    targetWindow.on("closed", () => {
-      if (!webappView.webContents.isDestroyed()) {
-        webappView.webContents.close();
-      }
-      const current = this.windows.get(normalizedId);
-      if (!current || current.window !== targetWindow) {
-        return;
-      }
-      this.windows.delete(normalizedId);
-      if (current.suppressRuntimeStop) {
-        return;
-      }
-      void this.runtime.stop(app, normalizedId).finally(() => {
-        if (current.ownerWindow && !current.ownerWindow.isDestroyed()) {
-          current.ownerWindow.webContents.send("webs.changed", {
-            changedAt: new Date().toISOString()
-          });
-        }
-      });
-    });
+    return webappView;
+  }
 
+  private layoutGuest(record: WebappWindowRecord) {
+    const view = record.webappView;
+    if (!view || record.window.isDestroyed() || view.webContents.isDestroyed()) return;
+    const { width, height } = record.window.getContentBounds();
+    view.setBounds({ x: 0, y: 0, width, height });
+  }
+
+  private detachGuest(id: string, record: WebappWindowRecord) {
+    const view = record.webappView;
+    if (!view) return;
+    record.webappView = null;
+    record.gatewayUrl = "";
+    const guest = view.webContents;
+    if (!guest.isDestroyed()) {
+      this.closingGuests.set(id, guest);
+      guest.once("destroyed", () => {
+        if (this.closingGuests.get(id) === guest) this.closingGuests.delete(id);
+      });
+    }
     try {
-      const shellUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(
-        buildWebappWindowShellHtml(item.label)
-      )}`;
-      await Promise.all([
-        targetWindow.loadURL(shellUrl),
-        webappView.webContents.loadURL(gatewayUrl)
-      ]);
-      layoutWebappView();
-      return command;
+      if (!record.window.isDestroyed()) record.window.contentView.removeChildView(view);
+    } finally {
+      if (!guest.isDestroyed()) guest.close();
+    }
+  }
+
+  private async stopAfterNativeClose(app: App, id: string, ownerWindow: BrowserWindow | null) {
+    try {
+      const result = await this.runtime.stop(app, id);
+      if (!result.ok) console.warn(`[webapp-window] failed to stop ${id}: ${result.message}`);
     } catch (error) {
-      record.suppressRuntimeStop = true;
-      this.windows.delete(normalizedId);
-      if (!targetWindow.isDestroyed()) {
-        targetWindow.destroy();
+      console.warn(`[webapp-window] failed to stop ${id}`, error);
+    }
+    try {
+      if (ownerWindow && !ownerWindow.isDestroyed()) {
+        ownerWindow.webContents.send("webs.changed", { changedAt: new Date().toISOString() });
       }
-      const stopped = await this.runtime.stop(app, normalizedId).catch(() => null);
-      return fail(
-        item,
-        stopped?.state ?? command.state,
-        error instanceof Error ? error.message : String(error)
-      );
+    } catch (error) {
+      console.warn(`[webapp-window] failed to notify close for ${id}`, error);
     }
   }
 
@@ -402,20 +519,26 @@ export class WebappWindowManager {
 
   resolveAuthGuest(contents: WebContents): string | null {
     for (const [id, record] of this.windows) {
-      if (!record.window.isDestroyed() && record.webappView.webContents === contents &&
+      if (!record.window.isDestroyed() && record.webappView?.webContents === contents &&
           isAllowedWebappWindowNavigation(contents.getURL(), record.gatewayUrl)) return id;
     }
     return null;
   }
 
   async reload(id: string, state: WebappRuntimeState | null) {
-    const record = this.windows.get(id.trim());
+    const normalizedId = id.trim();
+    const record = this.windows.get(normalizedId);
+    const view = record?.webappView;
     const gatewayUrl = state?.webUrl ?? "";
-    if (!record || record.window.isDestroyed() || !gatewayUrl) {
+    if (!record || !view || view.webContents.isDestroyed() || record.window.isDestroyed() || record.replacement || !gatewayUrl) {
       return;
     }
     record.gatewayUrl = gatewayUrl;
-    await record.webappView.webContents.loadURL(gatewayUrl);
+    try {
+      await view.webContents.loadURL(gatewayUrl);
+    } catch (error) {
+      if (this.windows.get(normalizedId) === record && record.webappView === view && !record.replacement) throw error;
+    }
   }
 }
 

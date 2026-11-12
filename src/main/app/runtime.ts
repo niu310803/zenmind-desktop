@@ -406,11 +406,19 @@ export function createMainProcessRuntime() {
     get restoreDesktopPetWindowLayering() { return restoreDesktopPetWindowLayering; },
     get websFacade() { return websFacade; }
   });
-  websFacade.webappWindowManager.setDisposalListener(async (webappId) => {
+  websFacade.webappWindowManager.setDisposalListener(async (webappId, change) => {
+    if (change?.phase === "replacement-finished") {
+      emitWebsChanged({
+        phase: change.phase,
+        webappId,
+        webappRuntimeState: change.state
+      });
+      return;
+    }
     // Capture live guests before the renderer unregisters their presentation.
     const guestsClosed = webSurfaceRuntime.waitForWebappPresentationClosed(webappId);
     emitWebsChanged({
-      phase: "disposing",
+      phase: change?.phase ?? "disposing",
       webappId
     });
     if (!await guestsClosed) throw new Error(t("webapp.pageCloseTimedOut"));

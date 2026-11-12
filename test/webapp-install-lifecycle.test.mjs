@@ -92,7 +92,15 @@ test("ZIP replacement waits for stop and guest destruction, and blocks competing
   const closing = deferred();
   const closed = deferred();
   const events = [];
-  f.windowManager.setDisposalListener(async () => {
+  let restored;
+  f.windowManager.setDisposalListener(async (id, change) => {
+    if (change?.phase === "replacement-finished") {
+      restored = change.state;
+      events.push("presentation-restored");
+      return;
+    }
+    assert.equal(id, f.id);
+    assert.equal(change?.phase, "replacing");
     assert.equal(f.runtime.getStatus(f.app, f.id).status, "stopped");
     events.push("stopped");
     closing.resolve();
@@ -126,6 +134,9 @@ test("ZIP replacement waits for stop and guest destruction, and blocks competing
   }
   assert.equal(f.version(), "2.0.0");
   assert.equal(f.runtime.getStatus(f.app, f.id).status, "running");
+  assert.deepEqual(events, ["stopped", "guest-destroyed", "package-replaced", "presentation-restored"]);
+  assert.equal(restored.version, "2.0.0");
+  assert.match(await (await fetch(restored.webUrl)).text(), /<title>2\.0\.0<\/title>/u);
   assert.equal(fs.readFileSync(f.sentinel, "utf8"), "keep business data");
   assert.equal(f.runtime.isDisposing(f.id), false);
 });
@@ -179,10 +190,16 @@ test("ZIP replacement does not close guests or change the old package if stoppin
 test("ZIP guest closure failure preserves the old package and restores its running state", async t => {
   const f = fixture(t);
   await f.runtime.start(f.app, f.id);
-  f.windowManager.setDisposalListener(() => { throw new Error("guest did not close"); });
+  let restored;
+  f.windowManager.setDisposalListener((_id, change) => {
+    if (change?.phase === "replacing") throw new Error("guest did not close");
+    if (change?.phase === "replacement-finished") restored = change.state;
+  });
   await assert.rejects(f.install(await f.archive()), /guest did not close/);
   assert.equal(f.version(), "1.0.0");
   assert.equal(f.runtime.getStatus(f.app, f.id).status, "running");
+  assert.equal(restored.version, "1.0.0");
+  assert.equal(restored.status, "running");
   assert.equal(fs.existsSync(f.sentinel), true);
   assert.equal(fs.existsSync(f.journalPath), false);
   assert.equal(f.runtime.isDisposing(f.id), false);
@@ -190,9 +207,19 @@ test("ZIP guest closure failure preserves the old package and restores its runni
 
 test("ZIP startup failure rolls back only after a successful stop and keeps business data", async t => {
   const f = fixture(t);
-  t.mock.method(f.runtime, "startRuntime", async () => ({ ok: false, message: "new backend failed health validation" }));
+  assert.equal((await f.runtime.start(f.app, f.id)).ok, true);
+  const originalStart = f.runtime.startRuntime.bind(f.runtime);
+  t.mock.method(f.runtime, "startRuntime", async (...args) => f.version() === "1.0.0"
+    ? originalStart(...args)
+    : { ok: false, message: "new backend failed health validation" });
+  let restored;
+  f.windowManager.setDisposalListener((_id, change) => {
+    if (change?.phase === "replacement-finished") restored = change.state;
+  });
   await assert.rejects(f.install(await f.archive()), error => error.code === "startup_failed");
   assert.equal(f.version(), "1.0.0");
+  assert.equal(restored.version, "1.0.0");
+  assert.match(await (await fetch(restored.webUrl)).text(), /<title>old<\/title>/u);
   assert.equal(fs.readFileSync(f.sentinel, "utf8"), "keep business data");
   assert.equal(fs.existsSync(f.journalPath), false);
   assert.equal(f.runtime.isDisposing(f.id), false);
@@ -311,7 +338,14 @@ test("ZIP staging cleanup errors keep the original structured install failure", 
 test("a ZIP can be imported, uninstalled while running, and imported again", async t => {
   const f = fixture(t);
   const archive = await f.archive();
+  let restored;
+  f.windowManager.setDisposalListener((_id, change) => {
+    if (change?.phase === "replacement-finished") restored = change.state;
+  });
   await f.install(archive);
+  assert.equal(restored.status, "stopped", "replacing a stopped app must finish stopped after health validation");
+  assert.equal(restored.webUrl, "");
+  assert.deepEqual(f.windowManager.openIds(), []);
   assert.equal((await f.runtime.start(f.app, f.id)).ok, true);
   let closed = false;
   f.windowManager.setDisposalListener(() => {

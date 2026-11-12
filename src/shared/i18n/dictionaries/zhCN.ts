@@ -3839,6 +3839,7 @@ export const zhCNMessages = {
   "webapp.managedNotRemovable": "「{label}」由来源托管，不能在这里移除。",
   "webapp.alreadyRunning": "「{label}」已在运行。",
   "webapp.starting": "正在启动网页应用。",
+  "webapp.replacing": "正在更新网页应用。",
   "webapp.started": "「{label}」已启动。",
   "webapp.stopped": "网页应用已停止。",
   "webapp.stateRead": "已读取网页应用状态。",

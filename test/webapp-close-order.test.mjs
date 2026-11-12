@@ -21,7 +21,10 @@ function transpileExpression(expression) {
 }
 
 const appShell = parseSource("../src/renderer/app-shell/AppShell.tsx");
-const rendererHandlerNames = ["removeWebappItem", "handleCloseWebEntry", "handleWebappRuntimeStateChange"];
+const rendererHandlerNames = [
+  "removeWebappItem", "handleCloseWebEntry", "ensureWebappRuntimeStarted",
+  "handleWebappRuntimeStateChange", "handleWebsChanged", "updateWebItems",
+];
 const rendererHandlers = new Map();
 visitNodes(appShell, node => {
   if (ts.isFunctionDeclaration(node) && rendererHandlerNames.includes(node.name?.text)) {
@@ -71,6 +74,7 @@ function rendererFixture({
   owner = { scope: "workpanel", ownerChatId: "chat-keep", itemId: "panel-keep" },
   uninstall = async () => removedResult,
   stop = async () => stoppedResult,
+  start = async () => ({ ok: true, state: { id: item.id, status: "running", webUrl: "http://127.0.0.1:43210/" } }),
 } = {}) {
   const calls = { uninstall: [], stop: [], dispose: [], restore: [], navigate: [], refresh: 0 };
   const originalOwner = owner;
@@ -84,10 +88,17 @@ function rendererFixture({
     activeWebEntryKey: active ? item.entryKey : "website:keep",
     activeWebEntryKeyRef: { current: active ? item.entryKey : "website:keep" },
     EMPTY_WEB_SURFACE_ROUTE: "/webs",
-    webappStartInFlightRef: { current: new Set() },
+    webappStartInFlightRef: { current: new Map() },
     webappStopInFlightRef: { current: new Set() },
     webItemsRef: { current: [item] },
     webItemsRefreshIdRef: { current: 0 },
+    replacingWebappIdsRef: { current: new Set() },
+    setReplacingWebappIds(ids) { state.replacing = ids; },
+    setWebItems() {},
+    setWebItemsLoaded() {},
+    setWebGroupOrder() {},
+    setFaviconCache() {},
+    webappRuntimeById: state.runtimes,
     t: key => key,
     requestSidebarNavigation(route) { calls.navigate.push(route); },
     disposeWebappPresentation(target) {
@@ -104,6 +115,7 @@ function rendererFixture({
     async refreshWebItems() { calls.refresh += 1; },
   };
   context.window = { electronAPI: { webs: { webapps: {
+    start,
     async uninstall(id) {
       calls.uninstall.push(id);
       assert.equal(context.webappStopInFlightRef.current.has(id), true, "uninstall must block automatic starts before entering IPC");
@@ -180,6 +192,52 @@ test("uninstalling a background WebApp preserves the unrelated active route", as
   assert.deepEqual(view.calls.navigate, []);
   assert.deepEqual(view.calls.dispose, [item.id]);
   assertGuardReleased(view);
+});
+
+test("ZIP replacement keeps the original main or WorkPanel presentation through intermediate stopped and missing snapshots", () => {
+  const newRuntime = { id: item.id, status: "running", webUrl: "http://127.0.0.1:43211/" };
+  for (const owner of [{ scope: "main-workspace" }, { scope: "workpanel", ownerChatId: "chat-keep", itemId: "tab-keep" }]) {
+    const view = rendererFixture({ owner, active: owner.scope === "main-workspace" });
+    view.handlers.handleWebsChanged({ phase: "replacing", webappId: item.id });
+    assert.equal(view.state.replacing.has(item.id), true);
+    view.handlers.updateWebItems([]);
+    view.handlers.handleWebappRuntimeStateChange(item.id, stoppedState);
+    assert.equal(view.context.webItemsRef.current[0], item);
+    assertPresentationPreserved(view);
+    view.handlers.handleWebsChanged({ phase: "replacement-finished", webappId: item.id, webappRuntimeState: newRuntime });
+    assertPresentationPreserved(view);
+    assert.equal(view.state.replacing.has(item.id), false);
+    assert.equal(view.state.runtimes[item.id].webUrl, newRuntime.webUrl);
+  }
+});
+
+test("ZIP replacement does not reopen a WorkPanel tab closed during replacement", () => {
+  const view = rendererFixture({ active: false });
+  view.handlers.handleWebsChanged({ phase: "replacing", webappId: item.id });
+  view.context.disposeWebappPresentation(item);
+  view.handlers.handleWebsChanged({
+    phase: "replacement-finished", webappId: item.id,
+    webappRuntimeState: { id: item.id, status: "running", webUrl: "http://127.0.0.1:43211/" },
+  });
+  assert.equal(view.state.owner, null);
+  assert.equal(view.state.mounted.includes(item.entryKey), false);
+  assert.deepEqual(view.calls.navigate, []);
+});
+
+test("a late start response from the old package cannot overwrite the replacement gateway", async () => {
+  const start = deferred();
+  const view = rendererFixture({ start: () => start.promise });
+  view.context.webappRuntimeById = {};
+  const starting = view.handlers.ensureWebappRuntimeStarted(item);
+  view.handlers.handleWebsChanged({ phase: "replacing", webappId: item.id });
+  view.handlers.handleWebsChanged({
+    phase: "replacement-finished", webappId: item.id,
+    webappRuntimeState: { id: item.id, status: "running", webUrl: "http://127.0.0.1:43211/" },
+  });
+  start.resolve({ ok: true, state: { id: item.id, status: "running", webUrl: "http://127.0.0.1:43210/" } });
+  await starting;
+  assert.equal(view.state.runtimes[item.id].webUrl, "http://127.0.0.1:43211/");
+  assertPresentationPreserved(view);
 });
 
 test("renderer close waits for a successful runtime stop before closing its page and suppresses duplicate stops", async () => {

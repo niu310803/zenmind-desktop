@@ -400,7 +400,7 @@ test("WebApp removal closes its UI and refuses file deletion after a failed runt
   assert.ok(stopIndex < stopGuardIndex && stopGuardIndex < closeIndex && closeIndex < deleteIndex);
   assert.doesNotMatch(actions, /dependencies\.runtime\.stop\([^;]+\.catch\(\(\) => undefined\)/u);
   assert.match(windowManager, /this\.disposalListener\?\.\(normalizedId\)/u);
-  assert.match(mainRuntime, /phase: "disposing"/u);
+  assert.match(mainRuntime, /phase: change\?\.phase \?\? "disposing"/u);
   assert.match(appShell, /event\.phase === "disposing"/u);
   assert.match(pluginResources, /manager\.dispose/u);
   assert.match(websiteAppMarket, /disposeWebappInstallation/u);

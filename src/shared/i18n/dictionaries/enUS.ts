@@ -3839,6 +3839,7 @@ export const enUSMessages = {
   "webapp.managedNotRemovable": "\"{label}\" is managed by its source and cannot be removed here.",
   "webapp.alreadyRunning": "\"{label}\" is already running.",
   "webapp.starting": "Starting WebApp.",
+  "webapp.replacing": "Updating WebApp.",
   "webapp.started": "\"{label}\" started.",
   "webapp.stopped": "WebApp stopped.",
   "webapp.stateRead": "WebApp state loaded.",
