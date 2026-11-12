@@ -898,6 +898,8 @@ export const enUSMessages = {
   "sidebar.bootstrapGuide.dismiss": "Dismiss getting started guide",
   "sidebar.common.processing": "Working...",
   "sidebar.chat.exportFailed": "Chat export failed.",
+  "sidebar.chat.dragExportHint": "Drag right to save as Markdown. Keep holding while the export is prepared.",
+  "sidebar.chat.dragExportPreparing": "Preparing export…",
   "sidebar.chat.exportHtmlFailed": "Static HTML export failed.",
   "sidebar.chat.exportedTo": "Exported to:\n{path}",
   "sidebar.chat.nameRequired": "Enter a chat name.",

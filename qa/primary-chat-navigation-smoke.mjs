@@ -21,11 +21,17 @@ import {RendererI18nContext} from './src/renderer/i18n/i18n-context';
 import {createTranslator} from './src/shared/i18n';
 import './src/renderer/styles.css';
 window.electronAPI={assistant:{archiveChat:async id=>{window.qa.archives.push(id);window.qa.clearMain(id);return {ok:true};},getProjectCreationOptions:async()=>({ok:false,message:'fixture'})},sidebarContextMenu:{popup:async request=>{window.qa.menus.push(request);const actionId=window.qa.menuAction;window.qa.menuAction=null;return {actionId};}}};
+Object.assign(window.electronAPI.assistant, {
+ prepareChatFileDrag:request=>{window.qa.exports.push(request);return new Promise(resolve=>{window.qa.resolveExport=resolve;});},
+ startChatFileDrag:async id=>{window.qa.fileDrags.push(id);return {ok:true};},
+ cancelChatFileDrag:id=>window.qa.cancelledExports.push(id),
+});
 const epoch=1793000000000;
 const chat=(id,agentKey,patch={})=>({chatId:id,chatName:id,agentKey,createdAt:epoch,updatedAt:epoch,lastRunId:'r',lastRunContent:'最新回复摘要',isRead:true,readRunId:'',hasActiveRun:false,hasPendingAwaiting:false,...patch});
 const initialAgents=Array.from({length:18},(_,i)=>({agentKey:'agent-'+i,displayName:['普通助理','编程项目','知识库','协作团队','执行器','代理'][i%6]+' '+i,mode:i<5?'BOT':['GENERAL','CODER','KBASE','TEAM','EXECUTOR','PROXY'][i%6],workspaceDir:i===0?'':'/fixture/project-'+i,role:'',recentChats:[chat('recent-'+i,'agent-'+i)],projectChats:[chat('recent-'+i,'agent-'+i)],primaryChat:i===1?undefined:chat('primary-'+i,'agent-'+i,{hasActiveRun:i===2,hasPendingAwaiting:i===3,isRead:i!==4}),chatCount:1,unreadCount:0,unreadChatCount:0,hasPendingAwaiting:false,latestChatId:'recent-'+i,latestPreview:'preview'}));
 window.confirm=()=>window.qa.confirm!==false;
 window.qa={archives:[],routes:[],histories:[],orders:[],chatOrders:[],menus:[],agentOrders:[],set:null,state:null};
+Object.assign(window.qa,{exports:[],fileDrags:[],cancelledExports:[]});
 function Fixture(){
  const [agents,setAgents]=useState(initialAgents);window.qa.clearMain=id=>setAgents(items=>items.map(agent=>agent.primaryChat?.chatId===id?{...agent,primaryChat:undefined}:agent));window.qa.resetOrder=()=>setAgents(initialAgents);window.qa.removeBots=()=>setAgents(items=>items.filter(agent=>agent.mode!=='BOT'));window.qa.longText=()=>setAgents(items=>items.map(agent=>agent.agentKey==='agent-4'?{...agent,displayName:'机器人名称很长时应当渐隐而不是省略号'.repeat(4),primaryChat:{...agent.primaryChat,isRead:true,lastRunContent:'机器人回复内容很长时应当渐隐而不是省略号'.repeat(4)}}:agent));
  const [options,setOptions]=useState({debug:false,collapsed:false,windows:false,fullScreen:false,error:''});
@@ -59,10 +65,37 @@ const output=process.env.PRIMARY_NAVIGATION_QA_DIR;
 app.setPath('userData',path.join(output,'profile'));
 const errors=[];
 const server=http.createServer((request,response)=>{const name=path.basename(new URL(request.url,'http://localhost').pathname)||'index.html';const file=path.join(output,name);response.setHeader('Content-Type',name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':name.endsWith('.svg')?'image/svg+xml':'text/html');if(!fs.existsSync(file)){response.writeHead(404);response.end();return;}response.end(fs.readFileSync(file));});
-let win;const js=code=>win.webContents.executeJavaScript(code);
+let win;const js=async code=>{try{return await win.webContents.executeJavaScript(code);}catch(error){throw new Error('Renderer evaluation failed: '+code,{cause:error});}};
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(code,attempts=150){for(let n=0;n<attempts;n++){try{if(await js(code))return;}catch{}await delay(20);}throw Error('Timed out: '+code);}
 const click=selector=>js('document.querySelector('+JSON.stringify(selector)+').click()');
+async function verifyChatFileDrag(selector) {
+ await js('document.querySelector('+JSON.stringify(selector)+').scrollIntoView({block:"center",behavior:"instant"})');
+ const rect=await js('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');
+ const from={x:Math.round(rect.left+30),y:Math.round(rect.top+rect.height/2)}, to={x:Math.round(rect.left+110),y:Math.round(rect.top+rect.height/2)};
+ const mouse=(type,point,held)=>win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...point,button:type==='mouseMoved'&&!held?'none':'left',buttons:held?1:0,clickCount:type==='mouseMoved'?0:1});
+ const before=await js('({exports:window.qa.exports.length,drags:window.qa.fileDrags.length,orders:window.qa.chatOrders.length,routes:window.qa.routes.length})');
+ const start=async()=>{await mouse('mouseMoved',from,false);await mouse('mousePressed',from,true);await mouse('mouseMoved',to,true);};
+ // Slow export released before completion must not start a late OS drag.
+ await start();await until('window.qa.exports.length==='+String(before.exports+1));
+ await mouse('mouseReleased',to,false);
+ await js('window.qa.resolveExport({ok:true})');await delay(40);
+ assert.equal(await js('window.qa.fileDrags.length'),before.drags);
+ // Escape cancels the pending export as well.
+ await start();await until('window.qa.exports.length==='+String(before.exports+2));
+ await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await js('window.qa.resolveExport({ok:true})');await mouse('mouseReleased',to,false);await delay(40);
+ assert.equal(await js('window.qa.fileDrags.length'),before.drags);
+ // Hold until ready, then the native bridge receives exactly this gesture.
+ await start();await until('window.qa.exports.length==='+String(before.exports+3));
+ await js('window.qa.resolveExport({ok:true})');
+ await until('window.qa.fileDrags.length==='+String(before.drags+1));
+ assert.equal(await js('window.qa.fileDrags.at(-1)'),await js('window.qa.exports.at(-1).gestureId'));
+ await mouse('mouseReleased',to,false);await delay(40);
+ assert.equal(await js('window.qa.chatOrders.length'),before.orders);
+ assert.equal(await js('window.qa.routes.length'),before.routes);
+ assert.equal(await js('!!document.querySelector(".sidebar-chat-drag-overlay")'),false);
+}
 async function verifyOrdinaryChatDrag() {
  const source='[data-sidebar-chat-id=ordinary]';
  const target='[data-sidebar-chat-id=ordinary-next]';
@@ -70,7 +103,7 @@ async function verifyOrdinaryChatDrag() {
  const row=selector=>js('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');
  const startRect=await row(source), targetRect=await row(target);
  const from={x:Math.round(startRect.left+30),y:Math.round(startRect.top+startRect.height/2)};
- const to={x:from.x+60,y:Math.round(targetRect.top+targetRect.height/2)};
+ const to={x:from.x+4,y:Math.round(targetRect.top+targetRect.height/2)};
  const outside={x:Math.round(targetRect.right+70),y:to.y};
  const mouse=(type,point,held)=>win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{
   type,...point,button:type==='mouseMoved'&&!held?'none':'left',buttons:held?1:0,clickCount:type==='mouseMoved'?0:1,
@@ -199,6 +232,10 @@ for(const windows of [false,true]) {
   }
  }
 }
+await js('window.qa.set({collapsed:false})');
+await until('!!document.querySelector("[data-sidebar-chat-id=ordinary]")');
+await verifyChatFileDrag('[data-primary-agent-key=agent-4]');
+await verifyChatFileDrag('[data-sidebar-chat-id=ordinary]');
 await js('window.qa.removeBots()');
 await until('!document.querySelector(".primary-chat-navigation")');
 assert.equal(await js('!!document.querySelector("[data-sidebar-group-id=chats]")'),true);
@@ -206,10 +243,11 @@ await js('window.qa.set({windows:true,collapsed:false})');
 await until('!!document.querySelector("[data-sidebar-chat-id=ordinary-next]")');
 await delay(250);
 await verifyOrdinaryChatDrag();
+await verifyChatFileDrag('[data-sidebar-chat-id=ordinary]');
 assert.deepEqual(await js('window.qa.orders'),[]);
 assert.deepEqual(errors,[]);
 fs.writeFileSync(path.join(output,'passed'),'ok');
-console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','Windows layout ordinary chat single-move drag and outside release','main pointer and new-chat intent','always visible direct entries with no heading or toggle','empty bots leave no placeholder','old hidden preference ignored','Debug-only history with live toggle','centered shared pinned more button','long bot name and preview share Chats overflow fade','idle bot text uses full row width and only yields space on hover','native settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
+console.log(JSON.stringify({ok:true,checks:['BOT-only directory','ordinary groups retained','Windows layout ordinary chat single-move drag and outside release','Chat file drag: macOS/Windows layout, slow release and Escape cancellation, primary Chat, no reorder or navigation','main pointer and new-chat intent','always visible direct entries with no heading or toggle','empty bots leave no placeholder','old hidden preference ignored','Debug-only history with live toggle','centered shared pinned more button','long bot name and preview share Chats overflow fade','idle bot text uses full row width and only yields space on hover','native settings/guarded clear menu','macOS/Windows expanded/collapsed','light/dark'],output},null,2));
 win.destroy();server.close();app.quit();})().catch(error=>{console.error(error);if(win)win.destroy();server.close();app.exit(1);});
 `;
 fs.writeFileSync(path.join(output,"checks.cjs"), checker);

@@ -1,4 +1,7 @@
 import path from "node:path";
+import type { IpcMainInvokeEvent, NativeImage } from "electron";
+import { ChatFileDrag } from "./chat-file-drag";
+import type { ChatFileDragRequest } from "../../../shared/chat-file-drag";
 import { loadProjectCreationOptions } from "./project-creation-options";
 import { selectChatRunJson } from "./chat-run-json";
 import fs from "node:fs";
@@ -801,6 +804,43 @@ export function registerAssistantIpcHandlers(ipcMain: any, options: AssistantIpc
   ipcMain.handle("assistant.exportChat", async (_event: any, chatId: string) =>
     saveAssistantChatExport(assistantBridge, chatId, app, platform)
   );
+
+  // Only the trusted main-window top frame can export a Chat into an OS drag.
+  let chatFileDrag: ChatFileDrag | undefined;
+  let chatFileDragOwnerId: number | undefined;
+  function getChatFileDrag(event: IpcMainInvokeEvent) {
+    const owner = options.getMainWindow()?.webContents;
+    if (!owner || owner.isDestroyed() || event.sender !== owner || event.senderFrame !== owner.mainFrame) return;
+    if (!chatFileDrag || chatFileDragOwnerId !== owner.id) {
+      void chatFileDrag?.dispose();
+      let icon: NativeImage;
+      const drag = new ChatFileDrag({
+        platform,
+        tempDirectory: app.getPath("temp"),
+        download: (chatId) => assistantBridge.downloadChatExport(chatId),
+        prepareFile: async (file) => {
+          icon = await app.getFileIcon(file, { size: "normal" });
+          if (icon.isEmpty()) throw new Error(t("sidebar.chat.exportFailed"));
+        },
+        startDrag: (file) => owner.startDrag({ file, icon }),
+        failureMessage: () => t("sidebar.chat.exportFailed"),
+      });
+      chatFileDrag = drag;
+      chatFileDragOwnerId = owner.id;
+      owner.once("destroyed", () => { void drag.dispose(); });
+      app.once("will-quit", () => { void drag.dispose(); });
+    }
+    return chatFileDrag;
+  }
+  ipcMain.handle("assistant.prepareChatFileDrag", (event: IpcMainInvokeEvent, request: ChatFileDragRequest) =>
+    getChatFileDrag(event)?.prepare(request) ?? { ok: false }
+  );
+  ipcMain.handle("assistant.startChatFileDrag", (event: IpcMainInvokeEvent, gestureId: string) =>
+    getChatFileDrag(event)?.start(gestureId) ?? { ok: false }
+  );
+  ipcMain.handle("assistant.cancelChatFileDrag", (event: IpcMainInvokeEvent, gestureId: string) => {
+    if (typeof gestureId === "string") getChatFileDrag(event)?.cancel(gestureId);
+  });
 
   ipcMain.handle("assistant.exportChatHtml", async (_event: any, chatId: string) =>
     conversationShare.exportChatHtml(chatId, platform)

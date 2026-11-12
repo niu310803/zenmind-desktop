@@ -1,4 +1,5 @@
 import type { WebsiteBridgeResult } from "../website-bridge";
+import type { ChatFileDragRequest, ChatFileDragResult } from "../chat-file-drag";
 import type { WebsiteCredentialInput, WebsiteCredentialPatch, WebsiteCredentialResult, WebsiteCredentialRevealResult, WebsiteCredentialSaveDecision, WebsiteCredentialSaveOffer } from "../website-credentials";
 import type { DesktopNavigationPreferences, DesktopNavigationPreferencesInput, DesktopSitePinInput } from "./navigation";
 import type { LocalDocumentsApi } from "../local-document";
@@ -1065,6 +1066,9 @@ export interface DesktopApi {
     renameChat: (chatId: string, chatName: string) => Promise<AssistantNavActionResult>;
     archiveChat: (chatId: string) => Promise<AssistantNavActionResult>;
     exportChat: (chatId: string) => Promise<AssistantNavActionResult>;
+    prepareChatFileDrag: (request: ChatFileDragRequest) => Promise<ChatFileDragResult>;
+    startChatFileDrag: (gestureId: string) => Promise<ChatFileDragResult>;
+    cancelChatFileDrag: (gestureId: string) => void;
     exportChatHtml: (chatId: string) => Promise<AssistantNavActionResult>;
     shareChat: (request: AssistantConversationShareRequest) => Promise<AssistantConversationShareCreateResult>;
     listConversationShares: () => Promise<AssistantConversationShareListResult>;

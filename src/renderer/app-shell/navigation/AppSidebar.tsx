@@ -1,5 +1,6 @@
 import { useDebugMode } from "../../debug/DebugModeContext";
 import { PrimaryChatNavigation } from "./PrimaryChatNavigation";
+import { useChatFileDrag } from "./useChatFileDrag";
 import { isBotAgent, selectBotNavigationAgents, primaryChatNavigationTarget, removedChatFallbackTarget } from "./primaryChatView";
 import { SkinHeading } from "../../appearance/SkinVisual";
 import { DesktopUpdateCard } from "../../updates/DesktopUpdateCard";
@@ -1230,6 +1231,9 @@ export function AppSidebar({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const chatPointerDropIdRef = useRef("");
+  const chatFileDrag = useChatFileDrag(isMac || isWindows, (message) => {
+    window.alert(message || t("sidebar.chat.exportFailed"));
+  });
   const chatDragSensors = useSensors(
     useSensor(SidebarChatPointerSensor, {
       activationConstraint: { distance: 6 },
@@ -5298,6 +5302,8 @@ export function AppSidebar({
         onDoubleClick={(event) => handleAssistantChatDoubleClick(event, chat)}
         {...getSidebarRovingItemProps(focusId, roving)}
         {...dragActivator?.listeners}
+        {...chatFileDrag.bind(chat.chatId)}
+        title={t("sidebar.chat.dragExportHint")}
         aria-disabled={dragActivator?.attributes["aria-disabled"]}
         aria-pressed={dragActivator?.attributes["aria-pressed"]}
         aria-roledescription={
@@ -5326,7 +5332,9 @@ export function AppSidebar({
                 />
               ) : null}
               <span className="worker-panel-time-label">
-                {formatAssistantChatTime(chat.updatedAt)}
+                {chatFileDrag.preparingChatId === chat.chatId
+                  ? t("sidebar.chat.dragExportPreparing")
+                  : formatAssistantChatTime(chat.updatedAt)}
               </span>
               <span
                 className="worker-chat-loading assistant-material-icon is-loading"
@@ -5925,6 +5933,7 @@ export function AppSidebar({
       error={primaryChatNavError}
       onRetry={() => void onRefreshAssistantNavAgents?.({ force: true })}
       itemProps={getSidebarRovingItemProps}
+      fileDragProps={chatFileDrag.bind}
       onContextMenu={handleAgentContextMenu}
       onOpen={(agent) => {
         if (agent.primaryChat) void handleAssistantOpenChat(agent.primaryChat, { focusAgentChat: true });

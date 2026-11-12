@@ -362,6 +362,11 @@ const api: DesktopApi = {
     renameChat: (chatId: string, chatName: string) => ipcRenderer.invoke("assistant.renameChat", chatId, chatName),
     archiveChat: (chatId: string) => ipcRenderer.invoke("assistant.archiveChat", chatId),
     exportChat: (chatId: string) => ipcRenderer.invoke("assistant.exportChat", chatId),
+    prepareChatFileDrag: (request) => ipcRenderer.invoke("assistant.prepareChatFileDrag", request),
+    startChatFileDrag: (gestureId) => ipcRenderer.invoke("assistant.startChatFileDrag", gestureId),
+    cancelChatFileDrag: (gestureId) => {
+      void ipcRenderer.invoke("assistant.cancelChatFileDrag", gestureId).catch(() => undefined);
+    },
     exportChatHtml: (chatId: string) => ipcRenderer.invoke("assistant.exportChatHtml", chatId),
     shareChat: (request: AssistantConversationShareRequest) => ipcRenderer.invoke("assistant.shareChat", request),
     listConversationShares: () => ipcRenderer.invoke("assistant.listConversationShares"),
