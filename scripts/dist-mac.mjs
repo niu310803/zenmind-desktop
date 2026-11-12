@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import process from "node:process";
 import { syncBrandArtifacts, resolveRequiredBrandId, electronBuilderConfigPath } from "./lib/brand-config.mjs";
+import { shouldBuildMacDmgInstaller } from "./lib/brand-packaging.mjs";
 import { notarizeAndStapleDmg, resolveMacDmgArtifactPath } from "./lib/mac-notarize.mjs";
 import { npmCmd, runAndWait, withBrandEnv } from "./platform/spawn.mjs";
 import { verifyMacReleaseApp } from "./lib/mac-app-signing.js";
@@ -90,11 +91,13 @@ function disableNotarizationEnvironment() {
 
 const projectRoot = process.cwd();
 const target = { os: "darwin", arch: "arm64" };
+const skipNotarize = shouldSkipNotarize();
+const useMacDmgInstaller = shouldBuildMacDmgInstaller(process.env, { validateNotaryConfig: true });
 const brand = syncBrandArtifacts({ brandId: resolveRequiredBrandId(process.argv.slice(2), process.env, "dist:mac"), target });
 process.env.BRAND = brand.id;
 process.env.DESKTOP_UPDATE_TARGET_PLATFORM = "darwin";
 normalizeMacSigningEnvironment();
-if (shouldSkipNotarize()) {
+if (skipNotarize) {
   disableNotarizationEnvironment();
 }
 const brandProcessOptions = (options = {}) => withBrandEnv(brand, options);
@@ -119,16 +122,17 @@ await runAndWait(npmCmd, [
 ], brandProcessOptions({ cwd: projectRoot }));
 
 const updateAppPath = path.join(projectRoot, "dist", brand.id, "mac-arm64", `${brand.productName}.app`);
-// The afterSign hook creates the separate installer identity before the DMG is
-// sealed; the same notarization submission covers both signed applications.
-verifyMacDmgInstaller({ projectRoot, brand, hostAppPath: updateAppPath });
 let updateAppNotarized = false;
-if (!shouldSkipNotarize()) {
+if (useMacDmgInstaller) {
+  // The same notarization submission covers both signed applications.
+  verifyMacDmgInstaller({ projectRoot, brand, hostAppPath: updateAppPath });
   const dmgPath = resolveMacDmgArtifactPath(projectRoot, brand);
   updateAppNotarized = await notarizeAndStapleDmg(dmgPath, {
     rootDir: projectRoot,
     env: brandProcessOptions().env
   });
+} else if (!skipNotarize) {
+  console.warn("[dist:mac] Skipped DMG notarization because Apple credentials or secure timestamps are unavailable.");
 }
 
 // Build the automatic-update archive from the same verified, signed application.

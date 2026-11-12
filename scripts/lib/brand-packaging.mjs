@@ -14,6 +14,7 @@ import {
   currentBrandBuildTarget,
   electronBuilderConfigPath
 } from "./brand-paths.mjs";
+import { buildNotaryToolAuthArgs } from "./mac-notarize.mjs";
 
 function parseBooleanEnv(value, name) {
   if (typeof value !== "string" || !value.trim()) {
@@ -42,6 +43,18 @@ function shouldSkipMacTimestamp(env = process.env) {
   );
 }
 
+export function shouldBuildMacDmgInstaller(env = process.env, { validateNotaryConfig = false } = {}) {
+  // A quarantined DMG can only launch the install helper if it passes Gatekeeper.
+  if (shouldSkipMacTimestamp(env)) return false;
+  try {
+    return buildNotaryToolAuthArgs(env) !== null;
+  } catch (error) {
+    // Brand sync also runs for development builds, where partial credentials are harmless.
+    if (validateNotaryConfig) throw error;
+    return false;
+  }
+}
+
 function writeFileIfChanged(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   if (fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8") === content) {
@@ -64,7 +77,8 @@ function nodeRuntimeResourceFilters(target) {
   return filters;
 }
 
-export function electronBuilderConfig(brand, target = currentBrandBuildTarget()) {
+export function electronBuilderConfig(brand, target = currentBrandBuildTarget(), env = process.env) {
+  const useMacDmgInstaller = target.os === "darwin" && shouldBuildMacDmgInstaller(env);
   return {
     appId: brand.appId,
     productName: brand.productName,
@@ -138,11 +152,13 @@ export function electronBuilderConfig(brand, target = currentBrandBuildTarget())
       hardenedRuntime: true,
       sign: "./scripts/sign-mac-app.js",
       notarize: false,
-      timestamp: shouldSkipMacTimestamp() ? "none" : undefined
+      timestamp: shouldSkipMacTimestamp(env) ? "none" : undefined
     },
     electronLanguages: SUPPORTED_LOCALES,
     afterPack: "./scripts/after-pack.js",
-    afterSign: "./scripts/lib/mac-dmg-installer.mjs",
+    afterSign: useMacDmgInstaller
+      ? "./scripts/lib/mac-dmg-installer.mjs"
+      : "./scripts/verify-mac-services-signing.js",
     dmg: {
       artifactName: "${productName}-${version}-${arch}.${ext}",
       backgroundColor: "#f5f5f7",
@@ -150,10 +166,10 @@ export function electronBuilderConfig(brand, target = currentBrandBuildTarget())
       iconSize: 80,
       contents: [
         { x: 130, y: 220 },
-        {
+        useMacDmgInstaller ? {
           x: 410, y: 220, type: "dir",
           path: brandBuildRelativePath(brand, "installer", `Install ${brand.productName}.app`)
-        }
+        } : { x: 410, y: 220, type: "link", path: "/Applications" }
       ]
     },
     win: {
