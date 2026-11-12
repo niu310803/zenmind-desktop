@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import plist from "plist";
 import { loadBrandConfig, DARWIN_BUNDLE_LOCALIZATIONS } from "../scripts/lib/brand-model.mjs";
-import { electronBuilderConfig } from "../scripts/lib/brand-packaging.mjs";
+import { electronBuilderConfig, shouldBuildMacDmgInstaller } from "../scripts/lib/brand-packaging.mjs";
 import {
   MAC_APPLICATIONS_FOLDER_ICON_PATH, buildMacDmgInstaller, macDmgInstallerInfo, macDmgInstallerPath, verifyMacDmgInstaller
 } from "../scripts/lib/mac-dmg-installer.mjs";
@@ -216,8 +216,10 @@ test("the builder hook is loadable by the installed electron-builder and skips W
   assert.throws(() => buildMacDmgInstaller({ projectRoot: "unused", brand, version: "0.9.3", platform: "win32" }), /Windows/u);
 });
 
-test("DMG keeps the classic two-icon layout with a folder-shaped application receiver", async () => {
-  const config = electronBuilderConfig(brand, { os: "darwin", arch: "arm64" });
+test("DMG keeps two icons and uses the signed receiver only for notarized builds", async () => {
+  const target = { os: "darwin", arch: "arm64" };
+  const notary = { APPLE_KEYCHAIN_PROFILE: "fixture" };
+  const config = electronBuilderConfig(brand, target, notary);
   assert.equal(config.afterSign, "./scripts/lib/mac-dmg-installer.mjs");
   assert.equal(config.dmg.artifactName, "${productName}-${version}-${arch}.${ext}");
   assert.deepEqual(config.dmg.window, { width: 540, height: 380 });
@@ -232,5 +234,20 @@ test("DMG keeps the classic two-icon layout with a folder-shaped application rec
   assert.equal(config.extraResources.some(resource => resource.from.includes("Install CuteJ.app")), false);
   const { validateConfig } = require("app-builder-lib/out/util/config.js");
   await validateConfig(config, { isEnabled: false });
-  await validateConfig(electronBuilderConfig(brand, { os: "win32", arch: "x64" }), { isEnabled: false });
+  await validateConfig(electronBuilderConfig(brand, { os: "win32", arch: "x64" }, notary), { isEnabled: false });
+
+  for (const env of [{}, { APPLE_ID: "fixture" }, { ...notary, SKIP_NOTARIZE: "1" }, { ...notary, DESKTOP_SKIP_MAC_TIMESTAMP: "1" }]) {
+    const local = electronBuilderConfig(brand, target, env);
+    assert.equal(local.afterSign, "./scripts/verify-mac-services-signing.js");
+    assert.deepEqual(local.dmg.contents, [
+      { x: 130, y: 220 },
+      { x: 410, y: 220, type: "link", path: "/Applications" }
+    ]);
+    await validateConfig(local, { isEnabled: false });
+  }
+
+  assert.throws(
+    () => shouldBuildMacDmgInstaller({ APPLE_ID: "fixture" }, { validateNotaryConfig: true }),
+    /APPLE_APP_SPECIFIC_PASSWORD/u
+  );
 });
