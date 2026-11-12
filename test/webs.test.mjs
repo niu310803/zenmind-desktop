@@ -1035,7 +1035,7 @@ test("failed startup validation rolls an upgrade back to the old package", async
   );
 });
 
-test("install transaction activation can commit, rollback, and recover", (t) => {
+test("install transaction activation can commit, rollback, and recover", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-webapp-transaction-v1-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const app = createApp(path.join(root, "home"));
@@ -1045,18 +1045,18 @@ test("install transaction activation can commit, rollback, and recover", (t) => 
   fs.writeFileSync(path.join(installPath, "version.txt"), "old", "utf8");
   fs.mkdirSync(stagingPath, { recursive: true });
   fs.writeFileSync(path.join(stagingPath, "version.txt"), "new", "utf8");
-  const transaction = activateWebappInstall({ app, id: "transaction-app", installPath, stagingPath });
+  const transaction = await activateWebappInstall({ app, id: "transaction-app", installPath, stagingPath });
   assert.equal(fs.readFileSync(path.join(installPath, "version.txt"), "utf8"), "new");
-  rollbackWebappInstall(app, transaction);
+  await rollbackWebappInstall(app, transaction);
   assert.equal(fs.readFileSync(path.join(installPath, "version.txt"), "utf8"), "old");
 
   const staging2 = `${stagingPath}-2`;
   fs.mkdirSync(staging2, { recursive: true });
   fs.writeFileSync(path.join(staging2, "version.txt"), "committed", "utf8");
-  const committed = activateWebappInstall({ app, id: "transaction-app", installPath, stagingPath: staging2 });
-  commitWebappInstall(app, committed);
+  const committed = await activateWebappInstall({ app, id: "transaction-app", installPath, stagingPath: staging2 });
+  await commitWebappInstall(app, committed);
   assert.equal(fs.readFileSync(path.join(installPath, "version.txt"), "utf8"), "committed");
-  assert.deepEqual(recoverWebappInstallTransactions(app), []);
+  assert.deepEqual(await recoverWebappInstallTransactions(app), []);
 });
 
 test('installed WebApp page tokens allow connector operations without declarations',()=>{

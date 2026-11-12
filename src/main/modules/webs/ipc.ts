@@ -369,14 +369,31 @@ export function registerWebIpcHandlers(ipcMain: any, options: WebIpcHandlerOptio
     return result;
   });
   ipcMain.handle("webs.webapps.stop", async (_event: any, id: string) => {
-    webappWindowManager.close(id);
-    return webappManager.runtime.stop(app, id);
+    if (webappManager.runtime.isDisposing(id)) {
+      return { ok: false, item: null, state: null, message: t("webapp.removing") };
+    }
+    const releaseDisposal = webappWindowManager.beginDisposal(id, {
+      closeImmediately: false,
+      preventRuntimeStart: true
+    });
+    try {
+      const result = await webappManager.runtime.stop(app, id);
+      if (!result.ok) return result;
+      try {
+        await webappWindowManager.closeForDisposal(id);
+        return result;
+      } catch (error) {
+        return { ...result, ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    } finally {
+      releaseDisposal();
+    }
   });
   ipcMain.handle("webs.webapps.restart", async (_event: any, id: string) => {
     const result = await webappManager.runtime.restart(app, id);
     if (result.ok && result.state?.webUrl) {
       await webappWindowManager.reload(id, result.state);
-    } else {
+    } else if (!webappManager.runtime.isDisposing(id)) {
       webappWindowManager.close(id);
     }
     return result;

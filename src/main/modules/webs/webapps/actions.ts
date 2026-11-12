@@ -21,6 +21,8 @@ import {
 import { webappRuntime } from "./runtime";
 import { readWebappPublishState, unpublishWebapp } from "./publisher";
 import { webappWindowManager } from "./window-manager";
+import { removeWebappDirectory } from "./remove-directory";
+import { hasPendingWebappInstallTransaction } from "./install-transaction";
 
 function findWebapp(items: WebappEntry[], id: string) {
   const normalizedId = id.trim();
@@ -131,8 +133,17 @@ export async function disposeWebappInstallation(
     windowManager: webappWindowManager
   }
 ) {
-  const releaseDisposal = dependencies.windowManager.beginDisposal(target.id, { closeImmediately: false });
+  if (dependencies.runtime.isDisposing(target.id)) {
+    return { ok: false, message: t("webapp.removing") };
+  }
+  const releaseDisposal = dependencies.windowManager.beginDisposal(target.id, {
+    closeImmediately: false,
+    preventRuntimeStart: true
+  });
   try {
+    if (hasPendingWebappInstallTransaction(app, target.id)) {
+      return { ok: false, message: t("webapp.installRecoveryRequired") };
+    }
     // Stopping a resource plugin removes its program but retains user data and
     // the successful unpublish state. Uninstall must still clean that data.
     const independent = (target.installPath || getWebappDir(app, target.id)) === webappPlatformLayout(app, target.id).runtime;
@@ -161,14 +172,18 @@ export async function disposeWebappInstallation(
         })
       };
     }
-    dependencies.windowManager.closeForDisposal(target.id);
+    await dependencies.windowManager.closeForDisposal(target.id);
     if (independent && target.preserveUserData) {
-      for (const name of PLATFORM_PACKAGE_ENTRIES) fs.rmSync(path.join(webappPlatformLayout(app, target.id).runtime, name), { recursive: true, force: true });
-    } else fs.rmSync(independent ? webappPlatformLayout(app, target.id).root : target.installPath || getWebappDir(app, target.id), { recursive: true, force: true });
+      for (const name of PLATFORM_PACKAGE_ENTRIES) {
+        await removeWebappDirectory(path.join(webappPlatformLayout(app, target.id).runtime, name));
+      }
+    } else {
+      await removeWebappDirectory(independent ? webappPlatformLayout(app, target.id).root : target.installPath || getWebappDir(app, target.id));
+    }
     if (!target.preserveUserData) {
-      fs.rmSync(getDesktopWebappDataRoot(app, target.id), { recursive: true, force: true });
-      fs.rmSync(getDesktopWebappStateRoot(app, target.id), { recursive: true, force: true });
-      fs.rmSync(getDesktopWebappLogsRoot(app, target.id), { recursive: true, force: true });
+      await removeWebappDirectory(getDesktopWebappDataRoot(app, target.id));
+      await removeWebappDirectory(getDesktopWebappStateRoot(app, target.id));
+      await removeWebappDirectory(getDesktopWebappLogsRoot(app, target.id));
       removeWebappPreferences(app, target.id);
     }
     if (target.removeMarketRecord) {

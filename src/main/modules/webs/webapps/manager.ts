@@ -43,6 +43,7 @@ import {
   WebappRuntimeRequiredError
 } from "./install-errors";
 import { getDesktopWebappInstallStagingRoot } from "../../../infrastructure/filesystem/user-paths";
+import { recoverWebappInstallTransactions } from "./install-transaction";
 
 type WebappInstallArchiveOptions = Record<string, unknown> & { expectedId?: string };
 
@@ -117,6 +118,31 @@ export class WebappManager {
   ) {
     return requireWebsIntegrationPorts(this.integrationPorts)
       .installWebsiteAppArchiveFromPath(app, archivePath, options);
+  }
+
+  async recoverInstallations(app: App) {
+    const releases: (() => void)[] = [];
+    try {
+      return await recoverWebappInstallTransactions(app, {
+        beforeRecovery: async (transaction) => {
+          const installation = this.runtime.beginInstallation(transaction.id);
+          if (!installation) return false;
+          releases.push(installation.release);
+          releases.push(this.windowManager.beginDisposal(transaction.id, { closeImmediately: false }));
+          if (transaction.schemaVersion === 1 && transaction.phase !== "rolling-back") return true;
+          if (transaction.schemaVersion === 2 && transaction.phase === "committed") return true;
+          const stopped = await this.runtime.stop(app, transaction.id);
+          if (!stopped.ok) {
+            console.warn("WebApp install recovery could not stop runtime", transaction.id, stopped.message);
+            return false;
+          }
+          await this.windowManager.closeForDisposal(transaction.id);
+          return true;
+        }
+      });
+    } finally {
+      for (const release of releases.reverse()) release();
+    }
   }
 
   async installPackageDirectory(

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import type { App } from "electron";
-import type { MarketCommandResult, MarketItem } from "../../../shared/contracts";
+import type { MarketCommandResult, MarketItem, WebappRuntimeState } from "../../../shared/contracts";
 import { WEBAPP_ID_PATTERN } from "../../../shared/webapp-manifest";
 import { WebappPackageValidationError } from "../../support/archive/package-safety.js";
 import { validateWebappArchiveLayout } from "../webs";
@@ -32,6 +32,9 @@ import { webappWindowManager } from "../webs";
 import {
   activateWebappInstall,
   commitWebappInstall,
+  hasPendingWebappInstallTransaction,
+  markWebappInstallRollback,
+  removeWebappDirectory,
   rollbackWebappInstall,
   type WebappInstallTransaction
 } from "../webs";
@@ -42,13 +45,14 @@ import {
   mergeCatalogItems,
   normalizeCatalog,
   readInstalledRecords,
-  replaceInstalledRecords,
   resolveMarketAsset,
   upsertInstalledRecord,
   type Catalog,
   type MarketplaceOptions,
   type MarketSectionResult
 } from "./common";
+
+const installingWebappKeys = new Set<string>();
 
 type WebsiteAppCatalogResult = {
   catalog: Catalog;
@@ -275,16 +279,19 @@ export async function installWebsiteAppArchiveFromPath(
   const tempRoot = path.join(stagingRoot, `${tempId}-${nonce}`);
   const preparedPath = path.join(stagingRoot, `${tempId}-${nonce}-package`);
   let transaction: WebappInstallTransaction | null = null;
-  let preserveUnstoppedTransaction = false;
-  let createdPlatformRoot = "";
+  let installation: ReturnType<typeof runtime.beginInstallation> = null;
   let releaseWebappDisposal: (() => void) | null = null;
-  const originalInstalledRecords = options.recordInstallation === false
-    ? null
-    : readInstalledRecords(app);
-  let installedRecordCommitted = false;
+  let replacement: ReturnType<typeof windowManager.beginReplacement> | null = null;
+  let replacementState: WebappRuntimeState | null = null;
+  let reservedKey: string | null = null;
   let activatedWebappId = "";
   let replacingExistingPackage = false;
-  let previousPackageWasRunning = false;
+  let resumeRuntime = false;
+  let previousPackageVersion = "";
+  let previousPackageStopped = false;
+  let installationId = "";
+  let installationPath = "";
+  let createdRuntimeDirectories: string[] = [];
   try {
     let archiveRootName: string;
     try {
@@ -343,6 +350,30 @@ export async function installWebsiteAppArchiveFromPath(
         { expected: options.version, actual: webapp.version }
       );
     }
+    installation = runtime.beginInstallation(safeWebappDirName);
+    if (!installation) {
+      throw new WebappInstallError("install", "webapp_busy", t("webapp.removing"), {
+        id: safeWebappDirName
+      });
+    }
+    installationId = safeWebappDirName;
+    if (hasPendingWebappInstallTransaction(app, safeWebappDirName)) {
+      throw new WebappInstallError("install", "installation_recovery_required", t("webapp.installRecoveryRequired"), {
+        id: safeWebappDirName
+      });
+    }
+    if (installingWebappKeys.has(webapp.key)) {
+      throw new WebappInstallError("install", "webapp_busy", t("webapp.removing"), {
+        id: safeWebappDirName
+      });
+    }
+    // The WebApp ID can differ between packages with the same key. Reserve
+    // both identities before the asynchronous directory transaction begins.
+    installingWebappKeys.add(webapp.key);
+    reservedKey = webapp.key;
+    releaseWebappDisposal = windowManager.beginDisposal(safeWebappDirName, {
+      closeImmediately: false
+    });
     const keyConflict = readInstalledWebappItems(app).find((item) =>
       item.key === webapp.key && item.id !== webapp.id
     );
@@ -357,9 +388,17 @@ export async function installWebsiteAppArchiveFromPath(
 
     const targetRoot = getDesktopWebappsDataRoot(app);
     const installedPath = getWebappDir(app, safeWebappDirName);
-    const installPath = webapp.hosting === "platform" ? webappPlatformLayout(app, safeWebappDirName).runtime : path.join(targetRoot, safeWebappDirName);
-    if (fs.existsSync(path.join(installedPath, "webapp.json")) && installedPath !== installPath) throw new WebappInstallPolicyError("hosting_change_not_allowed", "Uninstall the existing application before changing its hosting mode.", { id: webapp.id });
-    const replacingExisting = fs.existsSync(path.join(installPath, "webapp.json"));
+    const installPath = webapp.hosting === "platform"
+      ? webappPlatformLayout(app, safeWebappDirName).runtime
+      : path.join(targetRoot, safeWebappDirName);
+    if (fs.existsSync(path.join(installedPath, "webapp.json")) && installedPath !== installPath) {
+      throw new WebappInstallPolicyError("hosting_change_not_allowed", "Uninstall the existing application before changing its hosting mode.", { id: webapp.id });
+    }
+    installationPath = installPath;
+    // A Platform runtime may already contain retained data after uninstall.
+    const replacingExisting = webapp.hosting === "platform"
+      ? fs.existsSync(path.join(installPath, "webapp.json"))
+      : fs.existsSync(installPath);
     replacingExistingPackage = replacingExisting;
     if (replacingExisting) {
       const installed = readInstalledWebappItems(app).find(item => item.id === safeWebappDirName);
@@ -368,6 +407,7 @@ export async function installWebsiteAppArchiveFromPath(
           id: safeWebappDirName
         });
       }
+      previousPackageVersion = installed.version;
       const versionOrder = compareSemver(webapp.version, installed.version);
       if (versionOrder < 0) {
         throw new WebappInstallPolicyError(
@@ -412,8 +452,7 @@ export async function installWebsiteAppArchiveFromPath(
       }
     }
     const previousState = replacingExisting ? runtime.getStatus(app, safeWebappDirName) : null;
-    const previousWasRunning = previousState?.status === "running";
-    previousPackageWasRunning = previousWasRunning;
+    resumeRuntime = previousState?.status === "running" || previousState?.status === "starting";
     const prerequisites = runtime.checkItemPrerequisites(app, webapp, webappRoot);
     if (!prerequisites.ok) {
       if (
@@ -433,7 +472,7 @@ export async function installWebsiteAppArchiveFromPath(
       });
     }
     if (replacingExisting) {
-      releaseWebappDisposal = windowManager.beginDisposal(safeWebappDirName);
+      replacement = windowManager.beginReplacement(safeWebappDirName);
       const stopped = await runtime.stop(app, safeWebappDirName, t("market.websiteApp.replaced"));
       if (!stopped.ok) {
         throw new WebappInstallError(
@@ -443,6 +482,8 @@ export async function installWebsiteAppArchiveFromPath(
           { id: safeWebappDirName }
         );
       }
+      previousPackageStopped = true;
+      await replacement.suspend();
     }
     fs.mkdirSync(targetRoot, { recursive: true });
     if (webappRoot === tempRoot) {
@@ -450,8 +491,13 @@ export async function installWebsiteAppArchiveFromPath(
     } else {
       fs.renameSync(webappRoot, preparedPath);
     }
-    if (webapp.hosting === "platform" && !fs.existsSync(webappPlatformLayout(app, webapp.id).root)) createdPlatformRoot = webappPlatformLayout(app, webapp.id).root;
-    transaction = activateWebappInstall({
+    createdRuntimeDirectories = [
+      getDesktopWebappDataRoot(app, safeWebappDirName),
+      getDesktopWebappStateRoot(app, safeWebappDirName),
+      getDesktopWebappLogsRoot(app, safeWebappDirName),
+      ...(webapp.hosting === "platform" ? [webappPlatformLayout(app, safeWebappDirName).root] : [])
+    ].filter((directory) => !fs.existsSync(directory));
+    transaction = await activateWebappInstall({
       app,
       id: safeWebappDirName,
       installPath,
@@ -460,24 +506,24 @@ export async function installWebsiteAppArchiveFromPath(
     });
     activatedWebappId = safeWebappDirName;
 
-    {
-      const started = await runtime.start(app, safeWebappDirName);
-      if (!started.ok) {
-        throw new WebappInstallError(
-          "startup",
-          "startup_failed",
-          t("webapp.marketStartupValidationFailed", { message: started.message }),
-          { id: safeWebappDirName }
-        );
+    const started = await installation.start(app);
+    if (!started.ok) {
+      throw new WebappInstallError(
+        "startup",
+        "startup_failed",
+        t("webapp.marketStartupValidationFailed", { message: started.message }),
+        { id: safeWebappDirName }
+      );
+    }
+    let validatedState = started.state;
+    if (!resumeRuntime) {
+      const stopped = await runtime.stop(app, safeWebappDirName);
+      if (!stopped.ok) {
+        throw new WebappInstallError("startup", "validation_stop_failed", stopped.message, {
+          id: safeWebappDirName
+        });
       }
-      if (!previousWasRunning) {
-        const stopped = await runtime.stop(app, safeWebappDirName);
-        if (!stopped.ok) {
-          throw new WebappInstallError("startup", "validation_stop_failed", stopped.message, {
-            id: safeWebappDirName
-          });
-        }
-      }
+      validatedState = stopped.state;
     }
     if (options.recordInstallation !== false) {
       upsertInstalledRecord(app, {
@@ -492,10 +538,10 @@ export async function installWebsiteAppArchiveFromPath(
         ...(options.marketItemId ? { resourceKey: webapp.id } : {}),
         installedAt: new Date().toISOString()
       });
-      installedRecordCommitted = true;
     }
-    commitWebappInstall(app, transaction);
+    await commitWebappInstall(app, transaction);
     transaction = null;
+    replacementState = validatedState;
     runtime.emitLifecycleChange(replacingExisting ? "updated" : "installed", webapp.id);
 
     return {
@@ -507,39 +553,72 @@ export async function installWebsiteAppArchiveFromPath(
       installPath
     };
   } catch (error) {
+    let failure = toWebappInstallError(error, "install", "install_failed", { path: archivePath });
     if (transaction && activatedWebappId) {
-      const stopped = await runtime.stop(app, activatedWebappId).catch(error => ({ ok: false, message: error instanceof Error ? error.message : String(error) }));
-      if (!stopped.ok) {
-        preserveUnstoppedTransaction = true;
-        preserveWebappInstallForRecovery(app, transaction);
-        throw new WebappInstallError("startup", "rollback_stop_failed", stopped.message, { id: activatedWebappId, journalPreserved: true });
-      }
-      rollbackWebappInstall(app, transaction);
-      transaction = null;
-      if (!replacingExistingPackage) {
-        if (createdPlatformRoot) fs.rmSync(createdPlatformRoot, { recursive: true, force: true });
-        fs.rmSync(getDesktopWebappDataRoot(app, activatedWebappId), { recursive: true, force: true });
-        fs.rmSync(getDesktopWebappStateRoot(app, activatedWebappId), { recursive: true, force: true });
-        fs.rmSync(getDesktopWebappLogsRoot(app, activatedWebappId), { recursive: true, force: true });
-      }
-      if (replacingExistingPackage && previousPackageWasRunning) {
-        await runtime.start(app, activatedWebappId).catch(() => undefined);
+      try {
+        // Persist the rollback intent even if stopping fails. Recovery must not
+        // mistake a failed new package for an installation ready to commit.
+        await markWebappInstallRollback(app, transaction);
+        const stopped = await runtime.stop(app, activatedWebappId);
+        if (!stopped.ok) throw new Error(stopped.message);
+        if (!replacement) await windowManager.closeForDisposal(activatedWebappId);
+        await rollbackWebappInstall(app, transaction);
+        transaction = null;
+        if (!replacingExistingPackage) {
+          for (const directory of createdRuntimeDirectories) {
+            await removeWebappDirectory(directory);
+          }
+        }
+      } catch (recoveryError) {
+        if (transaction) preserveWebappInstallForRecovery(app, transaction);
+        const recoveryMessage = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+        failure = new WebappInstallError(failure.stage, failure.code, `${failure.message}\n${recoveryMessage}`, {
+          ...failure.details,
+          recovery: {
+            message: recoveryMessage,
+            installPath: installationPath,
+            backupPath: transaction?.backupPath
+          }
+        });
       }
     }
-    if (installedRecordCommitted && originalInstalledRecords) {
-      replaceInstalledRecords(app, originalInstalledRecords);
-      installedRecordCommitted = false;
+    if (!transaction && previousPackageStopped && installation) {
+      // Activation can fail before it returns a transaction. Restart only a
+      // verified old package, never an incompletely restored new directory.
+      try {
+        const restored = readInstalledWebappItems(app).find(item =>
+          item.id === installationId && item.installPath === installationPath
+        );
+        if (restored?.version === previousPackageVersion) {
+          replacementState = resumeRuntime
+            ? (await installation.start(app)).state
+            : runtime.getStatus(app, installationId);
+        }
+      } catch (restoreError) {
+        console.warn("failed to restart restored WebApp", installationId, restoreError);
+      }
     }
-    throw toWebappInstallError(error, "install", "install_failed", { path: archivePath });
+    throw failure;
   } finally {
-    releaseWebappDisposal?.();
-    if (transaction && !preserveUnstoppedTransaction) {
-      rollbackWebappInstall(app, transaction);
+    try {
+      if (options.removeArchive) {
+        await fs.promises.rm(archivePath, { force: true }).catch((error) => {
+          console.warn("failed to clean WebApp archive", archivePath, error);
+        });
+      }
+      await removeWebappDirectory(tempRoot).catch((error) => {
+        console.warn("failed to clean WebApp extraction directory", tempRoot, error);
+      });
+      if (replacement) {
+        await replacement.finish(app, replacementState).catch((error) => {
+          console.warn("failed to restore WebApp presentation", installationId, error);
+        });
+      }
+    } finally {
+      releaseWebappDisposal?.();
+      installation?.release();
+      if (reservedKey !== null) installingWebappKeys.delete(reservedKey);
     }
-    if (options.removeArchive) {
-      fs.rmSync(archivePath, { force: true });
-    }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 

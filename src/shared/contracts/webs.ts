@@ -127,8 +127,9 @@ export interface WebListResult {
 
 export interface WebsChangedEvent {
   changedAt: string;
-  phase?: "changed" | "disposing";
+  phase?: "changed" | "disposing" | "replacing" | "replacement-finished";
   webappId?: string;
+  webappRuntimeState?: WebappRuntimeState | null;
   reason?: DesktopWebappChangedReason | "tunnel-status-changed";
 }
 

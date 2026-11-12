@@ -652,6 +652,7 @@
 - WebApp 已在独立窗口时，WorkPanel 菜单显示已在浮窗并只聚焦窗口，不创建 tab。
 - WorkPanel presentation 不进入公开 CDP current，但页面 gateway/bridge、Cmd/Ctrl+W 和上下文菜单仍按 WorkPanel 归属工作；WebApp popup 保持单页，不能打开 WorkPanel 新 tab。
 - 停止、启动失败、卸载和退出应用后确认所有 WorkPanel 引用与 canonical guest 被回收；WorkPanel 转移不改变持久 `openMode`。
+- macOS / Windows 分别从主区、隐藏 WorkPanel 与独立窗口执行侧栏关闭、设置页停止和卸载：先确认 gateway 与受管后端进程停止，再销毁 guest / 关闭窗口；卸载仅在 guest 销毁后删除目录。停止失败保留页面和安装目录，关闭期间不自动重启，WorkPanel 不遗留引用；关闭超时明确失败，Windows 短暂文件占用释放后可重试成功，持续占用仍报错。
 - 人为构造一次 Surface Registry 拒绝，确认 Main 只记录结构化 reason、surface/renderer/guest 身份和去重汇总，不记录 URL、token、Cookie、页面正文、identity key 或原始 Chat ID。
 
 ## Website 关闭快捷键
@@ -1561,6 +1562,10 @@ macOS 与 Windows 分别执行；Windows 的密钥保护、目录权限和系统
 
 ## WebApp 单路径安装与确认前校验
 
+- macOS / Windows：从 ZIP 导入带托管后端的网页应用，分别在主区、隐藏 WorkPanel 和独立窗口运行时导入更高版本。确认先停止后端、销毁旧 guest，再替换程序目录；原路由、WorkPanel 标签和独立窗口仍在原处，验证完成后加载新版页面。分别覆盖最小化独立窗口、停止状态、后台运行但未开页面，以及升级期间主动关闭标签或窗口。升级保留业务数据；升级期间点击启动、重启、再次导入或卸载同一应用，不能产生第二次目录操作。
+- 注入旧后端停止失败、页面关闭失败或超时，确认安装未移动旧目录，原 ZIP 与业务数据保留。新版健康检查失败时，必须确认新版后端停止后才回滚；停止失败应同时保留新版、旧版备份和待回滚记录，再次导入明确提示先完成恢复，不得同版本误报成功。
+- Windows 短暂占用程序目录时，重命名及回滚删除异步重试，界面仍响应；持续 `EPERM` 保留原始诊断和恢复记录。macOS 验证普通文件操作分支，不使用 Windows 专属重试。暂存目录清理失败不得替换原始安装错误。
+- 失败后重启，确认恢复旧包前同样先停止进程和销毁页面；启动恢复遇到正在进行的安装必须跳过，不得删除它的备份或 journal。确认运行中的 ZIP 应用可卸载，卸载完成后再次导入同一 ZIP 可成功。
 - macOS / Windows：用同一个 archivePath 分别安装本机 Workspace 外的 ZIP、Workspace 相对 ZIP、@workspace ZIP 和当前 @chat ZIP；Chat 在项目外或未绑定 Workspace 时仍能安装，原文件保留。外部绝对路径用于 package.validate/init/build 时仍被拒绝。
 - 安装默认省略 expectedId，读取返回的 webappId 完成 checkRuntime → start → open，再 stop → start → open 并回读状态；没有 itemId 或 message 成功字段。
 - 缺失文件、目录、损坏 ZIP、非法 Manifest、错误 expectedId、URL/URI、相对路径或别名越界均在安装确认前报错且未执行安装。确认展示精确文件、应用身份和版本；取消不安装，确认过程中改变 ZIP 后拒绝安装并要求重新发起。
@@ -1889,3 +1894,9 @@ WebApp copilot.references 仅声明 {type:"skill",id}，未知清单字段即使
 - 升级保留 chats/memory/pan/owner/root/registries/webapp-data/.state；缺省目录删除、新增目录和空目录正确；候选健康失败、每项 rename 之间中断与提交前中断恢复旧程序。损坏/越界 journal 保留并阻止启动。拒绝直接改变 hosting。
 - 导出只包含包内资源；卸载分别选择保留/删除数据，保留后重装相同应用可读原业务数据。Platform 单例程序替换及 Desktop 退出期间，独立实例先清理，不留下其他进程组。
 - macOS 开发环境自动冒烟：构建 Main 与当前 Platform 后，用 stock Electron 执行 `qa/webapp-platform-smoke.cjs <Platform绝对路径> <已准备开发壳的主程序绝对路径>`。第二个路径只用于解析后台 Helper，不能直接启动品牌壳执行此测试。脚本使用 canonical 临时目录与临时 profile，验证两种 WebView 顶层 POST、Node 24 权限、无 Desktop preload 和后代清理。Windows 与打包 macOS 的 Node 隔离仍须真机验证。
+
+### 两种 WebApp hosting 的合并回归
+
+- macOS / Windows 分别验证普通与独立 Platform 应用：运行中覆盖安装后保留主区、WorkPanel 或独立窗口的位置；隐藏、最小化保持，期间主动关闭的页面不重开。Platform 新 guest 必须重新换票，不能出现未认证页面。
+- 分别验证停止失败、guest 销毁超时、新版健康失败和回滚文件占用：不得提前删除程序或业务数据；失败保留 journal 与备份，恢复后旧版可启动。单个损坏的 Platform journal 不影响其他应用恢复。
+- Platform 关闭页面和独立窗口后实例保持运行；显式停止、卸载仍等待完整进程树退出。选择保留数据后再安装相同 ID，原业务数据保留；选择删除数据则清除独立根。普通应用关闭失败仍保留页面供重试。

@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { parseWebappManifest } = require('../dist-electron/shared/webapp-manifest.js');
 const { webappPlatformLayout } = require('../dist-electron/main/modules/webs/webapps/platform-layout.js');
-const { activateWebappInstall, commitWebappInstall, rollbackWebappInstall, recoverWebappInstallTransactions } = require('../dist-electron/main/modules/webs/webapps/install-transaction.js');
+const { preserveWebappInstallForRecovery, activateWebappInstall, commitWebappInstall, rollbackWebappInstall, recoverWebappInstallTransactions } = require('../dist-electron/main/modules/webs/webapps/install-transaction.js');
 const { getDesktopWebappStateRoot, getDesktopWebappInstallStagingRoot } = require('../dist-electron/main/infrastructure/filesystem/user-paths.js');
 const { validateWebappPackageDirectory } = require('../dist-electron/main/modules/webs/webapps/package-validation.js');
 const { readInstalledWebappItems, readWebappItems, getWebappDir } = require('../dist-electron/main/modules/webs/webapps/store.js');
@@ -26,36 +26,40 @@ function fixture(t) {
  fs.mkdirSync(layout.runtime,{recursive:true});
  return {app,layout,incoming,home};
 }
-test('Platform installs replace package entries and preserve every runtime data partition', t => {
+test('Platform installs replace package entries and preserve every runtime data partition', async t => {
  const {app,layout,incoming} = fixture(t);
  for (const name of ['chats','memory','pan','.state','webapp-data','registries','owner','root']) { fs.mkdirSync(path.join(layout.runtime,name)); fs.writeFileSync(path.join(layout.runtime,name,'keep'),'data'); }
- let tx = activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
- commitWebappInstall(app,tx);
+ let tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ await commitWebappInstall(app,tx);
  assert.equal(getWebappDir(app,id),layout.runtime);
  assert.equal(readInstalledWebappItems(app)[0].hosting,'platform');
  assert.equal(readWebappItems(app,process.platform,{readInstalledRecords:() => []})[0].installPath,layout.runtime);
  fs.mkdirSync(path.join(layout.runtime,'backend')); fs.writeFileSync(path.join(layout.runtime,'backend','old.mjs'),'old');
- tx = activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
  assert.equal(fs.existsSync(path.join(layout.runtime,'backend')),false);
- rollbackWebappInstall(app,tx);
+ await rollbackWebappInstall(app,tx);
  assert.equal(fs.readFileSync(path.join(layout.runtime,'backend','old.mjs'),'utf8'),'old');
  for (const name of ['chats','memory','pan','.state','webapp-data','registries','owner','root']) assert.equal(fs.readFileSync(path.join(layout.runtime,name,'keep'),'utf8'),'data');
 });
-test('interrupted activation rolls back rather than committing an unverified package', t => {
+test('interrupted activation rolls back rather than committing an unverified package', async t => {
  const {app,layout,incoming} = fixture(t);
  fs.mkdirSync(path.join(layout.runtime,'frontend')); fs.writeFileSync(path.join(layout.runtime,'frontend','index.html'),'old');
  fs.writeFileSync(path.join(layout.runtime,'webapp.json'),JSON.stringify(manifest()));
- const tx = activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
- assert.deepEqual(recoverWebappInstallTransactions(app),[id]);
+ const tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ preserveWebappInstallForRecovery(app,tx);
+ assert.deepEqual(await recoverWebappInstallTransactions(app),[id]);
  assert.equal(fs.readFileSync(path.join(layout.runtime,'frontend','index.html'),'utf8'),'old');
  assert.equal(fs.existsSync(tx.backupPath),false);
 });
-test('journal recovery rejects escapes and preserves the invalid journal', t => {
+test('journal recovery rejects escapes and preserves the invalid journal', async t => {
  const {app,layout,incoming} = fixture(t);
- const tx = activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ const tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
  const file = path.join(getDesktopWebappStateRoot(app,id),'platform-install.json');
  fs.writeFileSync(file,JSON.stringify({...tx,backupPath:path.dirname(layout.runtime)}));
- assert.throws(() => recoverWebappInstallTransactions(app),/Invalid Platform install journal/);
+ preserveWebappInstallForRecovery(app,tx);
+ const { readPlatformInstallTransaction } = require('../dist-electron/main/modules/webs/webapps/platform-install.js');
+ assert.throws(() => readPlatformInstallTransaction(app,id),/Invalid Platform install journal/);
+ assert.deepEqual(await recoverWebappInstallTransactions(app),[]);
  assert.equal(fs.existsSync(file),true);
 });
 test('package validation rejects runtime data and missing packaged Agents or skills', t => {
@@ -137,13 +141,46 @@ test('minimum Platform versions use SemVer prerelease precedence', () => {
  const { platformVersionSatisfies } = require('../dist-electron/main/modules/webs/webapps/platform-instances.js');
  for (const [actual,minimum,expected] of [['v0.5.46','0.5.46',true],['0.5.46','0.6.0',false],['0.6.0-alpha.2','0.6.0-alpha.1',true],['0.6.0-alpha.2','0.6.0',false],['0.6.0-beta','0.6.0-alpha.9',true],['0.6.0','0.6.0-rc.1',true],['0.6.0-alpha','0.6.0-alpha.1',false],['invalid','0.5.0',false]]) assert.equal(platformVersionSatisfies(actual,minimum),expected);
 });
-test('a deferred install can recover after process cleanup without remaining owned by the failed installer', t => {
+test('a deferred install can recover after process cleanup without remaining owned by the failed installer', async t => {
  const { app,layout,incoming } = fixture(t);
  const { preserveWebappInstallForRecovery } = require('../dist-electron/main/modules/webs/webapps/install-transaction.js');
  const { hasActivePlatformInstall } = require('../dist-electron/main/modules/webs/webapps/platform-install.js');
- const tx = activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ const tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
  assert.equal(hasActivePlatformInstall(app,id),true);
  preserveWebappInstallForRecovery(app,tx); assert.equal(hasActivePlatformInstall(app,id),false);
- assert.deepEqual(recoverWebappInstallTransactions(app),[id]);
+ assert.deepEqual(await recoverWebappInstallTransactions(app),[id]);
  assert.equal(fs.existsSync(path.join(layout.runtime,'webapp.json')),false);
+});
+
+test('Platform recovery observes admission and cannot modify an active installation', async t => {
+ const {app,layout,incoming} = fixture(t);
+ const { hasPendingWebappInstallTransaction } = require('../dist-electron/main/modules/webs/webapps/install-transaction.js');
+ const tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ assert.equal(hasPendingWebappInstallTransaction(app,id),true);
+ assert.deepEqual(await recoverWebappInstallTransactions(app),[]);
+ assert.equal(fs.readFileSync(path.join(layout.runtime,'frontend','index.html'),'utf8'),'new');
+ preserveWebappInstallForRecovery(app,tx);
+ assert.deepEqual(await recoverWebappInstallTransactions(app,{beforeRecovery:async transaction => {
+  assert.equal(transaction.schemaVersion,2);
+  return false;
+ }}),[]);
+ assert.equal(hasPendingWebappInstallTransaction(app,id),true);
+ assert.deepEqual(await recoverWebappInstallTransactions(app,{beforeRecovery:async () => true}),[id]);
+ assert.equal(hasPendingWebappInstallTransaction(app,id),false);
+});
+
+test('an invalid Platform journal does not prevent an unrelated Desktop transaction from recovering', async t => {
+ const {app,layout,incoming} = fixture(t);
+ const { getDesktopWebappsDataRoot } = require('../dist-electron/main/infrastructure/filesystem/user-paths.js');
+ const tx = await activateWebappInstall({app,id,installPath:layout.runtime,stagingPath:incoming(),hosting:'platform'});
+ preserveWebappInstallForRecovery(app,tx);
+ const journal = path.join(getDesktopWebappStateRoot(app,id),'platform-install.json');
+ fs.writeFileSync(journal,JSON.stringify({...tx,backupPath:path.dirname(layout.runtime)}));
+ const otherId = 'webapp-unrelated';
+ const otherPath = path.join(getDesktopWebappsDataRoot(app),otherId);
+ fs.mkdirSync(path.dirname(otherPath),{recursive:true});
+ await activateWebappInstall({app,id:otherId,installPath:otherPath,stagingPath:incoming()});
+ assert.deepEqual(await recoverWebappInstallTransactions(app),[otherId]);
+ assert.equal(fs.existsSync(journal),true);
+ assert.equal(fs.existsSync(path.join(otherPath,'webapp.json')),true);
 });
