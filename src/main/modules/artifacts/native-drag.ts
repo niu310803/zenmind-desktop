@@ -52,8 +52,10 @@ export function registerArtifactDragIpc(ipc: Pick<IpcMain, "handle" | "on" | "re
   function valid(input: unknown): input is ArtifactDragIdentity {
     if (!input || typeof input !== "object" || Array.isArray(input)) return false;
     const data = input as Record<string, unknown>;
-    return Object.keys(data).every(key => ["chatId", "artifactId", "runId"].includes(key)) &&
-      [data.chatId, data.artifactId, ...(data.runId === undefined ? [] : [data.runId])].every(value => typeof value === "string" && value.length > 0 && value.length <= 256 && value === value.trim() && !/[\x00-\x1f\x7f/\\]/u.test(value));
+    return Object.keys(data).every(key => ["chatId", "artifactId", "runId", "relativePath"].includes(key)) &&
+      (data.artifactId !== undefined || data.relativePath !== undefined) &&
+      (data.relativePath === undefined || (typeof data.relativePath === "string" && artifactRelativePath(`@chat/${data.relativePath}`, String(data.chatId)) === data.relativePath)) &&
+      [data.chatId, ...(data.artifactId === undefined ? [] : [data.artifactId]), ...(data.runId === undefined ? [] : [data.runId])].every(value => typeof value === "string" && value.length > 0 && value.length <= 256 && value === value.trim() && !/[\x00-\x1f\x7f/\\]/u.test(value));
   }
   ipc.handle(ARTIFACT_DRAG_PREPARE_CHANNEL, async (event, input: unknown): Promise<ArtifactDragPreparation> => {
     if (disposed || !["darwin", "win32"].includes(ports.platform) || !valid(input)) return { ok: false };
@@ -83,14 +85,15 @@ export function registerArtifactDragIpc(ipc: Pick<IpcMain, "handle" | "on" | "re
       if (!current() || info?.chatId !== input.chatId || !info.agentKey) return { ok: false };
       const detail = JSON.parse(info.rawJson);
       if (detail?.chatId !== input.chatId || !Array.isArray(detail.artifact?.items)) return { ok: false };
-      const matches = detail.artifact.items.filter((item: Record<string, unknown>) => item?.artifactId === input.artifactId &&
+      const matches = detail.artifact.items.filter((item: Record<string, unknown>) => (!input.artifactId || item?.artifactId === input.artifactId) &&
+        (!input.relativePath || artifactRelativePath(item?.url, input.chatId) === input.relativePath) &&
         (!input.runId || artifactRelativePath(item.url, input.chatId)?.split("/")[1] === input.runId));
       if (matches.length !== 1) return { ok: false };
       const artifact = matches[0], relative = artifactRelativePath(artifact.url, input.chatId);
       const runId = relative?.split("/")[1];
       if (!relative || !runId || !Number.isSafeInteger(artifact.sizeBytes) || artifact.sizeBytes < 0 || artifact.sizeBytes > LIMIT ||
         typeof artifact.sha256 !== "string" || !/^[a-f0-9]{64}$/iu.test(artifact.sha256)) return { ok: false };
-      const bytes = await ports.read({ chatId: input.chatId, artifactId: input.artifactId, runId }, AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]));
+      const bytes = await ports.read({ chatId: input.chatId, artifactId: artifact.artifactId, runId }, AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]));
       if (!current() || bytes.length !== artifact.sizeBytes || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256.toLowerCase()) return { ok: false };
       if ([...leases.values()].reduce((sum, lease) => sum + lease.sizeBytes, 0) + bytes.length > 512 * 1024 * 1024) return { ok: false };
       const name = path.posix.basename(relative);

@@ -100,3 +100,13 @@ test('hovering more than eight different files evicts unused preparations while 
   }
   f.start(first); assert.equal(f.started.length, 0);
 });
+
+test('published paths resolve canonical IDs for Markdown and synthetic WorkPanel resources', async t => {
+  const f = await fixture(t);
+  const ready = await f.prepare({ chatId: 'chat', relativePath: 'artifacts/run/中文 #1%.txt' });
+  assert.equal(ready.ok, true); f.start(ready.token); assert.equal(f.started.length, 1);
+  for (const relativePath of ['references/run/a.txt', 'artifacts/run/../secret', 'artifacts/run/unpublished.txt']) {
+    assert.equal((await f.prepare({ chatId: 'chat', relativePath })).ok, false);
+  }
+  assert.equal((await f.prepare({ chatId: 'chat', artifactId: 'another', relativePath: 'artifacts/run/中文 #1%.txt' })).ok, false);
+});

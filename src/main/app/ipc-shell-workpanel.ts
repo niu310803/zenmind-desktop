@@ -1,7 +1,6 @@
 import path from "node:path";
 import { nativeImage } from "electron";
-import { readAgentWebclientCanonicalChatSource } from "../../shared/canonical-chat-sync";
-import { registerArtifactDragIpc, registerArtifactActionIpc } from "../modules/artifacts";
+import { artifactDragSurfaceAllowed, registerArtifactDragIpc, registerArtifactActionIpc } from "../modules/artifacts";
 import { createWebsiteCredentials, registerWebsiteCredentialIpc } from "../modules/credentials";
 import { shell } from "electron";
 import { callAgentPlatform } from "../modules/desktop-actions";
@@ -101,16 +100,16 @@ export function registerShellWorkPanelIpc(options: MainIpcRegistrationOptions) {
       const window = options.getMainWindow();
       if (!window || window.isDestroyed() || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame) return null;
       if (event.sender === window.webContents) {
-        const context = options.artifactRuntime?.actionContext({ ...identity, runId: identity.runId || "" });
-        if (!context?.record || context.record.sourceState !== "active" || context.record.contentState !== "ready" || !context.isCurrent()) return null;
+        if (!identity.relativePath) {
+          if (!identity.artifactId) return null;
+          const context = options.artifactRuntime?.actionContext({ ...identity, artifactId: identity.artifactId, runId: identity.runId || "" });
+          if (!context?.record || context.record.sourceState !== "active" || context.record.contentState !== "ready" || !context.isCurrent()) return null;
+        }
         return JSON.stringify(["library", window.webContents.id, event.senderFrame.processId, event.senderFrame.routingId, event.senderFrame.url]);
       }
       if (!options.isTrustedAgentWebclientSession(event.sender)) return null;
       const target = options.browserSurfaces.resolveWebviewSurfaceTarget(event.sender.id);
-      const route = readAgentWebclientCanonicalChatSource(event.sender.getURL());
-      if (!target?.active || target.serviceId !== "agent-webclient" || target.surfaceId !== "main-chat" ||
-        target.surfaceRole !== "main-chat" || target.surfaceLevel !== "root" || target.ownerWebContentsId !== window.webContents.id ||
-        target.ownerChatId !== identity.chatId || route?.chatId !== identity.chatId) return null;
+      if (!target || !artifactDragSurfaceAllowed(target, identity, event.sender.getURL(), window.webContents.id)) return null;
       return JSON.stringify([target.registrationId, target.surfaceIdentityKey, target.ownerChatId, event.senderFrame.processId, event.senderFrame.routingId, event.senderFrame.url]);
     },
     captureSourceGeneration: chatId => options.artifactRuntime?.captureSourceGeneration(chatId) ?? (() => false),

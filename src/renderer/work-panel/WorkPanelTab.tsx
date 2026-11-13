@@ -1,7 +1,10 @@
+import { useArtifactTabDrag } from "./useArtifactTabDrag";
+import type { ArtifactDragIdentity } from "../../shared/contracts/agent-webclient-bridge";
 import { CloseOutlined } from "@ant-design/icons";
 import type { KeyboardEventHandler, MouseEventHandler, ReactNode, Ref } from "react";
 
 type WorkPanelTabProps = {
+  artifactDragIdentity?: ArtifactDragIdentity | null;
   title: string;
   tooltip?: string;
   active: boolean;
@@ -24,9 +27,10 @@ type WorkPanelTabProps = {
 
 /** The common WorkPanel tab chrome; its owner retains activation and close state. */
 export function WorkPanelTab({
-  title, tooltip, active, overview, fixed, loading, icon, badge, onActivate, onClose,
+  artifactDragIdentity, title, tooltip, active, overview, fixed, loading, icon, badge, onActivate, onClose,
   closeLabel, closeShortcut, onContextMenu, onKeyDown, triggerRef, id, controls, tabIndex,
 }: WorkPanelTabProps) {
+  const dragProps = useArtifactTabDrag(artifactDragIdentity);
   return (
     <div
       className={`chat-work-panel-tab${active ? " is-active" : ""}${overview ? " is-overview" : ""}${fixed ? " is-fixed" : ""}${onClose ? " has-close" : ""}${badge ? " has-badge" : ""}`}
@@ -34,6 +38,7 @@ export function WorkPanelTab({
       onContextMenu={onContextMenu}
     >
       <button
+        {...dragProps}
         ref={triggerRef}
         id={id}
         type="button"

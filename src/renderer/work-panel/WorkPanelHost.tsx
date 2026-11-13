@@ -1,4 +1,5 @@
 import type { ExternalWebviewController } from "../pages/external-webview/ExternalWebviewPage";
+import { workPanelArtifactDragIdentity } from "./artifact-drag-identity";
 import { documentSourceFromWebclientDescriptor } from "../../shared/work-panel-document-source";
 import { registerDesktopCloseShortcutHandler } from "../services/desktopCloseShortcutRegistry";
 import {
@@ -3396,6 +3397,7 @@ export function WorkPanelHost({
                       active={active}
                       overview={overview}
                       loading={itemLoading}
+                      artifactDragIdentity={workPanelArtifactDragIdentity(workspace.ownerChatId, item.descriptor)}
                       title={item.title}
                       tooltip={documentPath || item.title}
                       icon={<WorkPanelItemIcon item={item} />}

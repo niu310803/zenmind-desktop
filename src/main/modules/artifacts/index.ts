@@ -1,3 +1,4 @@
+export { artifactDragSurfaceAllowed } from "./drag-surface-policy";
 export { registerArtifactDragIpc } from "./native-drag";
 export { registerArtifactActionIpc, artifactRelativePath } from "./actions";
 export { createArtifactPlatformClient } from "./platform-client";
