@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const isPerformanceDiagnosticsEnabled = () => process.env.PERF === "1";
+let profilePerformanceEnabled = false;
+
+export const isPerformanceDiagnosticsEnabled = () => process.env.PERF === "1" || profilePerformanceEnabled;
+
+export function configurePerformanceDiagnostics(enabled: boolean) {
+  profilePerformanceEnabled = enabled;
+}
 
 // Bound both disk use and the producer queue; slow disks must not retain unbounded events.
 export function createPerformanceWriter(root: string, maxBytes = 10 * 1024 * 1024) {

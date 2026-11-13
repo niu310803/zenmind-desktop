@@ -328,7 +328,7 @@ export async function executeWebAction(
     if (!options.webs.webappManager.list(options.app).some((item) => item.id === webappId)) {
       return fail(action, "webapp_not_found", t("webapp.notFound"), { webappId });
     }
-    return ok(action, options.webs.webappRuntime.checkRuntime(options.app, webappId));
+    return ok(action, await options.webs.webappRuntime.checkRuntime(options.app, webappId));
   }
   if (action === "desktop.webapp.start") {
     const webappId = readWebappId(args);

@@ -172,7 +172,7 @@ export async function installSoftwarePackageMarketItem(
   let activated = false;
   try {
     fs.mkdirSync(itemRoot, { recursive: true });
-    for (const entry of listArchiveEntries(archivePath)) {
+    for (const entry of await listArchiveEntries(archivePath)) {
       assertSafeArchiveEntry(entry);
     }
     if (resolved.asset.archiveType === "zip") {

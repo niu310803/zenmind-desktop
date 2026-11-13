@@ -153,10 +153,9 @@ export function createShutdownCleanupRunner(options: ShutdownCleanupRunnerOption
         platform: process.platform,
         collectManagedProcessCleanupTargetsImpl: () => ({
           roots: [],
-          stalePidFilePaths: []
+          stalePidFiles: []
         }),
         listProcessTreePidsImpl: () => [],
-        pidMatchesInstallDirImpl: () => true,
         terminateCapturedProcessTreeImpl: (rootPid, capturedPids) =>
           terminateCapturedProcessTreeAsync(rootPid, capturedPids)
       }),

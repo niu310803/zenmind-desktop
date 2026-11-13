@@ -92,7 +92,7 @@ export interface ServicesIpcHandlerOptions {
   runtimeEnvExists?: (app: any, platform: NodeJS.Platform) => boolean;
   applyDesktopInitBootstrap?: (app: any, platform: NodeJS.Platform) => unknown;
   refreshDesktopRuntimeConfigFromCanonicalFiles?: (reason: string) => unknown;
-  loadBuiltinServices?: (app: any) => void;
+  loadBuiltinServices?: (app: any) => Promise<unknown> | void;
   loadInstalledPlugins?: (app: any) => void;
   notifyServicesChanged?: () => void;
   onStartupPreparationSucceeded?: () => void;
@@ -264,25 +264,26 @@ export function registerServicesIpcHandlers(ipcMain: any, options: ServicesIpcHa
       return false;
     }
 
-    loadBuiltinServices?.(app);
-    loadInstalledPlugins?.(app);
-    notifyServicesChanged?.();
-
-    void runServiceMutation(() => runStartupPreparation(app, {
-      desktopVersion,
-      ...(desktopVersionUpgradeEnvZipPath ? { desktopVersionUpgradeEnvZipPath } : {}),
-      isFirstDesktopInstall: Boolean(isFirstDesktopInstall),
-      onModeResolved: (mode: string) => {
-        startupRestoreController?.beginSession(mode);
-      },
-      onStarting: (serviceId: string) => {
-        startupRestoreController?.updateService(serviceId, "starting", t("service.startingStatus"));
-      },
-      onProgress: (serviceId: string, phase: any, message: string) => {
-        startupRestoreController?.updateService(serviceId, phase, message);
-        notifyServicesChanged?.();
-      }
-    }))
+    void runServiceMutation(async () => {
+      await loadBuiltinServices?.(app);
+      loadInstalledPlugins?.(app);
+      notifyServicesChanged?.();
+      return runStartupPreparation(app, {
+        desktopVersion,
+        ...(desktopVersionUpgradeEnvZipPath ? { desktopVersionUpgradeEnvZipPath } : {}),
+        isFirstDesktopInstall: Boolean(isFirstDesktopInstall),
+        onModeResolved: (mode: string) => {
+          startupRestoreController?.beginSession(mode);
+        },
+        onStarting: (serviceId: string) => {
+          startupRestoreController?.updateService(serviceId, "starting", t("service.startingStatus"));
+        },
+        onProgress: (serviceId: string, phase: any, message: string) => {
+          startupRestoreController?.updateService(serviceId, phase, message);
+          notifyServicesChanged?.();
+        }
+      });
+    })
       .then((result) => {
         if (result.inputRequired) {
           startupRestoreController?.setEnvImportRequired(
@@ -403,6 +404,9 @@ export function registerServicesIpcHandlers(ipcMain: any, options: ServicesIpcHa
 
   ipcMain.handle("services.importEnvZip", async () => {
     const startupRestoreState = startupRestoreController?.getState();
+    if (startupRestoreState?.restoringSignIn) {
+      return { ok: false, message: t("startup.status.restoringSignIn") };
+    }
     const envImportRequest = startupRestoreState?.envImportRequest as StartupEnvImportRequest | undefined;
     const resumeBlockedStartup = startupRestoreState?.phase === "env-import-required";
     const isDevelopmentVersionChange =

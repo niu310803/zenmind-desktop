@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizePerformanceEvent } from "../../../shared/performance-diagnostics";
 import { isPerformanceDiagnosticsEnabled, writePerformanceEvent } from "../../support/logging/performance";
+import { markStartupMilestone } from "../../support/logging/startup-timing";
+import { readDesktopProfileFromRoot, updateDesktopProfileInRoot } from "../../infrastructure/filesystem/profile-store";
+import { getDesktopConfigRoot } from "../../infrastructure/filesystem/user-paths";
 import { popupWindowsApplicationMenu } from "./app-menu";
 import {
   shell as electronShell,
@@ -256,6 +259,12 @@ export function registerShellIpcHandlers(ipcMain: Pick<IpcMain, "handle" | "on">
 
   function getApp() {
     return options.app as App | undefined;
+  }
+
+  function isMainWindowFrame(event: IpcMainEvent | IpcMainInvokeEvent) {
+    const owner = options.getMainWindow?.() ?? options.mainWindow;
+    return Boolean(owner && event.sender === owner.webContents &&
+      event.senderFrame === event.sender.mainFrame);
   }
 
   function getDesktopLogTitle(target: DesktopLogTarget) {
@@ -753,13 +762,15 @@ export function registerShellIpcHandlers(ipcMain: Pick<IpcMain, "handle" | "on">
     const rendererReport = report && typeof report === "object" ? report as Record<string, unknown> : {};
     if (rendererReport.source === "performance") {
       // Only the trusted main window may submit allowlisted measurements.
-      const owner = options.getMainWindow?.() ?? options.mainWindow ?? null;
-      if (!isPerformanceDiagnosticsEnabled() || !owner || event.sender !== owner.webContents ||
-          event.senderFrame !== event.sender.mainFrame) return;
+      if (!isMainWindowFrame(event)) return;
       const details = rendererReport.details;
       if (details && typeof details === "object" && !Array.isArray(details)) {
-        writePerformanceEvent({ ...sanitizePerformanceEvent(details as Record<string, unknown>),
-          hostWebContentsId: event.sender.id });
+        const measurements = sanitizePerformanceEvent(details as Record<string, unknown>);
+        if (measurements.stage === "renderer-first-contentful-paint" || measurements.stage === "main-chat-document-loaded") {
+          markStartupMilestone(measurements.stage, typeof measurements.hostMonoMs === "number" ? measurements.hostMonoMs : undefined);
+        } else if (isPerformanceDiagnosticsEnabled()) {
+          writePerformanceEvent({ ...measurements, hostWebContentsId: event.sender.id });
+        }
       }
       return;
     }
@@ -814,6 +825,20 @@ export function registerShellIpcHandlers(ipcMain: Pick<IpcMain, "handle" | "on">
       lineno: typeof rendererReport.lineno === "number" ? rendererReport.lineno : undefined,
       colno: typeof rendererReport.colno === "number" ? rendererReport.colno : undefined
     });
+  });
+
+  ipcMain.handle("diagnostics.getPerformancePreference", (event: IpcMainInvokeEvent) => {
+    const app = getApp();
+    if (!app || !isMainWindowFrame(event)) throw new Error("Performance settings require the main Desktop window.");
+    return readDesktopProfileFromRoot(getDesktopConfigRoot(app)).diagnostics.performanceEnabled;
+  });
+
+  ipcMain.handle("diagnostics.setPerformancePreference", (event: IpcMainInvokeEvent, enabled: unknown) => {
+    const app = getApp();
+    if (!app || !isMainWindowFrame(event) || typeof enabled !== "boolean") throw new Error("Invalid performance setting request.");
+    return updateDesktopProfileInRoot(getDesktopConfigRoot(app), {
+      diagnostics: { performanceEnabled: enabled }
+    }).diagnostics.performanceEnabled;
   });
 
   ipcMain.handle("diagnostics.openDesktopLogViewer", async (_event: IpcMainInvokeEvent, targetValue: unknown) => {

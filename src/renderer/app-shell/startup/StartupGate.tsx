@@ -80,7 +80,9 @@ export function StartupLoadingScreen({
     : timedOut
       ? t("startup.title.slow")
       : t("startup.title.starting");
-  const statusText = hasFailure
+  const statusText = startupRestoreState.restoringSignIn
+    ? t("startup.status.restoringSignIn")
+    : hasFailure
     ? t("startup.status.failed")
     : timedOut
       ? t("startup.status.slow")
@@ -168,7 +170,7 @@ export function StartupLoadingScreen({
         {startupRestoreState.recoveryBackupPath ? <p>{t("settings.reset.backupPath", { path: startupRestoreState.recoveryBackupPath })}</p> : null}
         {servicesError ? <div className="startup-loading-error" role="alert">{servicesError}</div> : null}
 
-        {startupRestoreState.authenticationRequired || timedOut || hasFailure ? (
+        {!startupRestoreState.restoringSignIn && (startupRestoreState.authenticationRequired || timedOut || hasFailure) ? (
           <div className="startup-loading-actions">
             {startupRestoreState.authenticationRequired ? <button type="button" className="action-button" disabled={loginBusy} onClick={onLogin}>
               {t("providerRegister.loginAction")}

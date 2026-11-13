@@ -11,7 +11,7 @@ import { stopAgentWebclientHost } from "../agent-webclient-host";
 import { startedThisSession } from "./session-state";
 import { attachServiceVerification } from "./verification";
 import { runServiceCommand } from "./service-command";
-import { getInstallDir, getServiceLayout } from "./layout";
+import { getServiceLayout } from "./layout";
 import fs from "node:fs";
 import { readEnvFile } from "../../../infrastructure/filesystem/env-file";
 import { ensureManagedServiceStoppedForPlatform } from "./managed-cleanup";
@@ -99,11 +99,10 @@ export async function stopService(
     commandKind: "stop",
     integrationPorts: ports
   });
-  const installDir = getInstallDir(app, service);
   const layout = getServiceLayout(app, service);
   const envPath = layout.envPath;
   const env = fs.existsSync(envPath) ? readEnvFile(envPath) : new Map<string, string>();
-  const stopVerification = ensureManagedServiceStoppedForPlatform(service, layout, env);
+  const stopVerification = await ensureManagedServiceStoppedForPlatform(service, layout, env);
   if (!stopVerification.ok) {
     throw new Error(stopVerification.message);
   }

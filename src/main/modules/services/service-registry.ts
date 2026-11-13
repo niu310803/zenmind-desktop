@@ -38,6 +38,13 @@ export function clearServices(kind?: ServiceKind) {
   }
 }
 
+export function replaceBuiltinServices(definitions: ServiceDefinition[]) {
+  clearServices("builtin");
+  for (const definition of definitions) {
+    services.set(definition.id, definition);
+  }
+}
+
 export const registerPlugin = registerService;
 export const getBuiltinService = getService;
 

@@ -1339,8 +1339,10 @@ export interface DesktopApi {
     };
   };
   diagnostics: {
-    /** Read-only, enabled at process launch with PERF=1. */
+    /** Effective for this process. The saved preference is applied on restart. */
     performanceEnabled?: boolean;
+    getPerformancePreference: () => Promise<boolean>;
+    setPerformancePreference: (enabled: boolean) => Promise<boolean>;
     reportRendererError: (report: RendererDiagnosticReport) => void;
     openDesktopLogViewer: (target: DesktopLogTarget) => Promise<{ ok: boolean }>;
     revealDesktopLogFolder: () => Promise<ServiceRevealPathResult>;

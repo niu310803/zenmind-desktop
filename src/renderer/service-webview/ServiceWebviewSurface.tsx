@@ -1,4 +1,4 @@
-import { createSurfacePerformanceTrace, retainHostPerformanceMonitor } from "../services/performanceDiagnostics";
+import { createSurfacePerformanceTrace, reportStartupMilestone, retainHostPerformanceMonitor } from "../services/performanceDiagnostics";
 import type { AgentWebclientNativeShareReadRequest, AgentWebclientNativeShareReadResult, WorkPanelDocumentSource } from "../../shared/contracts/agent-webclient-bridge";
 import {
   createElement,
@@ -3185,6 +3185,12 @@ export function ServiceWebviewSurface({
     const handleDidFinishLoad = () => {
       const context = webviewEventContextRef.current;
       if (!context) return;
+      if (context.surfaceId === MAIN_CHAT_SURFACE_ID && context.serviceId === "agent-webclient") {
+        // The guest can detach between did-finish-load and reading the actual URL.
+        try {
+          if (/^https?:\/\//iu.test(targetWebview.getURL())) reportStartupMilestone("main-chat-document-loaded");
+        } catch { /* The new guest can report its own load. */ }
+      }
       context.reportDiagnostic("did-finish-load");
       context.syncWebviewState();
       context.refreshCurrentPageSnapshotTarget();

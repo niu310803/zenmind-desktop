@@ -473,7 +473,6 @@ export function createDesktopSsoController(options: DesktopSsoControllerOptions)
       try { await exchangeOidcTokens(); } catch { /* Classified and published by the coordinator. */ }
       return { state: restoreState === "uninitialized" ? "signed_out" : restoreState, status: getDesktopSsoStatus(options.app) };
     }
-    const wasTemporarilyUnavailable = restoreState === "temporarily_unavailable";
     const preparation = prepareDesktopSsoSessionRestore(options.app);
     console.info("[sso-restore] preparation", {
       requiresRemoteValidation: preparation.requiresRemoteValidation,
@@ -491,6 +490,7 @@ export function createDesktopSsoController(options: DesktopSsoControllerOptions)
           : {})
       };
       restoreState = result.state;
+      options.getMainWindow()?.webContents.send("sso.statusChanged", result.status);
       return publishRestoreResult(result);
     }
 
@@ -556,9 +556,7 @@ export function createDesktopSsoController(options: DesktopSsoControllerOptions)
       console.info("[sso-restore] authenticated");
       const result: DesktopSsoRestoreResult = { state: "authenticated", status, accessToken };
       restoreState = result.state;
-      if (wasTemporarilyUnavailable) {
-        options.getMainWindow()?.webContents.send("sso.statusChanged", status);
-      }
+      options.getMainWindow()?.webContents.send("sso.statusChanged", status);
       return publishRestoreResult(result);
     } catch (error) {
       console.warn("[sso-restore] failed", {

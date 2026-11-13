@@ -8,7 +8,7 @@ const DEFAULT_CLAUDE_CODE_ACP_ARGS = "-y @zed-industries/claude-code-acp";
 
 export const PROCESS_EXEC_PATH_PLACEHOLDER = "{{processExecPath}}";
 
-export function resolveAcpCommandForDesktop(env: Map<string, string>) {
+export async function resolveAcpCommandForDesktop(env: Map<string, string>) {
   const currentAcpCommand = env.get("CLAUDE_CODE_ACP_COMMAND") ?? "";
   const currentAcpArgs = env.get("CLAUDE_CODE_ACP_ARGS") ?? "";
   const normalizedAcpCommand = currentAcpCommand.trim().replace(/^['"]|['"]$/gu, "");
@@ -18,7 +18,7 @@ export function resolveAcpCommandForDesktop(env: Map<string, string>) {
     || normalizedAcpCommand === "claude-code-acp";
   const usesDefaultAcpArgs =
     !currentAcpArgs || currentAcpArgs.trim() === DEFAULT_CLAUDE_CODE_ACP_ARGS;
-  const resolvedClaudeCodeAcpBin = resolveCommandBin("claude-code-acp");
+  const resolvedClaudeCodeAcpBin = await resolveCommandBin("claude-code-acp");
   if (resolvedClaudeCodeAcpBin && usesDefaultAcpCommand) {
     return {
       command: resolvedClaudeCodeAcpBin,
@@ -26,7 +26,7 @@ export function resolveAcpCommandForDesktop(env: Map<string, string>) {
     };
   }
 
-  const resolvedNpxBin = resolveCommandBin("npx");
+  const resolvedNpxBin = await resolveCommandBin("npx");
   if (resolvedNpxBin && (!currentAcpCommand || isCommandBasenameMatch(currentAcpCommand, "npx"))) {
     return {
       command: resolvedNpxBin,

@@ -455,7 +455,7 @@ export async function installWebsiteAppArchiveFromPath(
     }
     const previousState = replacingExisting ? runtime.getStatus(app, safeWebappDirName) : null;
     resumeRuntime = previousState?.status === "running" || previousState?.status === "starting";
-    const prerequisites = runtime.checkItemPrerequisites(app, webapp, webappRoot);
+    const prerequisites = await runtime.checkItemPrerequisites(app, webapp, webappRoot);
     if (!prerequisites.ok) {
       if (
         webapp.backend?.command.type === "runtime" &&

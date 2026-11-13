@@ -205,12 +205,12 @@ export function createQuery(deps: QueryPort) {
     return { accepted: accepted.promise, completed: completed.promise };
   }
 
-  function handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame): void {
+  function handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame, wireBytes: number): void {
     let run = transaction.runId ? deps.getRunChannel(transaction.runId, transaction.lane) : null;
     if (isRecord(frame.event)) {
       try {
         if (!run && readText(frame.event.type) !== "run.start") {
-          bufferProvisionalQueryEvent(transaction, frame.event);
+          bufferProvisionalQueryEvent(transaction, frame.event, wireBytes);
           return;
         }
         if (!run) {
@@ -247,7 +247,7 @@ export function createQuery(deps: QueryPort) {
     }, "query_stream");
   }
 
-  function bufferProvisionalQueryEvent(transaction: QueryTransaction, event: Record<string, unknown>): void {
+  function bufferProvisionalQueryEvent(transaction: QueryTransaction, event: Record<string, unknown>, wireBytes: number): void {
     const type = readText(event.type);
     const path = `ws.query[${transaction.operationId}].events[${transaction.eventIndex++}]`;
     if (!type)
@@ -260,13 +260,13 @@ export function createQuery(deps: QueryPort) {
     if (transaction.expectedChatId && eventChatId && transaction.expectedChatId !== eventChatId) {
       throw brokerError("protocol_error", "bootstrap chatId conflicts with query chatId");
     }
-    const bytes = Buffer.byteLength(JSON.stringify(event));
+    // The decoded wire size already includes the event and its envelope.
     if (transaction.bufferedEvents.length >= MAX_REPLAY_EVENTS ||
-      transaction.bufferedEventBytes + bytes > MAX_REPLAY_BYTES) {
+      transaction.bufferedEventBytes + wireBytes > MAX_REPLAY_BYTES) {
       throw brokerError("backpressure", "too many query events arrived before run.start");
     }
     transaction.bufferedEvents.push({ event, path });
-    transaction.bufferedEventBytes += bytes;
+    transaction.bufferedEventBytes += wireBytes;
   }
 
   function commitProvisionalQueryEvents(run: BrokerRun, transaction: QueryTransaction): void {

@@ -5,20 +5,18 @@ import { ServiceVerificationOptions, DEFAULT_DEPENDENCY_RUNNING_VERIFICATION_TIM
 import { isProcessRunning } from "./process-cleanup";
 import { isHostManagedService } from "./host-policy";
 import { getAgentWebclientHostState } from "../agent-webclient-host";
-import { listListeningPids } from "./managed-cleanup";
-import { pidMatchesInstallDir } from "./process-identity";
+import { findManagedServicePid, listListeningPids } from "./managed-cleanup";
 import { t } from "../../../support/i18n/main-i18n";
 
-export function buildVerificationResult(
+export async function buildVerificationResult(
   service: ServiceDefinition,
   state: ServiceState,
   desired: ServiceDesiredStatus,
   probes: HttpProbeResult[] = [],
   options: Pick<ServiceVerificationOptions, "skipManagedPortProbe"> = {}
-): ServiceVerification {
+): Promise<ServiceVerification> {
   const installDir = getInstallDirFromState(state);
   const pid = state.healthMeta.pid;
-  const pidAlive = desired === "running" ? isProcessRunning(pid) : !pid || !isProcessRunning(pid);
   const port = state.healthMeta.port ?? 0;
   const skipManagedPortProbe =
     options.skipManagedPortProbe === true &&
@@ -28,12 +26,11 @@ export function buildVerificationResult(
   const hostManagedPortPid = hostManagedState?.running && hostManagedState.port === port
     ? process.pid
     : null;
-  const listeningPids = port > 0 && !skipManagedPortProbe && !hostManagedPortPid ? listListeningPids(port) : [];
+  const listeningPids = port > 0 && !skipManagedPortProbe && !hostManagedPortPid ? await listListeningPids(port) : [];
   const managedPortPid = hostManagedPortPid ?? (skipManagedPortProbe
     ? null
-    : listeningPids.find((candidatePid) => (
-      installDir ? pidMatchesInstallDir(candidatePid, installDir) : true
-    )) ?? null);
+    : installDir ? await findManagedServicePid(installDir, listeningPids) : listeningPids[0] ?? null);
+  const pidAlive = desired === "running" ? isProcessRunning(pid) : !pid || !isProcessRunning(pid);
   const portListening = hostManagedPortPid
     ? true
     : skipManagedPortProbe

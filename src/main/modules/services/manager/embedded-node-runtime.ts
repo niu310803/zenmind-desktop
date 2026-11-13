@@ -3,11 +3,11 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { setTimeout as delay } from "node:timers/promises";
 import type { App } from "electron";
 import { getDesktopRoot, getDesktopStateRoot } from "../../../infrastructure/filesystem/user-paths";
 import { isDesktopDevelopmentRuntime, type DesktopDevelopmentRuntimeContext } from "../../../infrastructure/electron/development-runtime";
 import { buildServiceEnv } from "./command-env";
+import { retryWindowsFileOperation } from "../../../infrastructure/filesystem/windows-file-retry";
 
 export interface EmbeddedNodeRuntimeOptions {
   stateRoot: string;
@@ -68,19 +68,6 @@ async function verifyNode(executable: string, options: EmbeddedNodeRuntimeOption
   if (actual.node !== options.nodeVersion || actual.arch !== options.arch) throw new Error("Desktop Node runtime version or architecture mismatch");
 }
 
-async function retryFileOperation<T>(platform: NodeJS.Platform, operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try { return await operation(); }
-    catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      // Antivirus and recently exited children can transiently retain Windows
-      // handles. Never busy-wait on Electron's main thread or retry bad paths.
-      if (platform !== "win32" || !["EPERM", "EBUSY", "EACCES"].includes(code ?? "") || attempt >= 4) throw error;
-      await delay(40 * 2 ** attempt);
-    }
-  }
-}
-
 const preparations = new Map<string, Promise<EmbeddedNodeRuntime>>();
 interface EmbeddedNodeRuntime { binDir: string; node: string; nodeVersion: string; npmVersion: string; }
 
@@ -113,7 +100,7 @@ export function prepareEmbeddedNodeRuntime(options: EmbeddedNodeRuntimeOptions):
 async function prepareRuntime(options: EmbeddedNodeRuntimeOptions): Promise<EmbeddedNodeRuntime> {
   const { executable, nodeVersion, platform, arch } = options;
   const io = fs.promises;
-  const retry = <T>(operation: () => Promise<T>) => retryFileOperation(platform, operation);
+  const retry = <T>(operation: () => Promise<T>) => retryWindowsFileOperation(platform, operation);
   if (!path.isAbsolute(executable) || !(await io.stat(executable)).isFile()) throw new Error("Desktop Node executable is unavailable");
   if (!["darwin", "linux", "win32"].includes(platform)) throw new Error("Desktop Node runtime is unsupported on this platform");
   const npmSource = path.join(options.resourcesRoot, "npm");

@@ -1606,6 +1606,7 @@ test("manual env.zip import applies desktop-init bootstrap and refreshes config 
   const result = await handlers.get("services.importEnvZip")();
 
   assert.deepEqual(result, { ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.slice(0, 5), [
     ["import", "/tmp/env.zip", "darwin"],
     ["bootstrap", "darwin"],
@@ -1621,6 +1622,7 @@ test("manual env.zip import applies desktop-init bootstrap and refreshes config 
   const existingResult = await handlers.get("services.importEnvZip")();
 
   assert.deepEqual(existingResult, { ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.slice(0, 4), [
     ["platform-import", "/tmp/env.zip", "2.0.0", "darwin"],
     ["refreshConfig", "manual-env-import"],

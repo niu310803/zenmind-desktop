@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -237,6 +238,50 @@ function writeDarwinCoreServiceArchive(sourceRoot, id, {
   return archivePath;
 }
 
+async function writeWindowsCoreServiceArchive(sourceRoot, id) {
+  const manifest = {
+    kind: "builtin",
+    id,
+    version: "v999.0.0",
+    platform: { os: "windows", arch: "amd64" },
+    runtime: { requiredPaths: ["manifest.json"] },
+    desktop: { bundleTopLevelDir: id }
+  };
+  if (id === "identity-center") {
+    manifest.desktop.capabilities = {
+      provides: createAuthCapabilityProviders().map(({ darwinCommand, ...provider }) => ({
+        ...provider,
+        windowsCommand: darwinCommand.map((file) => file.replace(/\.sh$/u, ".ps1"))
+      }))
+    };
+  }
+  if (id === "agent-platform") {
+    manifest.desktop.runtimeResources = "v1";
+  }
+  if (id === "agent-webclient") {
+    manifest.frontend = { mode: "standalone", hostManaged: true };
+    manifest.desktop.capabilities = {
+      requires: [
+        { phase: "verifyRunning", capability: "auth.accessToken", action: "preload" },
+        { phase: "verifyRunning", service: "agent-platform", action: "waitHttp", target: "/healthz" }
+      ]
+    };
+    manifest.desktop.hosting = {
+      proxyRoutes: [{
+        match: "prefix",
+        path: "/api",
+        targetEnv: "BASE_URL",
+        auth: "agent-platform-access-token",
+        http: true,
+        websocket: false
+      }]
+    };
+  }
+  await writeZipArchive(path.join(sourceRoot, `${id}-${manifest.version}-windows-amd64.zip`), {
+    [`${id}/manifest.json`]: JSON.stringify(manifest)
+  });
+}
+
 async function importBuiltinAssetsModule(cacheKey) {
   const moduleUrl = pathToFileURL(path.join(projectRoot, "scripts", "lib", "builtin-assets.mjs"));
   moduleUrl.search = `?cache=${cacheKey}`;
@@ -291,7 +336,7 @@ test("syncBuiltinAssets selects the newest PowerShell-style ZIP bundle", async (
 
   const sourceRoot = path.join(tempRoot, "release");
   const id = "windows-backslash-tool";
-  const targetOs = "testos";
+  const targetOs = "windows";
   const oldArchiveName = `${id}-v0.3.13-${targetOs}-amd64.zip`;
   const newArchiveName = `${id}-v0.3.18-${targetOs}-amd64.zip`;
   const manifestFor = (version, assetFileName) => ({
@@ -306,10 +351,14 @@ test("syncBuiltinAssets selects the newest PowerShell-style ZIP bundle", async (
   await writeZipArchive(path.join(sourceRoot, oldArchiveName), {
     [`${id}/manifest.json`]: JSON.stringify(manifestFor("v0.3.13", oldArchiveName))
   });
+  const selectedManifest = `\uFEFF${JSON.stringify(manifestFor("v0.3.18", newArchiveName))}\r\n`;
   await writeZipArchive(path.join(sourceRoot, newArchiveName), {
-    [`${id}\\manifest.json`]: JSON.stringify(manifestFor("v0.3.18", newArchiveName)),
+    [`${id}\\manifest.json`]: selectedManifest,
     [`${id}\\builtins.manifest.json`]: JSON.stringify({ generatedBy: "PowerShell" })
   });
+  for (const serviceId of ["identity-center", "agent-platform", "agent-webclient"]) {
+    await writeWindowsCoreServiceArchive(sourceRoot, serviceId);
+  }
 
   const { syncBuiltinAssets } = await importBuiltinAssetsModule(`windows-backslash-sync-${Date.now()}`);
   const services = syncBuiltinAssets(tempRoot, {
@@ -318,9 +367,20 @@ test("syncBuiltinAssets selects the newest PowerShell-style ZIP bundle", async (
     sourceRoots: [sourceRoot]
   });
 
-  assert.deepEqual(services.map((service) => ({ id: service.id, version: service.version })), [
-    { id, version: "v0.3.18" }
-  ]);
+  const selectedServices = services.filter((service) => service.id === id);
+  assert.deepEqual(selectedServices.map((service) => service.version), ["v0.3.18"]);
+  const manifestSha256 = createHash("sha256").update(selectedManifest).digest("hex");
+  assert.equal(selectedServices[0].manifestSha256, manifestSha256);
+  const assetIndexPath = path.join(tempRoot, "build", "resources", "services", "manifest.json");
+  const index = JSON.parse(fs.readFileSync(assetIndexPath, "utf8"));
+  const selectedEntry = index.services.find((service) => service.id === id);
+  assert.equal(selectedEntry.manifestSha256, manifestSha256);
+  delete selectedEntry.manifestSha256;
+  writeJson(assetIndexPath, index);
+  const validated = syncBuiltinAssets(tempRoot, { os: targetOs, arch: "amd64", useExisting: true });
+  assert.equal(validated.find((service) => service.id === id).manifestSha256, manifestSha256);
+  const updatedIndex = JSON.parse(fs.readFileSync(assetIndexPath, "utf8"));
+  assert.equal(updatedIndex.services.find((service) => service.id === id).manifestSha256, manifestSha256);
   assert.equal(
     fs.existsSync(path.join(tempRoot, "build", "resources", "services", id, newArchiveName)),
     true

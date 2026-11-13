@@ -172,19 +172,21 @@ export function createSessionController(options: FramePortOptions) {
         event: { reason, ...(error ? { error } : {}) },
       };
       session.sender.send(AGENT_WEBCLIENT_PLATFORM_FRAME_PORT_EVENT_CHANNEL, event);
-      options.realtimeBroker.appendDebugTrace({
-        layer: "surface-bridge",
-        direction: "desktop-to-surface",
-        data: event,
-        surfaceId: target?.surfaceId,
-        webContentsId: session.sender.id,
-        surfaceKind: target?.surfaceType,
-        surfaceRole: target?.surfaceRole,
-        surfaceLevel: target?.surfaceLevel,
-        parentSurfaceId: target?.parentSurfaceId,
-        interaction: target?.interaction,
-        route: target?.pageRoute || session.sender.getURL(),
-      });
+      if (options.realtimeBroker.isDebugTraceEnabled()) {
+        options.realtimeBroker.appendDebugTrace({
+          layer: "surface-bridge",
+          direction: "desktop-to-surface",
+          data: event,
+          surfaceId: target?.surfaceId,
+          webContentsId: session.sender.id,
+          surfaceKind: target?.surfaceType,
+          surfaceRole: target?.surfaceRole,
+          surfaceLevel: target?.surfaceLevel,
+          parentSurfaceId: target?.parentSurfaceId,
+          interaction: target?.interaction,
+          route: target?.pageRoute || session.sender.getURL(),
+        });
+      }
     }
   }
 

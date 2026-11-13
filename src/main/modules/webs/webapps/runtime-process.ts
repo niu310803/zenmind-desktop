@@ -4,7 +4,6 @@ import { type App } from "electron";
 import { type ChildProcess } from "node:child_process";
 import { getLogPath } from "./runtime-state";
 import {
-  terminateProcessTree,
   listProcessTreePidsAsync,
   requestWindowsProcessTreeExitAsync,
   terminateCapturedProcessTreeAsync,
@@ -25,24 +24,23 @@ export function pipeChildLogs(app: App, webappId: string, child: ChildProcess) {
   child.stderr?.on("data", (chunk: Buffer) => fs.appendFileSync(errorLogPath, chunk));
 }
 
-export function terminateRuntimeProcessTree(pid: number) {
-  const terminated = terminateProcessTree(pid);
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-pid, "SIGTERM");
-      const forceTimer = setTimeout(() => {
-        try {
-          process.kill(-pid, "SIGKILL");
-        } catch {
-          // The detached process group has already exited.
-        }
-      }, 1_000);
-      forceTimer.unref();
-    } catch {
-      // The process group has already exited or was created by an older runtime.
-    }
+export function terminateExitedRuntimeProcessGroup(pid: number) {
+  if (process.platform === "win32") {
+    return;
   }
-  return terminated;
+  try {
+    process.kill(-pid, "SIGTERM");
+    const forceTimer = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // The detached process group has already exited.
+      }
+    }, 1_000);
+    forceTimer.unref();
+  } catch {
+    // The process group has already exited or was created by an older runtime.
+  }
 }
 
 export function waitForChildExit(child: ChildProcess, timeoutMs: number) {

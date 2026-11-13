@@ -293,6 +293,7 @@ function createRuntime(targets, overrides = {}) {
     },
     registerRunActionGrant: (input) => calls.grants.push(input),
     cleanupConsumer: () => undefined,
+    isDebugTraceEnabled: () => true,
     appendDebugTrace: (entry) => calls.debugTraces.push(entry),
     ...overrides.realtimeBroker,
   };

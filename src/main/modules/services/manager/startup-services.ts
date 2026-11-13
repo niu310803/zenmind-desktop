@@ -31,6 +31,8 @@ import { installBuiltinService, initializeService } from "./installation";
 import { ensurePreStartRequirements } from "./capability-requirements";
 import { yieldStartupScheduler, getPreparedStartupStartOptions } from "./startup-options";
 import { backgroundStartupPreparationTasks } from "./session-state";
+import { beginStartupTiming } from "../../../support/logging/startup-timing";
+import { isProcessRunning } from "./process-cleanup";
 
 export async function restoreOptionalStartupServices(
   app: App,
@@ -113,11 +115,13 @@ export function isStartupPreparationBlockingStatus(status: ServiceState["status"
 
 export async function resolveStartupPreparationMode(
   app: App,
-  ports?: ServicesIntegrationPorts
+  ports?: ServicesIntegrationPorts,
+  stateReadOptions?: StartupPipelineOptions["stateReadOptions"]
 ): Promise<StartupRestoreMode> {
   for (const serviceId of DEFAULT_STARTUP_SERVICE_IDS) {
     const service = getService(serviceId);
     const current = await getServiceState(app, serviceId, getStartupServiceStateReadOptions({
+      ...stateReadOptions,
       integrationPorts: ports
     }));
     if (
@@ -128,7 +132,7 @@ export async function resolveStartupPreparationMode(
       return "bootstrap";
     }
 
-    if (service.kind === "builtin" && needsBundledAssetRefresh(app, service)) {
+    if (service.kind === "builtin" && await needsBundledAssetRefresh(app, service)) {
       return "bootstrap";
     }
 
@@ -145,13 +149,16 @@ export async function prepareStartupService(
   serviceId: ServiceId,
   options: StartupPipelineOptions = {}
 ): Promise<StartupPreparationServiceResult> {
+  const timing = beginStartupTiming("prepareStartupService", { serviceId });
   let changed = false;
   try {
     const service = getService(serviceId);
-    let current = await getServiceState(app, serviceId, getStartupServiceStateReadOptions({
+    const readOptions = getStartupServiceStateReadOptions({
+      ...options.stateReadOptions,
       integrationPorts: options.integrationPorts
-    }));
-    const bundledAssetNeedsRefresh = service.kind === "builtin" && needsBundledAssetRefresh(app, service);
+    });
+    let current = await getServiceState(app, serviceId, readOptions);
+    const bundledAssetNeedsRefresh = service.kind === "builtin" && await needsBundledAssetRefresh(app, service);
     const installNeedsRepair =
       current.status === "error" && installedBuiltinNeedsStartupRepair(app, service, current);
 
@@ -179,20 +186,19 @@ export async function prepareStartupService(
         builtinAssetsRoot: getBuiltinAssetsRoot(app),
         assetFileName: service.desktop.assetFileName,
         installedAssetSignature: installedState?.assetSignature ?? null,
-        bundledAssetSignature: readBuiltinAssetSignature(app, service) ?? null
+        bundledAssetSignature: await readBuiltinAssetSignature(app, service) ?? null
       });
       options.onProgress?.(serviceId, "installing", t("service.installing", { name: current.name }));
       if (bundledAssetNeedsRefresh && current.status === "running") {
         await stopService(app, serviceId, options.integrationPorts);
+        options.invalidateProbeSnapshot?.();
       }
       await installBuiltinService(app, serviceId, {
         source: "prepareStartupService",
         integrationPorts: options.integrationPorts
       });
       changed = true;
-      current = await getServiceState(app, serviceId, getStartupServiceStateReadOptions({
-        integrationPorts: options.integrationPorts
-      }));
+      current = await getServiceState(app, serviceId, readOptions);
     }
 
     if (current.status === "initialization-required" || shouldReinitializeMissingCoreServiceConfig(service, current)) {
@@ -212,9 +218,7 @@ export async function prepareStartupService(
     }
 
     await ensurePreStartRequirements(app, service, options.integrationPorts);
-    current = await getServiceState(app, serviceId, getStartupServiceStateReadOptions({
-      integrationPorts: options.integrationPorts
-    }));
+    current = await getServiceState(app, serviceId, readOptions);
     if (isStartupPreparationBlockingStatus(current.status)) {
       options.onProgress?.(serviceId, "failed", current.message);
       return {
@@ -242,23 +246,27 @@ export async function prepareStartupService(
       changed,
       message
     };
+  } finally {
+    timing.end({ changed });
   }
 }
 
 export async function startPreparedStartupService(
   app: App,
   serviceId: ServiceId,
-  options: StartupPipelineOptions = {}
+  options: StartupPipelineOptions = {},
+  preparedState?: ServiceState
 ): Promise<StartupServiceResult> {
   try {
-    const current = await getServiceState(app, serviceId, {
+    const current = preparedState ?? await getServiceState(app, serviceId, {
       ...getStartupResponsiveServiceStateReadOptions(),
       integrationPorts: options.integrationPorts
     });
     const service = getService(serviceId);
     options.onStarting?.(serviceId);
 
-    if (current.status === "running" && service.serviceMode !== "resource" && service.id !== "agent-platform") {
+    const alreadyRunning = current.status === "running" && isProcessRunning(current.healthMeta.pid);
+    if (alreadyRunning && service.serviceMode !== "resource" && service.id !== "agent-platform") {
       const message = t("service.alreadyRunning", { name: current.name });
       console.info(`[service-manager] reused running startup service ${serviceId}`);
       options.onProgress?.(serviceId, "succeeded", message);
@@ -275,6 +283,7 @@ export async function startPreparedStartupService(
     const startedAt = Date.now();
     const result = await startServiceInternal(app, serviceId, {
       ...getPreparedStartupStartOptions(),
+      ...(preparedState && (current.status !== "running" || alreadyRunning) ? { preparedState } : {}),
       integrationPorts: options.integrationPorts
     });
     const elapsedMs = Date.now() - startedAt;
@@ -351,7 +360,7 @@ export async function startOptionalAutoStartupServices(
         integrationPorts: options.integrationPorts,
         onProgress: options.onProgress
       });
-      if (!prepared.ok) {
+      if (!prepared.ok || !prepared.service) {
         console.warn(`[service-manager] optional auto-start service ${serviceId} is unavailable: ${prepared.message}`);
         continue;
       }
@@ -360,7 +369,7 @@ export async function startOptionalAutoStartupServices(
         integrationPorts: options.integrationPorts,
         onStarting: options.onStarting,
         onProgress: options.onProgress
-      });
+      }, prepared.service);
       if (!started.ok || !started.running) {
         console.warn(`[service-manager] optional auto-start service ${serviceId} failed start: ${started.message}`);
       }

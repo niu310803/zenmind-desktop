@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { APP_BRAND } from "../../../shared/brand";
+import { measureStartupSyncCommand } from "../process/startup-sync-command";
+import { windowsPowerShellPath } from "../process/windows-powershell";
 
 export const WINDOWS_RUNTIME_ROOT_REGISTRY_KEY = `Software\\${APP_BRAND.storageNamespace}`;
 export const WINDOWS_RUNTIME_ROOT_REGISTRY_VALUE = "DataRoot";
@@ -67,11 +69,6 @@ function normalizeConfiguredRuntimeRoot(value: string | undefined, platform: Nod
   return resolved;
 }
 
-function windowsPowerShellPath() {
-  const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
-  return path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-}
-
 function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/gu, "''")}'`;
 }
@@ -115,15 +112,17 @@ function readWindowsRuntimeRootFromRegistryUncached({
 
   try {
     const encodedCommand = Buffer.from(buildWindowsRegistryReadScript(), "utf16le").toString("base64");
-    const output = execFileSyncImpl(windowsPowerShellPath(), [
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      encodedCommand
-    ], {
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true
-    });
+    const output = measureStartupSyncCommand("powershell.exe", "readWindowsRuntimeRootFromRegistryUncached", () =>
+      execFileSyncImpl(windowsPowerShellPath(), [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        encodedCommand
+      ], {
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true
+      })
+    );
     return decodeBase64Utf8(output);
   } catch {
     return "";

@@ -57,7 +57,7 @@ async function harness(t) {
     close() {}
   }
   const broker = new RealtimeBroker({
-    app: { getPath: () => root },
+    app: { isPackaged: false, getPath: () => root },
     issueAccessToken: async () => ({ ok: true, token: "test-token", message: "" }),
     getDesktopDeviceId: () => "test-device",
     createWebSocket: () => new Socket(),

@@ -28,6 +28,5 @@ export { getInstallDir } from "./layout";
 export { fixShellScriptPermissions } from "./program-layout";
 export {
   captureManagedProcessCleanupSnapshotAsync,
-  captureManagedProcessCleanupSnapshot,
   forceCleanupManagedProcesses
 } from "./managed-cleanup";

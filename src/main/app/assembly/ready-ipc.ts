@@ -89,6 +89,7 @@ export interface ReadyIpcDependencies {
   readonly maximizeLogViewerWindow: ReturnType<typeof createLogsRuntime>["maximizeLogViewerWindow"];
   readonly openAgentPlatformMonitorWindow: AppShellRuntime["openAgentPlatformMonitorWindow"];
   readonly openAgentRealtimeInspectorWindow: AppShellRuntime["openAgentRealtimeInspectorWindow"];
+  readonly getAgentRealtimeInspectorWindow: AppShellRuntime["getAgentRealtimeInspectorWindow"];
   readonly openDesktopActionWorkbenchWindow: AppShellRuntime["openDesktopActionWorkbenchWindow"];
   readonly closeDesktopActionWorkbenchWindow: AppShellRuntime["closeDesktopActionWorkbenchWindow"];
   readonly getServiceWebviewPreloadPath: AppShellRuntime["getServiceWebviewPreloadPath"];
@@ -156,6 +157,7 @@ export function registerReadyIpc(dependencies: ReadyIpcDependencies, conversatio
     maximizeLogViewerWindow: dependencies.maximizeLogViewerWindow,
     openAgentPlatformMonitorWindow: dependencies.openAgentPlatformMonitorWindow,
     openAgentRealtimeInspectorWindow: dependencies.openAgentRealtimeInspectorWindow,
+    getAgentRealtimeInspectorWindow: dependencies.getAgentRealtimeInspectorWindow,
     openDesktopActionWorkbenchWindow: dependencies.openDesktopActionWorkbenchWindow,
     closeDesktopActionWorkbenchWindow: dependencies.closeDesktopActionWorkbenchWindow,
     revealPathInFileManager,

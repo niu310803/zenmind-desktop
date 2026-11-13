@@ -8,7 +8,7 @@ import { getOptionalBundleAssetPath, isInstallHealthy, ensureBundleAssetHealthy 
 import fs from "node:fs";
 import { t } from "../../../support/i18n/main-i18n";
 import { installBuiltinService } from "./installation";
-import { isAssetNewerThanInstall, prepareServiceExecutionLayout } from "./execution-layout";
+import { needsBundledAssetRefresh, prepareServiceExecutionLayout } from "./execution-layout";
 import { appendConfiguredServiceLifecycleArgs } from "../lifecycle-args";
 import { appendDesktopManagedLayoutFlags } from "./lifecycle-command-policy";
 import { runExecFile } from "./command-runner";
@@ -32,16 +32,15 @@ export async function runServiceCommand(
   try {
     const shouldRefreshBuiltinAsset = options.refreshBuiltinAsset !== false;
     if (service.kind === "builtin" && shouldRefreshBuiltinAsset) {
-      const assetPath = getOptionalBundleAssetPath(app, service);
       if (!fs.existsSync(installDir) || !isInstallHealthy(service, installDir)) {
-        if (!assetPath) {
+        if (!await getOptionalBundleAssetPath(app, service)) {
           throw new Error(t("service.notInstalledDamaged", { name: service.name }));
         }
         await installBuiltinService(app, service.id, {
           source: "runServiceCommand:missing-install",
           integrationPorts: options.integrationPorts
         });
-      } else if (assetPath && isAssetNewerThanInstall(assetPath, getServiceLayout(app, service), app, service)) {
+      } else if (await needsBundledAssetRefresh(app, service)) {
         await installBuiltinService(app, service.id, {
           source: "runServiceCommand:asset-newer",
           integrationPorts: options.integrationPorts
@@ -58,7 +57,7 @@ export async function runServiceCommand(
       if (!shouldRefreshBuiltinAsset) {
         throw new Error(t("service.notInstalledDamaged", { name: service.name }));
       }
-      ensureBundleAssetHealthy(app, service);
+      await ensureBundleAssetHealthy(app, service);
       await installBuiltinService(app, service.id, {
         source: "runServiceCommand:repair-install",
         integrationPorts: options.integrationPorts

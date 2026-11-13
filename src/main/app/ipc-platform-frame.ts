@@ -1,3 +1,4 @@
+import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import { createAgentRealtimeRuntimeDiagnostics } from "./realtime-diagnostics";
 import { createDesktopDocumentLocalOpen } from "./ipc-document-local-open";
 import { handleAgentWebclientWorkPanelActionRequest } from "../modules/desktop-actions";
@@ -11,6 +12,11 @@ import { MainIpcRegistrationOptions } from "./ipc-registration-contracts";
 import { createLocalDocumentChatSync } from "./local-document-chat-sync";
 
 type AgentWebclientBridgeIpcOptions = Parameters<typeof registerAgentWebclientBridgeIpcHandlers>[1];
+
+function isTopFrameOfWindow(event: IpcMainInvokeEvent, target: BrowserWindow | null) {
+  return Boolean(target && !target.isDestroyed() && event.sender === target.webContents &&
+    !event.sender.isDestroyed() && event.senderFrame && event.senderFrame === event.sender.mainFrame);
+}
 
 export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
   const {
@@ -239,11 +245,11 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
   const readAgentRealtimeDebugSnapshot = (afterSequence?: unknown) => {
     const brokerDiagnostics = assistantBridgeRuntime.realtimeBroker.getDiagnostics();
     const bridgeDiagnostics = agentWebclientBridgeRuntime.getDiagnostics();
-    const trace = assistantBridgeRuntime.realtimeBroker.getDebugTraceEntries();
     const normalizedAfterSequence = typeof afterSequence === "number" &&
       Number.isSafeInteger(afterSequence) && afterSequence >= 0
       ? afterSequence
-      : null;
+      : 0;
+    const trace = assistantBridgeRuntime.realtimeBroker.getDebugTraceEntries(normalizedAfterSequence);
     const replayEventCount = brokerDiagnostics.replay.reduce((total: number, item: { eventCount: number }) =>
       total + item.eventCount,
     0);
@@ -365,23 +371,31 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
         restoreCount: run.restoreCount,
         lastRestoreResult: run.lastRestoreResult,
       })),
-      trace: normalizedAfterSequence === null
-        ? trace
-        : trace.filter((entry: { sequence: number }) => entry.sequence > normalizedAfterSequence),
+      trace,
     };
   };
 
-  ipcMain.handle("diagnostics.getAgentRealtimeDebugSnapshot", async (_event: any, input?: unknown) =>
-    readAgentRealtimeDebugSnapshot(
+  function assertInspectorFrame(event: IpcMainInvokeEvent) {
+    if (!isTopFrameOfWindow(event, options.getAgentRealtimeInspectorWindow())) {
+      throw new Error("The Agent Realtime Inspector is unavailable");
+    }
+  }
+
+  ipcMain.handle("diagnostics.getAgentRealtimeDebugSnapshot", async (event: IpcMainInvokeEvent, input?: unknown) => {
+    assertInspectorFrame(event);
+    return readAgentRealtimeDebugSnapshot(
       input && typeof input === "object" ? (input as { afterSequence?: unknown }).afterSequence : undefined,
-    ),
+    );
+  });
+
+  ipcMain.handle("diagnostics.openAgentRealtimeInspector", async (event: IpcMainInvokeEvent) =>
+    isTopFrameOfWindow(event, options.getMainWindow())
+      ? options.openAgentRealtimeInspectorWindow()
+      : { ok: false },
   );
 
-  ipcMain.handle("diagnostics.openAgentRealtimeInspector", async () =>
-    options.openAgentRealtimeInspectorWindow(),
-  );
-
-  ipcMain.handle("diagnostics.openAgentRealtimeTargetDevTools", async (_event: any, input?: unknown) => {
+  ipcMain.handle("diagnostics.openAgentRealtimeTargetDevTools", async (event: IpcMainInvokeEvent, input?: unknown) => {
+    assertInspectorFrame(event);
     const webContentsId = input && typeof input === "object"
       ? Number((input as { webContentsId?: unknown }).webContentsId)
       : 0;
@@ -398,7 +412,8 @@ export function registerPlatformFrameIpc(options: MainIpcRegistrationOptions) {
     return { ok: true };
   });
 
-  ipcMain.handle("diagnostics.clearAgentRealtimeDebugTrace", async () => {
+  ipcMain.handle("diagnostics.clearAgentRealtimeDebugTrace", async (event: IpcMainInvokeEvent) => {
+    assertInspectorFrame(event);
     assistantBridgeRuntime.realtimeBroker.clearDebugTrace();
     return readAgentRealtimeDebugSnapshot();
   });

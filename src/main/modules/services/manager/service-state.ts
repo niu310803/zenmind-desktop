@@ -9,7 +9,7 @@ import { ServiceStateReadOptions, integrationPorts } from "./manager-contracts";
 import { type ServicesIntegrationPorts } from "../integration-ports";
 import { getAllServices, getService } from "../service-registry";
 import { type ServiceId, type ServiceState } from "../../../../shared/contracts";
-import { resolveRuntimePath, getManagedPidFilePaths, readManagedPidFile, writeManagedPidFiles } from "./pid-files";
+import { resolveRuntimePath, getManagedPidFilePaths, readManagedPidFile, readPid, writeManagedPidFiles } from "./pid-files";
 import { readEnvFile } from "../../../infrastructure/filesystem/env-file";
 import { isHostManagedService, getDesktopManagedCommandPort } from "./host-policy";
 import { parsePort, getWebUrl } from "./service-network";
@@ -18,7 +18,7 @@ import { isProcessRunning } from "./process-cleanup";
 import { listMissingRuntimeFiles, ensureBundleAssetHealthy } from "./bundle-assets";
 import { readInitializationState } from "./state-files";
 import { getAgentWebclientHostState } from "../agent-webclient-host";
-import { listListeningPids, detectManagedServicePid } from "./managed-cleanup";
+import { listListeningPids, findManagedServicePid } from "./managed-cleanup";
 
 export async function collectPrerequisites(
   app: App,
@@ -145,7 +145,7 @@ export async function getServiceState(
   const pidFromFile = installed
     ? bridgeRead
       ? await readBridgeManagedPid(pidFilePaths, installDir)
-      : readManagedPidFile(pidFilePaths, installDir, {
+      : await readManagedPidFile(pidFilePaths, installDir, {
         isProcessRunningImpl: isProcessRunning,
         verifyInstallDir: !responsiveRead
       })
@@ -173,21 +173,24 @@ export async function getServiceState(
     : installed && missingRuntimeFiles.length === 0 && isProcessRunning(pid);
   let conflictingPortPid: number | null = null;
 
-  if (!hostManaged && running && pidFromFile && !bridgeRead) {
-    writeManagedPidFiles(pidFilePaths, pidFromFile);
-  }
-
   if (installed && missingRuntimeFiles.length === 0 && initializationSucceeded && !running && port > 0 && !responsiveRead && !bridgeRead) {
+    let listeningPids = await (options.listListeningPids ?? listListeningPids)(port);
+    if (options.listListeningPids && listeningPids.length > 0) {
+      // A listener from the startup snapshot may have exited or released the port.
+      // Confirm current ownership before restoring a PID or blocking startup.
+      listeningPids = await listListeningPids(port);
+    }
     if (hostManaged) {
-      conflictingPortPid = listListeningPids(port).find((candidatePid) => candidatePid !== process.pid) ?? null;
+      conflictingPortPid = listeningPids.find((candidatePid) => candidatePid !== process.pid) ?? null;
     } else {
-      const detectedPid = detectManagedServicePid(installDir, port);
+      const detectedPid = await findManagedServicePid(installDir, listeningPids);
       if (detectedPid) {
         pid = detectedPid;
         running = true;
-        writeManagedPidFiles(pidFilePaths, detectedPid);
+        const missingPidFiles = pidFilePaths.filter((filePath) => !isProcessRunning(readPid(filePath)));
+        writeManagedPidFiles(missingPidFiles, detectedPid);
       } else {
-        conflictingPortPid = listListeningPids(port).find((candidatePid) => candidatePid !== pidFromFile) ?? null;
+        conflictingPortPid = listeningPids.find((candidatePid) => candidatePid !== pidFromFile) ?? null;
       }
     }
   }
@@ -224,7 +227,7 @@ export async function getServiceState(
 
   if (!installed && service.kind === "builtin" && !bridgeRead) {
     try {
-      ensureBundleAssetHealthy(app, service);
+      await ensureBundleAssetHealthy(app, service);
     } catch (error) {
       status = "error";
       statusLabel = t("service.status.assetDamaged");

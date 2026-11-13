@@ -555,7 +555,7 @@ test("settings can discover and read installed WebApps with non-generated IDs wi
   assert.equal(item.label, "旧版便签");
   assert.equal(item.installPath, appDir);
   assert.equal(runtime.getStatus(app, id).status, "stopped");
-  assert.equal(runtime.checkRuntime(app, id).ready, true);
+  assert.equal((await runtime.checkRuntime(app, id)).ready, true);
   assert.equal((await websFacade.getWebappPublishStatus(app, id)).info.provider, "tunnel");
   assert.deepEqual(websFacade.webappManager.readUserConfigState(app, id).values, { note: "default" });
   assert.equal(websFacade.webappManager.saveUserConfig(app, id, { note: "saved" }).ok, true);
@@ -694,7 +694,7 @@ test("runtime settings store only per-WebApp runtime executable bindings", (t) =
   assert.deepEqual(readWebappRuntimeSettings(app), settings);
 });
 
-test("runtime prerequisite checks immediately resolve a newly saved executable binding", (t) => {
+test("runtime prerequisite checks immediately resolve a newly saved executable binding", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "webapp-runtime-rebind-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const app = createApp(path.join(root, "home"));
@@ -712,7 +712,7 @@ test("runtime prerequisite checks immediately resolve a newly saved executable b
   } }, backendPort: null };
   for (const executable of [process.execPath, replacement]) {
     writeWebappRuntimeSettings(app, { runtimeExecutables: { [`${id}:python`]: executable } });
-    const check = checkWebappBackendPrerequisites(context);
+    const check = await checkWebappBackendPrerequisites(context);
     assert.equal(check.ok, true);
     assert.equal(check.command, executable);
     assert.equal(check.runtimeVersion, process.versions.node);

@@ -49,7 +49,7 @@ function createFixture(t) {
   return { app, root, programRoot, pluginsRoot, runtimeRoot };
 }
 
-test("program data cleanup keeps plugins and writes root VERSION when install version changes", (t) => {
+test("program data cleanup keeps plugins and writes root VERSION when install version changes", async (t) => {
   const { app, programRoot, pluginsRoot, runtimeRoot } = createFixture(t);
   fs.mkdirSync(path.join(programRoot, "services", "agent-platform"), { recursive: true });
   fs.writeFileSync(path.join(programRoot, "services", "agent-platform", "manifest.json"), "{}", "utf8");
@@ -59,7 +59,7 @@ test("program data cleanup keeps plugins and writes root VERSION when install ve
   fs.writeFileSync(path.join(pluginsRoot, "user-plugin", "v1", "manifest.json"), "plugin", "utf8");
   fs.writeFileSync(path.join(programRoot, PROGRAM_DATA_VERSION_FILE), "v0.3.4\n", "utf8");
 
-  const result = cleanupProgramDataForVersion(app, "0.3.5", {
+  const result = await cleanupProgramDataForVersion(app, "0.3.5", {
     listProcessesImpl: () => [],
     terminateProcessTreeImpl: () => true
   });
@@ -100,13 +100,13 @@ test("macOS keeps desktop data under the home runtime root and programs in Appli
   );
 });
 
-test("program data cleanup treats missing VERSION as a fresh install marker", (t) => {
+test("program data cleanup treats missing VERSION as a fresh install marker", async (t) => {
   const { app, programRoot, pluginsRoot } = createFixture(t);
   fs.mkdirSync(path.join(programRoot, "services", "agent-platform"), { recursive: true });
   fs.mkdirSync(path.join(programRoot, "profile-cache"), { recursive: true });
   fs.mkdirSync(path.join(pluginsRoot, "user-plugin"), { recursive: true });
 
-  const result = cleanupProgramDataForVersion(app, "0.3.5", {
+  const result = await cleanupProgramDataForVersion(app, "0.3.5", {
     listProcessesImpl: () => [],
     terminateProcessTreeImpl: () => true
   });
@@ -119,14 +119,14 @@ test("program data cleanup treats missing VERSION as a fresh install marker", (t
   assert.equal(fs.readFileSync(path.join(programRoot, PROGRAM_DATA_VERSION_FILE), "utf8"), "v0.3.5\n");
 });
 
-test("program data cleanup skips matching VERSION and leaves existing program data untouched", (t) => {
+test("program data cleanup skips matching VERSION and leaves existing program data untouched", async (t) => {
   const { app, programRoot, pluginsRoot } = createFixture(t);
   fs.mkdirSync(path.join(programRoot, "services", "identity-center"), { recursive: true });
   fs.writeFileSync(path.join(programRoot, "services", "identity-center", "manifest.json"), "{}", "utf8");
   fs.mkdirSync(path.join(pluginsRoot, "user-plugin", "v1"), { recursive: true });
   fs.writeFileSync(path.join(programRoot, PROGRAM_DATA_VERSION_FILE), "v0.3.5\n", "utf8");
 
-  const result = cleanupProgramDataForVersion(app, "v0.3.5", {
+  const result = await cleanupProgramDataForVersion(app, "v0.3.5", {
     listProcessesImpl: () => {
       throw new Error("processes should not be scanned when cleanup is skipped");
     },
@@ -139,14 +139,14 @@ test("program data cleanup skips matching VERSION and leaves existing program da
   assert.equal(fs.existsSync(path.join(programRoot, "services", "identity-center")), true);
 });
 
-test("program data cleanup stops processes only under paths that will be removed", (t) => {
+test("program data cleanup stops processes only under paths that will be removed", async (t) => {
   const { app, programRoot, pluginsRoot } = createFixture(t);
   fs.mkdirSync(path.join(programRoot, "services", "agent-platform"), { recursive: true });
   fs.mkdirSync(path.join(pluginsRoot, "user-plugin", "v1"), { recursive: true });
   fs.writeFileSync(path.join(programRoot, PROGRAM_DATA_VERSION_FILE), "v0.3.4\n", "utf8");
   const stoppedPids = [];
 
-  const result = cleanupProgramDataForVersion(app, "v0.3.5", {
+  const result = await cleanupProgramDataForVersion(app, "v0.3.5", {
     listProcessesImpl: () => [
       { pid: 101, identity: path.join(programRoot, "services", "agent-platform", "backend", "server") },
       { pid: 202, identity: path.join(pluginsRoot, "user-plugin", "v1", "backend", "server") },
@@ -179,23 +179,23 @@ test("program data cleanup preserves plugins and VERSION case-insensitively on W
   assert.deepEqual(targets, ["Services"]);
 });
 
-test("Windows occupied lockfile does not prevent VERSION commit or cause a second cleanup", (t) => {
+test("Windows occupied lockfile does not prevent VERSION commit or cause a second cleanup", async (t) => {
   const { app, programRoot } = createFixture(t);
   const lockPath = path.join(programRoot, "LOCKFILE");
   const servicesPath = path.join(programRoot, "services");
   fs.writeFileSync(lockPath, "electron-owned");
   fs.mkdirSync(servicesPath);
-  const originalRmSync = fs.rmSync;
+  const originalRm = fs.promises.rm;
   const attempted = [];
-  const removalMock = t.mock.method(fs, "rmSync", (target, options) => {
+  const removalMock = t.mock.method(fs.promises, "rm", async (target, options) => {
     attempted.push(target);
     if (String(target).toLowerCase() === lockPath.toLowerCase()) {
       throw Object.assign(new Error("lockfile is in use"), { code: "EBUSY" });
     }
-    return originalRmSync(target, options);
+    return originalRm(target, options);
   });
   try {
-    const first = cleanupProgramDataForVersion(app, "v0.4.0", {
+    const first = await cleanupProgramDataForVersion(app, "v0.4.0", {
       platform: "win32", listProcessesImpl: () => []
     });
     assert.equal(first.cleaned, true);
@@ -205,7 +205,7 @@ test("Windows occupied lockfile does not prevent VERSION commit or cause a secon
     assert.equal(fs.readFileSync(lockPath, "utf8"), "electron-owned");
     fs.mkdirSync(servicesPath);
     fs.writeFileSync(path.join(servicesPath, "installed-marker"), "keep");
-    const second = cleanupProgramDataForVersion(app, "0.4.0", {
+    const second = await cleanupProgramDataForVersion(app, "0.4.0", {
       platform: "win32", listProcessesImpl: () => { throw new Error("unexpected process scan"); }
     });
     assert.equal(second.skipped, true);
@@ -217,19 +217,19 @@ test("Windows occupied lockfile does not prevent VERSION commit or cause a secon
 });
 
 for (const platform of ["win32", "darwin"]) {
-  test(`${platform} real service cleanup failure does not commit VERSION and can retry`, (t) => {
+  test(`${platform} real service cleanup failure does not commit VERSION and can retry`, async (t) => {
     const { app, programRoot } = createFixture(t);
     const servicesPath = path.join(programRoot, "services");
     const versionPath = path.join(programRoot, "VERSION");
     fs.mkdirSync(servicesPath);
     fs.writeFileSync(versionPath, "v0.3.0\n");
-    const originalRmSync = fs.rmSync;
-    const removalMock = t.mock.method(fs, "rmSync", (target, options) => {
+    const originalRm = fs.promises.rm;
+    const removalMock = t.mock.method(fs.promises, "rm", async (target, options) => {
       if (target === servicesPath) throw Object.assign(new Error("service is in use"), { code: "EBUSY" });
-      return originalRmSync(target, options);
+      return originalRm(target, options);
     });
     try {
-      const result = cleanupProgramDataForVersion(app, "v0.4.0", { platform, listProcessesImpl: () => [] });
+      const result = await cleanupProgramDataForVersion(app, "v0.4.0", { platform, listProcessesImpl: () => [] });
       assert.equal(result.cleaned, false);
       assert.deepEqual(result.failedPaths, [{ path: servicesPath, message: "service is in use" }]);
       assert.equal(fs.readFileSync(versionPath, "utf8"), "v0.3.0\n");
@@ -237,18 +237,18 @@ for (const platform of ["win32", "darwin"]) {
     } finally {
       removalMock.mock.restore();
     }
-    const retried = cleanupProgramDataForVersion(app, "v0.4.0", { platform, listProcessesImpl: () => [] });
+    const retried = await cleanupProgramDataForVersion(app, "v0.4.0", { platform, listProcessesImpl: () => [] });
     assert.equal(retried.cleaned, true);
     assert.equal(fs.readFileSync(versionPath, "utf8"), "v0.4.0\n");
-    assert.equal(cleanupProgramDataForVersion(app, "v0.4.0", { platform }).skipped, true);
+    assert.equal((await cleanupProgramDataForVersion(app, "v0.4.0", { platform })).skipped, true);
   });
 }
 
-test("macOS still removes lockfile while Windows does not exempt a directory named lockfile", (t) => {
+test("macOS still removes lockfile while Windows does not exempt a directory named lockfile", async (t) => {
   const { app, programRoot } = createFixture(t);
   const lockPath = path.join(programRoot, "lockfile");
   fs.writeFileSync(lockPath, "old-file");
-  const result = cleanupProgramDataForVersion(app, "v0.4.0", { platform: "darwin", listProcessesImpl: () => [] });
+  const result = await cleanupProgramDataForVersion(app, "v0.4.0", { platform: "darwin", listProcessesImpl: () => [] });
   assert.deepEqual(result.removedPaths, [lockPath]);
   assert.equal(result.cleaned, true);
   fs.mkdirSync(lockPath);

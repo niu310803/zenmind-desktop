@@ -7,6 +7,7 @@ import { BROWSER_USE_CHANNEL, BROWSER_USE_CHANGED, BROWSER_USE_SETTINGS_CHANNEL,
   type BrowserUseState, type BrowserUseSettingsState } from "../shared/browser-use";
 import { createMainNavigationSubscription } from "./main-navigation";
 import { NATIVE_SHARE_READ_CHANNEL } from "../shared/native-share";
+import { DESKTOP_PERFORMANCE_DIAGNOSTICS_ARGUMENT } from "../shared/performance-diagnostics";
 import { LOCAL_DOCUMENT_CHANNELS, type LocalDocumentWorkspaceState } from "../shared/local-document";
 import { CONNECTOR_AUTH_BROWSER_EVENT, CONNECTOR_AUTH_BROWSER_HOST_EVENT, CONNECTOR_AUTH_BROWSER_HOST_CLOSE } from "../shared/contracts/agent-webclient-bridge";
 import type {
@@ -864,7 +865,9 @@ const api: DesktopApi = {
     publishDevToolsTarget: (target) => ipcRenderer.invoke("copilot.publishDevToolsTarget", target)
   },
   diagnostics: {
-    performanceEnabled: process.env?.PERF === "1",
+    performanceEnabled: process.argv.includes(DESKTOP_PERFORMANCE_DIAGNOSTICS_ARGUMENT),
+    getPerformancePreference: () => ipcRenderer.invoke("diagnostics.getPerformancePreference"),
+    setPerformancePreference: (enabled) => ipcRenderer.invoke("diagnostics.setPerformancePreference", enabled),
     reportRendererError: (report: RendererDiagnosticReport) => {
       ipcRenderer.send("diagnostics.rendererError", report);
     },

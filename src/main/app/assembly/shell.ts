@@ -67,6 +67,7 @@ export interface AssembleAppShellDependencies {
   readonly MAIN_PROCESS_DIR: ReturnType<typeof resolveElectronBundleRootFromRuntimeDir>;
   readonly logsRuntime: ReturnType<typeof createLogsRuntime>;
   readonly AGENT_REALTIME_INSPECTOR_ROUTE: string;
+  readonly onAgentRealtimeInspectorOpenChange: (open: boolean) => void;
   readonly DESKTOP_ACTION_WORKBENCH_ROUTE: string;
   readonly webSurfaceRuntime: Pick<ReturnType<typeof createWebSurfaceRuntime>, "browserSurfaceRegistry">;
   readonly handleDesktopSsoWebviewNavigation: (url: string) => Promise<void>;
@@ -99,6 +100,7 @@ export function assembleAppShell(dependencies: AssembleAppShellDependencies) {
     t,
     logsRuntime: dependencies.logsRuntime,
     agentRealtimeInspectorRoute: dependencies.AGENT_REALTIME_INSPECTOR_ROUTE,
+    onAgentRealtimeInspectorOpenChange: dependencies.onAgentRealtimeInspectorOpenChange,
     desktopActionWorkbenchRoute: dependencies.DESKTOP_ACTION_WORKBENCH_ROUTE,
     loadRendererRoute,
     parseSafeLoopbackWebUrl,

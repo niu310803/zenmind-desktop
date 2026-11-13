@@ -9,7 +9,7 @@ export type StartupPipelineOptions = {
   reinstallBuiltinServices?: boolean;
   getEnvImportFailureMessage: () => string | null;
   startupRestoreController: any;
-  loadBuiltinServices: (app: App) => void;
+  loadBuiltinServices: (app: App) => Promise<unknown> | void;
   loadInstalledPlugins: (app: App) => void;
   notifyCoreServicesChanged: () => void;
   startShellRuntime: () => void;
@@ -43,25 +43,28 @@ export function createStartupPipeline(options: StartupPipelineOptions) {
         return;
       }
       options.setStartupPhase("core-services-starting");
-      options.loadBuiltinServices(options.app);
-      options.loadInstalledPlugins(options.app);
-      options.notifyCoreServicesChanged();
 
-      await options.runServiceMutation(() => options.runStartupPreparation(options.app, {
-        desktopVersion: options.desktopVersion,
-        isFirstDesktopInstall: options.isFirstDesktopInstall,
-        reinstallBuiltinServices: options.reinstallBuiltinServices,
-        onModeResolved: (mode) => {
-          options.startupRestoreController.beginSession(mode);
-        },
-        onStarting: (serviceId) => {
-          options.startupRestoreController.updateService(serviceId, "starting", options.t("startup.phase.starting"));
-        },
-        onProgress: (serviceId, phase, message) => {
-          options.startupRestoreController.updateService(serviceId, phase, message);
-          options.notifyCoreServicesChanged();
-        }
-      }))
+      await options.runServiceMutation(async () => {
+        await options.loadBuiltinServices(options.app);
+        options.loadInstalledPlugins(options.app);
+        options.notifyCoreServicesChanged();
+
+        return options.runStartupPreparation(options.app, {
+          desktopVersion: options.desktopVersion,
+          isFirstDesktopInstall: options.isFirstDesktopInstall,
+          reinstallBuiltinServices: options.reinstallBuiltinServices,
+          onModeResolved: (mode) => {
+            options.startupRestoreController.beginSession(mode);
+          },
+          onStarting: (serviceId) => {
+            options.startupRestoreController.updateService(serviceId, "starting", options.t("startup.phase.starting"));
+          },
+          onProgress: (serviceId, phase, message) => {
+            options.startupRestoreController.updateService(serviceId, phase, message);
+            options.notifyCoreServicesChanged();
+          }
+        });
+      })
         .then((result) => {
           if (result.inputRequired) {
             options.startupRestoreController.setEnvImportRequired(

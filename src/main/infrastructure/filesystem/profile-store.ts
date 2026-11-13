@@ -29,6 +29,9 @@ export type DesktopGeneralSettings = {
 export type DesktopProfile = {
   schemaVersion: 1;
   general: DesktopGeneralSettings;
+  diagnostics: {
+    performanceEnabled: boolean;
+  };
   appearance: DesktopSkinSettings & {
     theme: DesktopThemePreference;
     locale: SupportedLocale;
@@ -53,6 +56,7 @@ type DesktopProfileReadOptions = {
 
 type DesktopProfilePatch = Partial<{
   general: Partial<DesktopProfile["general"]>;
+  diagnostics: Partial<DesktopProfile["diagnostics"]>;
   appearance: Partial<DesktopProfile["appearance"]>;
   assistant: Partial<Omit<DesktopProfile["assistant"], "copilot" | "chat">> & {
     copilot?: Partial<DesktopProfile["assistant"]["copilot"]>;
@@ -107,6 +111,7 @@ function normalizeDesktopProfile(
 ): DesktopProfile {
   const record = isRecord(value) ? value : {};
   const general = isRecord(record.general) ? record.general : {};
+  const diagnostics = isRecord(record.diagnostics) ? record.diagnostics : {};
   const appearance = isRecord(record.appearance) ? record.appearance : {};
   const assistant = isRecord(record.assistant) ? record.assistant : {};
   const copilot = isRecord(assistant.copilot) ? assistant.copilot : {};
@@ -131,6 +136,9 @@ function normalizeDesktopProfile(
       desktopActionConfirmationEnabled: typeof general.desktopActionConfirmationEnabled === "boolean"
         ? general.desktopActionConfirmationEnabled
         : true
+    },
+    diagnostics: {
+      performanceEnabled: diagnostics.performanceEnabled === true
     },
     appearance: {
       theme: normalizeTheme(appearance.theme),
@@ -182,6 +190,10 @@ export function updateDesktopProfileInRoot(rootDir: string, patch: DesktopProfil
     general: {
       ...current.general,
       ...patch.general
+    },
+    diagnostics: {
+      ...current.diagnostics,
+      ...patch.diagnostics
     },
     appearance: {
       ...current.appearance,

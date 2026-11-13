@@ -38,7 +38,7 @@ export interface RequestDispatchPort {
   readonly options: {
     browserSurfaces: FramePortOptions["browserSurfaces"];
     isTrustedAgentWebclientSession: FramePortOptions["isTrustedAgentWebclientSession"];
-    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "getConnectionState" | "getMainChatRootObserver" | "appendDebugTrace" | "releaseRootObserver" | "activateRootObserver" | "releaseObservedRun" | "subscribeClone" | "registerRunActionGrant" | "subscribeRun" | "query" | "forwardRequest">;
+    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "getConnectionState" | "getMainChatRootObserver" | "isDebugTraceEnabled" | "appendDebugTrace" | "releaseRootObserver" | "activateRootObserver" | "releaseObservedRun" | "subscribeClone" | "registerRunActionGrant" | "subscribeRun" | "query" | "forwardRequest">;
   };
   reportChatLoadDiagnostic: (stage: "request" | "response", session: LogicalSession, details: Record<string, unknown>) => void;
   resolveMainChatQueryAuthorization: (input: { session: LogicalSession; context: SurfaceContext; payload: Record<string, unknown>; }) => Promise<{ context: SurfaceContext; newChatSource: { registrationId: string; ownerWebContentsId: number; guestWebContentsId: number; agentKey: string; newChat: string; } | null; }>;
@@ -404,19 +404,21 @@ export function createRequestDispatch(deps: RequestDispatchPort) {
       : null;
     if (binding)
       session.streams.set(frame.id, binding);
-    deps.options.realtimeBroker.appendDebugTrace({
-      layer: "surface-bridge",
-      direction: "surface-to-desktop",
-      data: frame,
-      surfaceId: context.target.surfaceId,
-      webContentsId: event.sender.id,
-      surfaceKind: context.kind,
-      surfaceRole: context.target.surfaceRole,
-      surfaceLevel: context.target.surfaceLevel,
-      parentSurfaceId: context.target.parentSurfaceId,
-      interaction: context.target.interaction,
-      route: context.target.pageRoute || event.sender.getURL(),
-    });
+    if (deps.options.realtimeBroker.isDebugTraceEnabled()) {
+      deps.options.realtimeBroker.appendDebugTrace({
+        layer: "surface-bridge",
+        direction: "surface-to-desktop",
+        data: frame,
+        surfaceId: context.target.surfaceId,
+        webContentsId: event.sender.id,
+        surfaceKind: context.kind,
+        surfaceRole: context.target.surfaceRole,
+        surfaceLevel: context.target.surfaceLevel,
+        parentSurfaceId: context.target.parentSurfaceId,
+        interaction: context.target.interaction,
+        route: context.target.pageRoute || event.sender.getURL(),
+      });
+    }
     if (binding?.virtual) {
       try {
         if (!binding.runId || !binding.chatId || !binding.owner) {

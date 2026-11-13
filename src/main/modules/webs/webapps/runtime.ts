@@ -43,7 +43,7 @@ import {
   HOST
 } from "./runtime-health";
 import { t } from "../../../support/i18n/main-i18n";
-import { writeLogLine, terminateRuntimeChild, pipeChildLogs, terminateRuntimeProcessTree } from "./runtime-process";
+import { writeLogLine, terminateRuntimeChild, pipeChildLogs, terminateExitedRuntimeProcessGroup } from "./runtime-process";
 import { checkWebappBackendPrerequisites, type WebappLauncherCheck, getWebappBackendLauncher } from "./launchers";
 import {
   isProcessRunning,
@@ -210,7 +210,7 @@ export class WebappRuntime {
     record.healthTimer.unref();
   }
 
-  checkRuntime(app: App, webappId: string): WebappRuntimeCheckResult {
+  async checkRuntime(app: App, webappId: string): Promise<WebappRuntimeCheckResult> {
     const item = findWebapp(app, webappId, this.integrationPorts);
     if (!item) {
       return {
@@ -225,7 +225,7 @@ export class WebappRuntime {
         message: t("webapp.notFound")
       };
     }
-    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : checkWebappBackendPrerequisites(
+    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : await checkWebappBackendPrerequisites(
       createLauncherContext(app, item, null, undefined, "", this.integrationPorts)
     );
     return {
@@ -241,12 +241,12 @@ export class WebappRuntime {
     };
   }
 
-  checkItemPrerequisites(
+  async checkItemPrerequisites(
     app: App,
     item: WebappEntry,
     webappDir: string
-  ): WebappLauncherCheck & { message: string } {
-    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : checkWebappBackendPrerequisites(
+  ): Promise<WebappLauncherCheck & { message: string }> {
+    const check = item.hosting === "platform" ? this.platformInstances.check(app, item) : await checkWebappBackendPrerequisites(
       createLauncherContext(app, item, null, webappDir, "", this.integrationPorts)
     );
     return {
@@ -409,7 +409,7 @@ export class WebappRuntime {
         this.integrationPorts
       );
       const launcher = getWebappBackendLauncher(item.backend);
-      const preflight = launcher.validatePrerequisites(context);
+      const preflight = await launcher.validatePrerequisites(context);
       if (!preflight.ok) {
         record.state = {
           ...record.state,
@@ -437,7 +437,7 @@ export class WebappRuntime {
         record.backendActionToken,
         this.integrationPorts
       );
-      const launched = launcher.start(launchContext);
+      const launched = launcher.start(launchContext, preflight);
       if (!launched.ok) {
         throw new Error(prerequisiteMessage(launched));
       }
@@ -506,7 +506,7 @@ export class WebappRuntime {
             return;
           }
           if (child.pid) {
-            terminateRuntimeProcessTree(child.pid);
+            terminateExitedRuntimeProcessGroup(child.pid);
           }
           revokeRecordActionTokens(current);
           stopRecordHealthMonitor(current);

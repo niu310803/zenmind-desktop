@@ -31,6 +31,9 @@ export function shouldShowStartupProgressCard(
   startupAllReady: boolean,
   currentPathname = "/"
 ): boolean {
+  if (startupRestoreState?.restoringSignIn) {
+    return true;
+  }
   if (currentPathname === "/settings" || currentPathname.startsWith("/settings/")) {
     return false;
   }

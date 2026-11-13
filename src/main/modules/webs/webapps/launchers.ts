@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import type { App } from "electron";
 import type {
   WebappBackendConfig,
@@ -70,8 +70,8 @@ export type WebappLauncherStartResult = WebappLauncherCheck & {
 
 export interface BackendLauncher {
   kind: Exclude<WebappLauncherKind, "none">;
-  validatePrerequisites(context: WebappLauncherContext): WebappLauncherCheck;
-  start(context: WebappLauncherContext): WebappLauncherStartResult;
+  validatePrerequisites(context: WebappLauncherContext): WebappLauncherCheck | Promise<WebappLauncherCheck>;
+  start(context: WebappLauncherContext, check: WebappLauncherCheck): WebappLauncherStartResult;
 }
 
 function issue(
@@ -197,7 +197,7 @@ const electronNodeLauncher: BackendLauncher = {
   validatePrerequisites(context) {
     return managedCheck("electron-node", context, process.versions.node, process.execPath);
   },
-  start(context) {
+  start(context, check) {
     const backend = context.item.backend;
     if (!backend || backend.command.type !== "electron-node") {
       return {
@@ -205,7 +205,6 @@ const electronNodeLauncher: BackendLauncher = {
         child: null
       };
     }
-    const check = this.validatePrerequisites(context);
     const scriptPath = resolveWebappRelativePath(context.webappDir, backend.command.entry);
     return startManagedProcess(
       check,
@@ -237,8 +236,7 @@ const executableLauncher: BackendLauncher = {
     }
     return managedCheck("executable", context, context.item.target, executable);
   },
-  start(context) {
-    const check = this.validatePrerequisites(context);
+  start(context, check) {
     const backend = context.item.backend;
     if (!check.ok || !check.command || !backend || backend.command.type !== "executable") {
       return { ...check, child: null };
@@ -266,7 +264,7 @@ function compareRuntimeVersions(left: string, right: string) {
   return 0;
 }
 
-function resolveRuntimeExecutable(context: WebappLauncherContext, runtime: "python" | "java") {
+async function resolveRuntimeExecutable(context: WebappLauncherContext, runtime: "python" | "java") {
   const configured = resolveConfiguredRuntimeExecutable(context.app, context.item.id, runtime);
   if (configured && isExecutableFile(configured)) {
     return configured;
@@ -275,7 +273,7 @@ function resolveRuntimeExecutable(context: WebappLauncherContext, runtime: "pyth
     ? process.platform === "win32" ? ["python", "python3"] : ["python3", "python"]
     : ["java"];
   for (const candidate of candidates) {
-    const resolved = resolveCommandBin(candidate);
+    const resolved = await resolveCommandBin(candidate);
     if (resolved && isExecutableFile(resolved)) {
       return resolved;
     }
@@ -283,24 +281,24 @@ function resolveRuntimeExecutable(context: WebappLauncherContext, runtime: "pyth
   return "";
 }
 
-function probeRuntimeVersion(command: string, runtime: "python" | "java") {
-  const result = spawnSync(command, ["--version"], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 5_000,
-    shell: false
+function probeRuntimeVersion(command: string) {
+  return new Promise<string>((resolve) => {
+    execFile(command, ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 5_000
+    }, (_error, stdout, stderr) => resolve(parseRuntimeVersion(`${stdout}\n${stderr}`)));
   });
-  return parseRuntimeVersion(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
 }
 
 const runtimeLauncher: BackendLauncher = {
   kind: "runtime",
-  validatePrerequisites(context) {
+  async validatePrerequisites(context) {
     const backend = context.item.backend;
     if (!backend || backend.command.type !== "runtime") {
       return failedCheck("runtime", [issue("invalid_backend", "runtime backend is invalid.")]);
     }
-    const executable = resolveRuntimeExecutable(context, backend.command.runtime);
+    const executable = await resolveRuntimeExecutable(context, backend.command.runtime);
     if (!executable) {
       return failedCheck("runtime", [
         issue(
@@ -310,7 +308,7 @@ const runtimeLauncher: BackendLauncher = {
         )
       ]);
     }
-    const runtimeVersion = probeRuntimeVersion(executable, backend.command.runtime);
+    const runtimeVersion = await probeRuntimeVersion(executable);
     if (
       backend.command.minimumVersion &&
       (!runtimeVersion || compareRuntimeVersions(runtimeVersion, backend.command.minimumVersion) < 0)
@@ -326,8 +324,7 @@ const runtimeLauncher: BackendLauncher = {
     }
     return managedCheck("runtime", context, runtimeVersion, executable);
   },
-  start(context) {
-    const check = this.validatePrerequisites(context);
+  start(context, check) {
     const backend = context.item.backend;
     if (!check.ok || !check.command || !backend || backend.command.type !== "runtime") {
       return { ...check, child: null };

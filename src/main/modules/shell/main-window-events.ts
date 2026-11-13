@@ -4,6 +4,7 @@ import type { DesktopGlobalSearchShortcut } from "../../../shared/contracts/desk
 import { toggleMainRendererDevTools } from "./main-window-options";
 import { isWorkPanelFullscreenExitShortcut, resolveDesktopHistoryNavigationShortcut } from "./webview-shortcuts";
 import { configureDesktopHistoryGesture } from "./history-gesture";
+import { markStartupMilestone } from "../../support/logging/startup-timing";
 
 export function configureMainWindowLifecycleEvents<TWindow extends MainWindowLifecycleEventsLike>(
   targetWindow: TWindow,
@@ -42,7 +43,9 @@ export function configureMainWindowLifecycleEvents<TWindow extends MainWindowLif
     if (targetWindow.isDestroyed()) {
       return;
     }
+    markStartupMilestone("main-window-ready-to-show");
     targetWindow.show();
+    markStartupMilestone("main-window-visible");
     targetWindow.focus();
     sendWindowState();
   });

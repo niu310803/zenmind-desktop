@@ -43,6 +43,7 @@ class ConversationHtmlWorkerError extends Error {
 
 export class ConversationHtmlRenderService {
   private worker: Worker | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   private readonly pending = new Map<string, PendingRender>();
 
@@ -65,10 +66,12 @@ export class ConversationHtmlRenderService {
       if (!pending) return;
       this.pending.delete(response.requestId);
       pending.resolve(response);
+      this.scheduleIdleShutdown();
     });
     worker.on("error", () => this.handleWorkerFailure(worker));
     worker.on("exit", () => this.handleWorkerFailure(worker));
     this.worker = worker;
+    this.scheduleIdleShutdown();
   }
 
   async renderChatHtml(chatId: string, assetOrigin: string): Promise<ConversationHtmlRenderResult> {
@@ -162,6 +165,7 @@ export class ConversationHtmlRenderService {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.idleTimer);
     const worker = this.worker;
     this.worker = null;
     this.rejectPending();
@@ -179,6 +183,7 @@ export class ConversationHtmlRenderService {
     if (!worker) {
       return Promise.reject(new ConversationHtmlWorkerError("worker_failed"));
     }
+    clearTimeout(this.idleTimer);
     return new Promise((resolve, reject) => {
       this.pending.set(request.requestId, { resolve, reject });
       try {
@@ -186,14 +191,28 @@ export class ConversationHtmlRenderService {
       } catch {
         this.pending.delete(request.requestId);
         reject(new ConversationHtmlWorkerError("worker_failed"));
+        this.scheduleIdleShutdown();
       }
     });
   }
 
   private handleWorkerFailure(worker: Worker): void {
     if (this.worker !== worker) return;
+    clearTimeout(this.idleTimer);
     this.worker = null;
     this.rejectPending();
+  }
+
+  private scheduleIdleShutdown() {
+    if (!this.worker || this.pending.size > 0) return;
+    const worker = this.worker;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (this.worker !== worker || this.pending.size > 0) return;
+      this.worker = null;
+      void worker.terminate().catch(() => undefined);
+    }, 5 * 60_000);
+    this.idleTimer.unref();
   }
 
   private rejectPending(): void {

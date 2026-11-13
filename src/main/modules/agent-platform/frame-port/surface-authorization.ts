@@ -28,7 +28,7 @@ import {
 export interface SurfaceAuthorizationPort {
   readonly options: {
     browserSurfaces: Pick<FramePortOptions["browserSurfaces"], "resolveWebviewSurfaceTarget" | "waitForWebviewSurfaceTargetMatching">;
-    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "appendDebugTrace">;
+    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "isDebugTraceEnabled" | "appendDebugTrace">;
     isTrustedAgentWebclientSession: FramePortOptions["isTrustedAgentWebclientSession"];
   };
 }
@@ -395,6 +395,7 @@ export function createSurfaceAuthorization(deps: SurfaceAuthorizationPort) {
     const initialTarget = input.context.target;
     const startedAt = Date.now();
     const trace = (state: "started" | "ready" | "failed", reason: string) => {
+      if (!deps.options.realtimeBroker.isDebugTraceEnabled()) return;
       const observedTarget = deps.options.browserSurfaces
         .resolveWebviewSurfaceTarget(input.context.sender.id);
       let senderRouteKind = "unavailable";

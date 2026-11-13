@@ -35,7 +35,7 @@ export async function startServiceInternal(
     // installed or started, so it must not reuse a recent negative probe.
     clearContainerEngineProbeCache();
   }
-  const current = await getServiceState(app, serviceId, {
+  const current = options.preparedState ?? await getServiceState(app, serviceId, {
     ...options.stateReadOptions,
     integrationPorts: options.integrationPorts
   });
@@ -74,7 +74,7 @@ export async function startServiceInternal(
   const shouldRefreshFromBundledAsset =
     service.kind === "builtin" &&
     !options.skipBuiltinAssetRefresh &&
-    needsBundledAssetRefresh(app, service);
+    await needsBundledAssetRefresh(app, service);
 
   if (shouldRefreshFromBundledAsset) {
     if (current.status === "running") {
@@ -131,10 +131,10 @@ export async function startServiceInternal(
       integrationPorts: options.integrationPorts
     });
   }
-  if (service.id === "agent-platform") {
+  if (service.id === "agent-platform" && !options.skipPreStartRequirements) {
     await ensurePreStartRequirements(app, service, options.integrationPorts);
   }
-  let nextState = await getServiceState(app, serviceId, {
+  const nextState = options.preparedState ?? await getServiceState(app, serviceId, {
     ...options.stateReadOptions,
     integrationPorts: options.integrationPorts
   });
@@ -160,7 +160,7 @@ export async function startServiceInternal(
     if (!options.skipPreStartRequirements && service.id !== "agent-platform") {
       await ensurePreStartRequirements(app, service, options.integrationPorts);
     }
-    const preStartState = await getServiceState(app, serviceId, {
+    const preStartState = options.preparedState ?? await getServiceState(app, serviceId, {
       ...options.stateReadOptions,
       integrationPorts: options.integrationPorts
     });
@@ -214,7 +214,7 @@ export async function startServiceInternal(
           getDesktopStartCommand(service),
           t("service.started", { name: service.name }),
           {
-            ...getDesktopStartCommandOptions(app, service),
+            ...await getDesktopStartCommandOptions(app, service),
             commandKind: "start",
             stateReadOptions: options.commandStateReadOptions ?? options.stateReadOptions,
             integrationPorts: options.integrationPorts

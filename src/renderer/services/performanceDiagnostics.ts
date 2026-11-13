@@ -1,6 +1,27 @@
 import { sanitizePerformanceEvent } from "../../shared/performance-diagnostics";
 
 let navigation: { route: string; switchId: string; start: number } | undefined;
+const reportedStartupStages = new Set<string>();
+
+export function reportStartupMilestone(stage: "renderer-first-contentful-paint" | "main-chat-document-loaded", hostMonoMs = performance.now()) {
+  const diagnostics = window.electronAPI?.diagnostics;
+  if (!diagnostics || reportedStartupStages.has(stage)) return;
+  reportedStartupStages.add(stage);
+  diagnostics.reportRendererError({ level: "debug", source: "performance", message: "performance",
+    details: { stage, hostMonoMs } });
+}
+
+export function observeStartupPaint() {
+  if (!window.electronAPI?.diagnostics || typeof PerformanceObserver === "undefined" ||
+      !PerformanceObserver.supportedEntryTypes.includes("paint")) return;
+  const observer = new PerformanceObserver((list) => {
+    const paint = list.getEntries().find((entry) => entry.name === "first-contentful-paint");
+    if (!paint) return;
+    reportStartupMilestone("renderer-first-contentful-paint", paint.startTime);
+    observer.disconnect();
+  });
+  observer.observe({ type: "paint", buffered: true });
+}
 export function beginChatPerformanceNavigation(route: string) {
   if (!window.electronAPI.diagnostics?.performanceEnabled) return;
   if (navigation) reportPerformanceEvent({ stage: "host-navigation-superseded", switchId: navigation.switchId });

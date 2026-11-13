@@ -21,9 +21,9 @@
 
 ## 开启与日志位置
 
-默认关闭。完全退出 Desktop（包括托盘中的进程），带 `PERF=1` 启动新进程；已有单实例不会继承新环境变量。开发运行：
+打开「设置 → 关于」并连续点击「关于」五次，进入「调试 → 日志与链路」，开启「采集性能诊断」。完全退出 Desktop（包括托盘中的进程）并重新启动，确认日志目录的 `performance.jsonl` 写入了新的 `session-start`。
 
-Windows PowerShell：
+命令行采集可带 `PERF=1` 启动新进程，覆盖本次启动的关闭设置。已有单实例不会继承新环境变量。Windows PowerShell：
 
 ```powershell
 $env:PERF = "1"
@@ -40,7 +40,25 @@ PERF=1 npm run dev
 
 日志位于当前品牌数据根的 `logs/desktop/performance.jsonl`，与 `main.log` 同目录。采用 1 秒批量异步写入；单文件最多 10 MiB，保留一个 `.1` 轮转文件，待写队列最多 256 KiB，拥塞丢弃量写入 `dropped`。退出刷新为尽力而为，强制结束进程可能丢失最后一批。
 
-关闭采集：完全退出；Windows 执行 `Remove-Item Env:PERF` 后正常启动；macOS 不带变量启动（若曾 export，先 `unset PERF`）。默认关闭时不建立采集文件、计时器或事件监听。
+关闭采集时关闭设置开关并重新启动。通过环境变量启动的实例，退出后在 Windows 执行 `Remove-Item Env:PERF`，macOS 若曾 export 则先执行 `unset PERF`。默认关闭运行期采集。每次启动仍会在日志目录更新一份有界的 `startup-timing.json`，记录阶段耗时和启动里程碑。各轮结束后分别保存此文件。
+
+## Windows 基线与复测
+
+用同一台机器分别运行优化前和候选安装包。低配机采用 4 核、8 GB、核显并开启 Defender 实时保护，记录磁盘类型。另用 16 GB、SSD 机器重复。每个场景跑五轮，保留单轮结果并比较中位数。记录 Desktop、Agent Platform、Agent WebClient 版本、Windows 版本、电源模式、显示缩放和本地时间。使用同一账号、模型、网络、对话数据和窗口尺寸，关闭 DevTools 与运行时观察器。首装和覆盖升级各轮从独立的 VM 快照或测试环境起步。
+
+| 场景 | 操作与记录 |
+| --- | --- |
+| 首装 | 计时安装器启动至结束。启动 Desktop，记录窗口可见、主聊天文档加载，以及实际能输入聊天文本的时间。 |
+| 覆盖升级 | 从同一旧版本升级。记录安装时间、首次启动各阶段耗时，核对原对话可打开。 |
+| 冷启动 | 系统重启后首次打开已安装的 Desktop。记录窗口可见和实际能输入聊天文本的时间。 |
+| 热启动 | 正常退出 Desktop 后重新启动，沿用同一系统会话。记录同样的时间。 |
+| 流式对话 | 在相同模型和提示词下生成约 3000 字回答，流式输出时连续拖动窗口、滚动侧栏，记录起止时间与主进程 P99。 |
+| 页面驻留 | 依次打开 6 个固定网站或网页应用，回到主聊天并静置 10 分钟。记录 guest 数、后台持续时间和工作集。 |
+| 重启服务 | 在控制中心重启 Agent Platform，同时拖动窗口，记录重启窗口内的主进程最大事件循环延迟，确认原对话可再次加载。 |
+
+同时保存 `startup-timing.json`、`performance.jsonl` 及存在的 `.1`、`main.log` 和安装器日志。窗口可见取 `milestones.main-window-visible`（毫秒，从进程启动计）。`renderer-first-contentful-paint` 与 `main-chat-document-loaded` 是主进程收到首次绘制及加载通知的时间，`rendererMilestones` 使用宿主 renderer 自己的时钟。实际可输入时间通过同一录屏或人工计时独立确认。启动阶段的 `eventLoopDelay` 从 Electron ready 开始采样，预启动读取注册表的同步 PowerShell 耗时单列为 `startup.sync-command`。其 `measuredSyncCommandCount` 只统计已埋点调用。需要检查是否存在其他同步调用时，用测试包的主进程跟踪记录定位。
+
+低配机初始对照目标为热启动 2 秒内见窗口、8 秒内可输入，首装 40 秒内可输入。启动与服务重启时事件循环最大延迟分别对照 200 ms 和 100 ms，流式对话时对照 P99 50 ms。先记录实测基线，再核定目标。
 
 ## 固定复现流程
 
@@ -62,10 +80,12 @@ PERF=1 npm run dev
 - `main-chat-router-timeout` / `main-chat-route-load-url-fallback`：确认是否触发整页重载。按 `instanceId + transitionId`、revision、documentGeneration 辅助关联；切换前后查看 guest ID 是否变化。
 - `contents-observed/loading/dom-ready/loaded/destroyed`（实际 stage 均带 `contents-` 前缀）：所有 Electron WebContents 的生命周期，通过 `webContentsId` 关联资源快照中的 surface 和 PID。`contents-observed` 包含采集启动时已存在的实例，不代表一定刚创建。
 - `resources`：每 5 秒采样，进程内存按 PID 去重；`deltaBytes` 只针对相同 PID + creationTime，首次为 null。关注 guest 数、孤立 guest 数以及关闭后连续多个采样的趋势。短暂未注册可形成孤立计数，不能凭单次采样判断泄漏。
+- `resources.targets`：`backgroundDurationMs` 表示同一已登记 guest 在连续采样中处于非激活状态的时间，首次发现从 0 开始。对照 `surfaceRole`、`backgroundThrottling` 及 PID 工作集。共享同一 PID 的页面共用该进程的工作集。
+- `service-resources`：Windows 每 30 秒异步读取 Identity Center、Agent Platform 和 Container Hub 的工作集，以已验证的服务 PID 查询。服务未运行、PID 变化或系统查询失败时记为空，WebClient 宿主已计入 Electron 进程。两个事件的采样时间不同，比较同一静置时段的样本。
 - `host-responsiveness`：宿主长任务次数、总耗时、最大耗时和采样定时器延迟。`resources` 同时包含 main 事件循环最大值及 P99。最小化/后台节流也会增加定时器延迟，不能直接视为 CPU 阻塞。
 
 `APPLIED` 明确是 `router-only`，**不代表历史数据加载完成或聊天内容上屏**。当前没有 WebClient 内部数据请求、React 提交、guest 长任务或 JS heap 埋点；这部分需在 WebClient 仓库补齐。生命周期加载事件同样不能代表聊天业务已就绪。
 
-内存是 Electron 进程工作集，包含主进程、renderer、GPU 等；不是 JS heap，也不包括独立内置服务或 Docker 的总内存。Windows 另记可用的 private bytes；macOS 不伪造该字段。跨平台主要比较相同操作后的增长趋势，不将两种系统的绝对数值直接等同。工作集增长本身也不证明泄漏。
+`resources.totalWorkingSetBytes` 是 Electron 进程工作集，包含主进程、renderer 和 GPU 等。`service-resources` 单独记录 Windows 受管服务进程，不含其子进程、独立 WebApp 进程或 Docker。Windows 另记可用的 Electron private bytes。跨平台比较相同操作后的增长趋势，判断是否泄漏需要观察多轮操作和回落情况。
 
 性能通道仅允许主窗口顶层 frame 提交数值、布尔值及技术标识；不记录 URL、Chat ID、标题、正文或业务帧。此约束不改变既有普通诊断日志的策略。

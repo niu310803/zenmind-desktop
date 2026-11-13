@@ -8,9 +8,9 @@ export function delay(ms: number) {
   });
 }
 
-export function getServiceVerificationDelayMs() {
+export function getServiceVerificationDelayMs(attempt: number, fallbackMs = Math.min(100 * 2 ** attempt, 1000)) {
   const raw = Number.parseInt(process.env.SERVICE_VERIFY_DELAY_MS ?? "", 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 1500;
+  return Number.isFinite(raw) && raw > 0 ? raw : fallbackMs;
 }
 
 export const CONTAINER_HUB_RUNNING_VERIFICATION_TIMEOUT_MS = 6000;

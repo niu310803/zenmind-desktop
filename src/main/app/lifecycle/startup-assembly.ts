@@ -150,14 +150,14 @@ export interface InitializeUserDataRootsAndSettingsDependencies {
   readonly petRuntime: Pick<DesktopPetRuntime, "initializeState">;
 }
 
-export function initializeUserDataRootsAndSettings(dependencies: InitializeUserDataRootsAndSettingsDependencies) {
+export async function initializeUserDataRootsAndSettings(dependencies: InitializeUserDataRootsAndSettingsDependencies) {
   ensureDataRoot(app);
   applyDesktopInitBootstrap(app, dependencies.startupPlatform);
   const initialLocaleSettings = initializeMainI18n(app, { isFirstInstall: dependencies.isFirstDesktopInstall });
   if (dependencies.isFirstDesktopInstall) {
     setMainLocale(app, initialLocaleSettings.locale);
   }
-  const programDataCleanup = cleanupProgramDataForVersion(app, dependencies.desktopAppInfo.version);
+  const programDataCleanup = await cleanupProgramDataForVersion(app, dependencies.desktopAppInfo.version);
   dependencies.petRuntime.initializeState(dependencies.isFirstDesktopInstall);
   return programDataCleanup;
 }

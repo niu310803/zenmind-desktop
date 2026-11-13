@@ -30,4 +30,9 @@ test("architecture checks CommonJS and TypeScript require dependencies across bo
   result = run();
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /must not depend on business module webs/);
+  write("src/main/support/archive/check.ts", 'import { execFileSync as execute } from "node:child_process"; execute("tar"); Atomics.wait(array, 0, 0);');
+  result = run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /uses execFileSync in Electron main/);
+  assert.match(result.stderr, /uses Atomics\.wait in Electron main/);
 });

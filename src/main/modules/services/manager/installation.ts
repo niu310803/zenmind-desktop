@@ -16,7 +16,7 @@ import fs from "node:fs";
 import { t } from "../../../support/i18n/main-i18n";
 import { type ServiceId, type ServiceCommandResult } from "../../../../shared/contracts";
 import { getService } from "../service-registry";
-import { inFlightBuiltinInstalls } from "./session-state";
+import { builtinInstallQueues, inFlightBuiltinInstalls } from "./session-state";
 import { beginStartupTiming } from "../../../support/logging/startup-timing";
 import {
   ensureArchiveHealthy,
@@ -34,8 +34,7 @@ import {
   prepareServiceExecutionLayout,
   ensureDefaultConfig
 } from "./execution-layout";
-import { reconcileBuiltinSiblingInstallDirs, stopBuiltinInstallDir } from "./builtin-install";
-import os from "node:os";
+import { BUILTIN_EXTRACTION_PREFIX, reconcileBuiltinSiblingInstallDirs, stopBuiltinInstallDir } from "./builtin-install";
 import { extractArchiveToDir } from "../../../support/archive/archive-utils";
 import { beginStartupCheckpoints } from "../../../support/logging/startup-checkpoints";
 import { getServiceState } from "./service-state";
@@ -48,6 +47,34 @@ import { applyEnvBindings, getServicePortForEnvSync } from "./environment-bindin
 import { writeEnvFileUpdates } from "./env-content";
 import { resolveDesktopCapability } from "./capabilities";
 import { setTimeout as delay } from "node:timers/promises";
+import { retryWindowsFileOperation } from "../../../infrastructure/filesystem/windows-file-retry";
+
+async function cleanupPreviousExtractions(finalInstallDir: string, serviceId: ServiceId) {
+  const versionRoot = path.dirname(finalInstallDir);
+  const entries = await fs.promises.readdir(versionRoot, { withFileTypes: true });
+  const previousInstalls: string[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory() && /^\.extract-[a-zA-Z0-9]{6}$/u.test(entry.name)) {
+      const extractionRoot = path.join(versionRoot, entry.name);
+      const backupPath = path.join(extractionRoot, ".previous-install");
+      const backup = await fs.promises.lstat(backupPath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (!backup) {
+        await cleanupBuiltinExtraction(extractionRoot, serviceId);
+      } else if (backup.isDirectory() && !backup.isSymbolicLink()) {
+        const marker = await fs.promises.readFile(path.join(extractionRoot, ".install-version"), "utf8").catch(() => "");
+        if (marker === path.basename(finalInstallDir)) previousInstalls.push(backupPath);
+      }
+    }
+  }
+  if (previousInstalls.length === 1 && !fs.existsSync(finalInstallDir)) {
+    const backupPath = previousInstalls[0];
+    await retryWindowsFileOperation(process.platform, () => fs.promises.rename(backupPath, finalInstallDir));
+    await cleanupBuiltinExtraction(path.dirname(backupPath), serviceId);
+  }
+}
 
 async function cleanupBuiltinExtraction(tempRoot: string, serviceId: ServiceId) {
   for (let attempt = 0; ; attempt++) {
@@ -165,44 +192,56 @@ export async function installBuiltinService(
     return existingInstall;
   }
 
-  const installTask = installBuiltinServiceInternal(app, serviceId, options);
+  // Different import/repair options still write the same service program and
+  // state directories. Serialize those transactions while deduping identical ones.
+  const queueKey = path.dirname(getInstallDir(app, service));
+  const previousInstall = builtinInstallQueues.get(queueKey);
+  const installTask = (previousInstall ? previousInstall.catch(() => undefined) : Promise.resolve())
+    .then(() => installBuiltinServiceInternal(app, service, options));
   const trackedInstallTask = installTask.finally(() => {
     if (inFlightBuiltinInstalls.get(installKey) === trackedInstallTask) {
       inFlightBuiltinInstalls.delete(installKey);
     }
+    if (builtinInstallQueues.get(queueKey) === trackedInstallTask) {
+      builtinInstallQueues.delete(queueKey);
+    }
   });
+  builtinInstallQueues.set(queueKey, trackedInstallTask);
   inFlightBuiltinInstalls.set(installKey, trackedInstallTask);
   return trackedInstallTask;
 }
 
-export async function installBuiltinServiceInternal(
+async function installBuiltinServiceInternal(
   app: App,
-  serviceId: ServiceId,
+  service: ServiceDefinition,
   options: InstallBuiltinServiceOptions = {}
 ) {
+  const serviceId = service.id;
   const timing = beginStartupTiming("installBuiltinService", {
     serviceId,
     force: Boolean(options.force),
     source: options.source ?? "direct"
   });
   let didExtract = false;
-  const service = getService(serviceId);
   try {
     if (service.kind !== "builtin") {
       throw new Error(`service ${serviceId} is not a builtin service`);
     }
-    const assetPath = options.archivePath
-      ? ensureArchiveHealthy(service, options.archivePath, t("service.archivePackageLabel"))
-      : ensureBundleAssetHealthy(app, service);
-    const initializationAssetSignature = options.archivePath ? computeAssetSignature(assetPath) : undefined;
-
     const finalInstallDir = getInstallDir(app, service);
+    const versionRoot = path.dirname(finalInstallDir);
+    await fs.promises.mkdir(versionRoot, { recursive: true });
+    await cleanupPreviousExtractions(finalInstallDir, serviceId);
+    const assetPath = options.archivePath
+      ? await ensureArchiveHealthy(service, options.archivePath, t("service.archivePackageLabel"))
+      : await ensureBundleAssetHealthy(app, service);
+    const initializationAssetSignature = options.archivePath ? await computeAssetSignature(assetPath) : undefined;
+
     const layout = getServiceLayout(app, service);
     const needsExtract =
       options.force ||
       !fs.existsSync(finalInstallDir) ||
       !isInstallHealthy(service, finalInstallDir) ||
-      isAssetNewerThanInstall(assetPath, layout, options.archivePath ? undefined : app, service);
+      await isAssetNewerThanInstall(assetPath, layout, options.archivePath ? undefined : app, service);
 
     if (needsExtract && serviceId === "agent-platform") await options.integrationPorts?.stopWebappPlatformsForBundleReplacement?.(app);
     await reconcileBuiltinSiblingInstallDirs(app, service, finalInstallDir);
@@ -221,28 +260,43 @@ export async function installBuiltinServiceInternal(
       return finalInstallDir;
     }
 
-    const versionRoot = path.dirname(finalInstallDir);
-    ensureDir(versionRoot);
-
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `${service.id}-extract-`));
+    const tempRoot = await fs.promises.mkdtemp(path.join(versionRoot, BUILTIN_EXTRACTION_PREFIX));
+    let preserveExtraction = false;
     try {
       let extractedRoot: string;
       if (isDirectoryAssetPath(assetPath)) {
-        extractedRoot = copyDirectoryAssetToTempRoot(assetPath, tempRoot);
+        extractedRoot = await copyDirectoryAssetToTempRoot(assetPath, tempRoot);
       } else {
         await extractArchiveToDir(assetPath, tempRoot);
-        const entries = fs.readdirSync(tempRoot);
+        const entries = await fs.promises.readdir(tempRoot);
         if (entries.length !== 1) {
           throw new Error(`unexpected archive layout for ${service.id}`);
         }
         extractedRoot = path.join(tempRoot, entries[0]);
       }
       didExtract = true;
+      let previousInstall: string | undefined;
       if (fs.existsSync(finalInstallDir)) {
         await stopBuiltinInstallDir(service, finalInstallDir, layout);
+        const backupPath = path.join(tempRoot, ".previous-install");
+        await fs.promises.writeFile(path.join(tempRoot, ".install-version"), path.basename(finalInstallDir), { flag: "wx" });
+        await retryWindowsFileOperation(process.platform, () => fs.promises.rename(finalInstallDir, backupPath));
+        previousInstall = backupPath;
       }
-      fs.rmSync(finalInstallDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-      moveExtractedBuiltinRoot(extractedRoot, finalInstallDir);
+      try {
+        await moveExtractedBuiltinRoot(extractedRoot, finalInstallDir);
+      } catch (error) {
+        if (previousInstall) {
+          const backupPath = previousInstall;
+          try {
+            await retryWindowsFileOperation(process.platform, () => fs.promises.rename(backupPath, finalInstallDir));
+          } catch (restoreError) {
+            preserveExtraction = true;
+            throw new AggregateError([error, restoreError], `Builtin publication and rollback failed; previous installation is at ${previousInstall}`, { cause: error });
+          }
+        }
+        throw error;
+      }
       if (options.skipInitialize) {
         return finalInstallDir;
       }
@@ -255,7 +309,9 @@ export async function installBuiltinServiceInternal(
       }
       return finalInstallDir;
     } finally {
-      await cleanupBuiltinExtraction(tempRoot, serviceId);
+      if (!preserveExtraction) {
+        await cleanupBuiltinExtraction(tempRoot, serviceId);
+      }
     }
   } finally {
     timing.end({ extracted: didExtract });
@@ -343,7 +399,7 @@ export async function initializeServiceInternal(
         await integrationPorts(options.integrationPorts).syncPluginResources(app, service, installDir);
       }
       checkpoints.next("read-asset-signature");
-      const assetSignature = options.assetSignatureOverride ?? readBuiltinAssetSignature(app, service);
+      const assetSignature = options.assetSignatureOverride ?? await readBuiltinAssetSignature(app, service);
       checkpoints.next("persist-initialization-state");
       writeInitializationState(layout, {
         version: service.version,

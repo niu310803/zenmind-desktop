@@ -1,3 +1,5 @@
+export const DESKTOP_PERFORMANCE_DIAGNOSTICS_ARGUMENT = "--desktop-performance-diagnostics";
+
 // Only technical identifiers and measurements may cross the performance log boundary.
 export function sanitizePerformanceEvent(input: Record<string, unknown>) {
   const output: Record<string, string | number | boolean> = {};

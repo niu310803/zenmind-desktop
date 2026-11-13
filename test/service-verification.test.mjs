@@ -76,7 +76,7 @@ const hostPolicy = require(`${root}manager/host-policy.js`);
 
 for (const platform of ["darwin", "win32"]) {
   for (const id of ["agent-platform", "agent-container-hub"]) {
-    test(`${platform}: ${id} requires its own health result`, (t) => {
+    test(`${platform}: ${id} requires its own health result`, async (t) => {
       const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
       Object.defineProperty(process, "platform", { value: platform });
       t.after(() => Object.defineProperty(process, "platform", descriptor));
@@ -88,13 +88,13 @@ for (const platform of ["darwin", "win32"]) {
       const state = { status: "running", installDir: "/fixture", healthMeta: { pid: 123, port: 17000, webUrl: "http://localhost:17000/" } };
       const target = requirements.getDefaultRequirementHttpTarget(service, state.healthMeta.webUrl);
       assert.equal(target, "http://localhost:17000/healthz");
-      assert.equal(policy.buildVerificationResult(service, state, "running", []).verified, false);
-      assert.equal(policy.buildVerificationResult(service, state, "running", [{ target, ok: false, statusCode: 503 }]).verified, false);
-      assert.equal(policy.buildVerificationResult(service, state, "running", [{ target, ok: true, statusCode: 200 }]).verified, true);
-      assert.equal(policy.buildVerificationResult(service, state, "running", [{ target: target + "-other", ok: true }]).verified, false);
+      assert.equal((await policy.buildVerificationResult(service, state, "running", [])).verified, false);
+      assert.equal((await policy.buildVerificationResult(service, state, "running", [{ target, ok: false, statusCode: 503 }])).verified, false);
+      assert.equal((await policy.buildVerificationResult(service, state, "running", [{ target, ok: true, statusCode: 200 }])).verified, true);
+      assert.equal((await policy.buildVerificationResult(service, state, "running", [{ target: target + "-other", ok: true }])).verified, false);
       if (id === "agent-container-hub") {
         t.mock.method(processIdentity, "pidMatchesInstallDir", () => false);
-        assert.equal(policy.buildVerificationResult(service, state, "running", [{ target, ok: true }], { skipManagedPortProbe: true }).verified, false);
+        assert.equal((await policy.buildVerificationResult(service, state, "running", [{ target, ok: true }], { skipManagedPortProbe: true })).verified, false);
       }
     });
   }

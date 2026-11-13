@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 
 type ShellPathProbeResult = {
   entries: string[];
@@ -267,60 +267,41 @@ export function buildServiceEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-export function resolveNodeBin() {
+export async function resolveNodeBin() {
   const explicit = process.env.DESKTOP_NODE_BIN?.trim();
   if (explicit && fs.existsSync(explicit)) {
     return explicit;
   }
-  const serviceEnv = buildServiceEnv();
-  const locator = process.platform === "win32" ? "where" : "which";
-  try {
-    const result = spawnSync(locator, ["node"], {
-      encoding: "utf8",
-      env: serviceEnv,
-      timeout: 1500
-    });
-    if (result.status === 0 && !result.error) {
-      const resolved = result.stdout
-        .split(/\r?\n/u)
-        .map((entry) => entry.trim())
-        .find(Boolean);
-      if (resolved) {
-        return resolved;
-      }
-    }
-  } catch {
-    // Fall back to Electron when the host does not expose a standalone Node runtime.
-  }
-
-  return process.execPath;
+  return await resolveCommandBin("node") || process.execPath;
 }
 
-export function resolveCommandBin(command: string) {
+const pendingCommandLookups = new Map<string, Promise<string>>();
+
+export async function resolveCommandBin(command: string) {
   const normalized = command.trim();
   if (!normalized) {
     return "";
   }
 
   const serviceEnv = buildServiceEnv();
-  const locator = process.platform === "win32" ? "where" : "which";
-  try {
-    const result = spawnSync(locator, [normalized], {
+  const locator = process.platform === "win32" ? "where.exe" : "which";
+  const key = [locator, normalized, process.cwd(), serviceEnv.PATH, serviceEnv.PATHEXT].join("\0");
+  const pending = pendingCommandLookups.get(key);
+  if (pending) {
+    return pending;
+  }
+  const lookup = new Promise<string>((resolve) => {
+    execFile(locator, [normalized], {
       encoding: "utf8",
       env: serviceEnv,
-      timeout: 1500
+      timeout: 1500,
+      windowsHide: true
+    }, (error, stdout) => {
+      resolve(error ? "" : stdout.split(/\r?\n/u).map((entry) => entry.trim()).find(Boolean) ?? "");
     });
-    if (result.status === 0 && !result.error) {
-      return result.stdout
-        .split(/\r?\n/u)
-        .map((entry) => entry.trim())
-        .find(Boolean) ?? "";
-    }
-  } catch {
-    // Fall back to an empty string when the host command cannot be located.
-  }
-
-  return "";
+  }).finally(() => pendingCommandLookups.delete(key));
+  pendingCommandLookups.set(key, lookup);
+  return lookup;
 }
 
 export function isCommandBasenameMatch(command: string, expected: string) {

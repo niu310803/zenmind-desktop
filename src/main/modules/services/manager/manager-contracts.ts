@@ -57,6 +57,7 @@ export type ServiceStateReadOptions = {
   integrationPorts?: ServicesIntegrationPorts;
   mode?: ServiceStateReadMode;
   cacheContainerEngineProbe?: boolean;
+  listListeningPids?: (port: number) => Promise<number[]>;
 };
 
 export type ServiceVerificationOptions = {
@@ -101,6 +102,7 @@ export type StartServiceOptions = {
   integrationPorts?: ServicesIntegrationPorts;
   skipPreStartRequirements?: boolean;
   skipBuiltinAssetRefresh?: boolean;
+  preparedState?: ServiceState;
   stateReadOptions?: ServiceStateReadOptions;
   commandStateReadOptions?: ServiceStateReadOptions;
   verificationOptions?: ServiceVerificationOptions;
@@ -108,6 +110,8 @@ export type StartServiceOptions = {
 
 export type StartupPipelineOptions = {
   integrationPorts?: ServicesIntegrationPorts;
+  stateReadOptions?: ServiceStateReadOptions;
+  invalidateProbeSnapshot?: () => void;
   onStarting?: (serviceId: ServiceId) => void;
   onProgress?: (serviceId: ServiceId, phase: StartupPreparationProgressPhase, message: string) => void;
 };

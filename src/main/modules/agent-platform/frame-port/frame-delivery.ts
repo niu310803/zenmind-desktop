@@ -13,7 +13,7 @@ export interface FrameDeliveryPort {
   developmentDiagnosticsEnabled: boolean;
   readonly options: {
     browserSurfaces: Pick<FramePortOptions["browserSurfaces"], "resolveWebviewSurfaceTarget">;
-    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "appendDebugTrace">;
+    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "isDebugTraceEnabled" | "appendDebugTrace">;
   };
 }
 
@@ -38,6 +38,7 @@ export function createFrameDelivery(deps: FrameDeliveryPort) {
     if (session.closed || session.sender.isDestroyed())
       return;
     session.sender.send(AGENT_WEBCLIENT_PLATFORM_FRAME_PORT_EVENT_CHANNEL, event);
+    if (!deps.options.realtimeBroker.isDebugTraceEnabled()) return;
     const target = deps.options.browserSurfaces.resolveWebviewSurfaceTarget(session.sender.id);
     deps.options.realtimeBroker.appendDebugTrace({
       layer: "surface-bridge",

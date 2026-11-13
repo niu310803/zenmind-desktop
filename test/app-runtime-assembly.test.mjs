@@ -199,6 +199,8 @@ for (const platform of ["darwin", "win32"]) for (const updateFailure of ["none",
     const state = { startupPhase: "booting" };
     let finishEnvironment;
     const environment = new Promise(resolve => { finishEnvironment = resolve; });
+    let finishSso;
+    const sso = new Promise(resolve => { finishSso = resolve; });
     let finishPipeline;
     const pipeline = new Promise(resolve => { finishPipeline = resolve; });
     let updatesLookup;
@@ -208,7 +210,7 @@ for (const platform of ["darwin", "win32"]) for (const updateFailure of ["none",
       if (updateFailure === "check") return Promise.reject(new Error("update failed"));
       if (updateFailure === "pending") return new Promise(() => {});
     } };
-    const share = { start: () => events.push("share"), dispose: () => events.push("share-dispose") };
+    const share = { dispose: () => events.push("share-dispose") };
     const protocol = name => (_app, _protocol, _net, ...args) => { assert.equal(args.at(-1), platform); events.push(name); };
     const { handleAppReady } = loadUnit("lifecycle/app-ready", {
       electron: { app: { once: (name, callback) => listeners.set(name, callback), exit: () => assert.fail("unexpected exit") } },
@@ -217,6 +219,12 @@ for (const platform of ["darwin", "win32"]) for (const updateFailure of ["none",
       "../../modules/identity": { registerDesktopSsoAvatarProtocol: protocol("avatar-protocol") },
       "../../modules/plugins": { configurePluginResources: () => events.push("plugin-resources") },
       "../../modules/conversation-share": { createConversationShareFacade: () => share },
+      "../../support/logging/startup-timing": {
+        beginStartupTiming: () => ({ end() {} }),
+        startStartupLoopTiming() {},
+        markStartupMilestone() {},
+        persistStartupTimingSnapshot() {}
+      },
       "../../modules/updates": { registerDesktopUpdates: options => {
         events.push("updates-register"); updateOptions = options;
         if (updateFailure === "registration") throw new Error("updates unavailable");
@@ -233,10 +241,11 @@ for (const platform of ["darwin", "win32"]) for (const updateFailure of ["none",
         handleStartupEnvRootConflict: async () => true,
         prepareStartupRuntimeEnvironment: () => environment
       },
+      startupRestoreController: { setRestoringSignIn: restoring => events.push(restoring ? "sign-in-pending" : "sign-in-settled") },
       initializeUserDataRootsAndSettings: () => { events.push("roots"); return { failedPaths: [] }; },
       logsRuntime: { installConsoleTee: () => events.push("logs") },
       webSurfaceRuntime: { browserSurfaceRegistry: {} },
-      desktopSsoController: { restoreDesktopSsoSession: async () => { events.push("sso"); return { state: "signed_out" }; } },
+      desktopSsoController: { restoreDesktopSsoSession: () => { events.push("sso"); return sso; } },
       applyDesktopSsoRestoreResult: result => { assert.equal(result.state, "signed_out"); events.push("sso-applied"); },
       pluginBridgeRuntime: { configure: () => events.push("plugin-bridge") },
       assistantBridgeRuntime: { start: () => events.push("assistant"), assistantBridge: {} },
@@ -257,8 +266,12 @@ for (const platform of ["darwin", "win32"]) for (const updateFailure of ["none",
     await Promise.resolve();
     assert.deepEqual(events, ["platform-preflight", "identity", "runtime-env"]);
     finishEnvironment({ ok: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(events.indexOf("window") >= 0 && events.indexOf("window") < events.indexOf("sso"));
+    assert.equal(events.includes("pipeline"), false);
+    finishSso({ state: "signed_out" });
     await ready;
-    assert.deepEqual(events, ["platform-preflight", "identity", "runtime-env", "runtime-env-ready", "roots", "pet-protocol", "website-protocol", "avatar-protocol", "desktop-state-ready", "logs", "diagnostics", "sso", "sso-applied", "plugin-bridge", "plugin-resources", "assistant", "share", "ipc", "permissions", "shortcut", "window", "updates-register", "shell-ready", "watcher", "pipeline"]);
+    assert.deepEqual(events, ["platform-preflight", "identity", "runtime-env", "runtime-env-ready", "roots", "pet-protocol", "website-protocol", "avatar-protocol", "desktop-state-ready", "logs", "diagnostics", "plugin-bridge", "plugin-resources", "assistant", "ipc", "permissions", "shortcut", "sign-in-pending", "window", "updates-register", "shell-ready", "watcher", "sso", "sso-applied", "sign-in-settled", "pipeline"]);
     assert.equal(updatesLookup(), updateFailure === "registration" ? undefined : updates);
     assert.equal(updateOptions.currentVersion, "1.0.0");
     state.startupPhase = "non-core-ready";

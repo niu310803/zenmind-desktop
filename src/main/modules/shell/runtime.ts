@@ -12,6 +12,7 @@ import type { AssistantNavAgentItemsResult, DesktopCloseShortcutRequest, Desktop
 import { createAgentWebclientRoute } from "../../../shared/agent-webclient-routes";
 import { DESKTOP_HELP_WEBVIEW_PARTITION } from "../../../shared/help";
 import type { LogsRuntime } from "../../support/logging/runtime";
+import { isPerformanceDiagnosticsEnabled } from "../../support/logging/performance";
 import { getMainLocaleSettings } from "../../support/i18n/main-i18n";
 import {
   prepareQuitUi as prepareQuitUiFromCleanup
@@ -64,6 +65,7 @@ export type AppShellRuntimeOptions = {
   t: (...args: any[]) => string;
   logsRuntime: LogsRuntime;
   agentRealtimeInspectorRoute: string;
+  onAgentRealtimeInspectorOpenChange: (open: boolean) => void;
   desktopActionWorkbenchRoute: string;
   loadRendererRoute: (targetWindow: BrowserWindow, routePath: string) => Promise<unknown>;
   parseSafeLoopbackWebUrl: (value: string) => unknown;
@@ -147,7 +149,8 @@ export function createAppShellRuntime(options: AppShellRuntimeOptions) {
     routePath: options.agentRealtimeInspectorRoute,
     platform: options.platform,
     loadRendererRoute: options.loadRendererRoute,
-    onRendererError: options.safeConsoleError
+    onRendererError: options.safeConsoleError,
+    onOpenChange: options.onAgentRealtimeInspectorOpenChange
   });
   const desktopActionWorkbenchWindowController = new DesktopActionWorkbenchWindowController({
     preloadPath: getMainPreloadPath(options.mainProcessDir, options.platform),
@@ -256,6 +259,7 @@ export function createAppShellRuntime(options: AppShellRuntimeOptions) {
       platform: options.platform,
       preloadPath: getMainPreloadPath(options.mainProcessDir, options.platform),
       initialLocaleSettings: getMainLocaleSettings(),
+      performanceDiagnosticsEnabled: isPerformanceDiagnosticsEnabled(),
       shouldUseDarkColors: options.nativeTheme.shouldUseDarkColors,
       iconPath: windowsDevelopmentAppIconPath
     }));
@@ -477,6 +481,7 @@ export function createAppShellRuntime(options: AppShellRuntimeOptions) {
     getServiceWebviewPreloadUrl,
     openAgentPlatformMonitorWindow,
     openAgentRealtimeInspectorWindow,
+    getAgentRealtimeInspectorWindow: () => agentRealtimeInspectorWindowController.getWindow(),
     openDesktopActionWorkbenchWindow,
     closeDesktopActionWorkbenchWindow,
     showFileDialog,

@@ -5,6 +5,7 @@ import type {
   AgentWebclientRunOwner,
 } from "../../../../shared/contracts";
 import type { SiteControlScope } from "../../web-surfaces";
+import { isDesktopDevelopmentRuntime } from "../../../infrastructure/electron/development-runtime";
 import {
   AgentPlatformRealtimeClient,
   type AgentPlatformRealtimeConnectionState,
@@ -62,7 +63,7 @@ export class RealtimeBroker {
   private desktopBridgeProvider: DesktopBridgeRequestProvider | null = null;
   private disposed = false;
   private acceptingDelivery = true;
-  private readonly debugTrace = new RealtimeDebugTraceBuffer();
+  private readonly debugTrace: RealtimeDebugTraceBuffer;
   private diagnostics = {
     unknownFrameCount: 0,
     unknownRequestIdCount: 0,
@@ -105,6 +106,7 @@ export class RealtimeBroker {
     onDiagnostic?(message: string): void;
     onConnectionState?(state: AgentPlatformRealtimeConnectionState): void;
   }) {
+    this.debugTrace = new RealtimeDebugTraceBuffer({ alwaysEnabled: isDesktopDevelopmentRuntime(options.app) });
     const idleState = (): AgentPlatformRealtimeConnectionState => ({
       phase: "idle",
       generation: 0,
@@ -127,18 +129,22 @@ export class RealtimeBroker {
       heartbeatTimeoutMs: options.heartbeatTimeoutMs,
       source: laneSources[lane],
       surfaceId: lane === "primary" ? undefined : laneSources[lane],
-      onFrame: (frame, generation) => this.handleFrame(lane, frame, generation),
+      onFrame: (frame, generation, wireBytes) => this.handleFrame(lane, frame, generation, wireBytes),
       onStaleFrame: () => {
         this.diagnostics.staleFrameCount += 1;
       },
       onState: (state) => this.handleConnectionState(lane, state),
       onDiagnostic: (message) => options.onDiagnostic?.(`${lane}:${message}`),
-      onTrace: (direction, frame, browserFileTransfer) => this.debugTrace.append({
-        layer: "platform-ws",
-        direction: direction === "in" ? "platform-to-desktop" : "desktop-to-platform",
-        data: { lane, ...frame },
-        browserFileTransfer,
-      }),
+      shouldTrace: () => this.debugTrace.isEnabled(),
+      onTrace: (direction, frame, browserFileTransfer, wireBytes) => {
+        this.debugTrace.append({
+          layer: "platform-ws",
+          direction: direction === "in" ? "platform-to-desktop" : "desktop-to-platform",
+          data: { ...frame, lane },
+          browserFileTransfer,
+          wireBytes,
+        });
+      },
     });
     // Constructing a client does not open a socket. All Desktop platforms open
     // the explanation connection only when its first consumer requests it.
@@ -315,7 +321,6 @@ export class RealtimeBroker {
       set lastCloneCancellationReason(value) { broker.lastCloneCancellationReason = value; },
       hasSystemRunLease: (...args) => this.hasSystemRunLease(...args),
       get diagnostics() { return broker.diagnostics; },
-      get debugTrace() { return broker.debugTrace; },
     });
   }
 
@@ -444,23 +449,41 @@ export class RealtimeBroker {
 
   getDiagnostics() { return this.diagnosticsController.getDiagnostics(); }
 
-  appendDebugTrace(input: Parameters<RealtimeDebugTraceBuffer["append"]>[0]) { return this.diagnosticsController.appendDebugTrace(input); }
+  isDebugTraceEnabled() { return this.debugTrace.isEnabled(); }
 
-  getDebugTraceEntries() { return this.diagnosticsController.getDebugTraceEntries(); }
+  setDebugInspectorOpen(open: boolean) { this.debugTrace.setInspectorOpen(open); }
 
-  clearDebugTrace() { return this.diagnosticsController.clearDebugTrace(); }
+  appendDebugTrace(input: Parameters<RealtimeDebugTraceBuffer["append"]>[0]) { return this.debugTrace.append(input); }
+
+  getDebugTraceEntries(afterSequence?: number) { return this.debugTrace.snapshot(afterSequence); }
+
+  clearDebugTrace() { this.debugTrace.clear(); }
 
   rotateIdentity(reason: RealtimeIdentityRotationReason = "explicit_identity_invalidation") { return this.connectionController.rotateIdentity(reason); }
 
   beginShutdown() { return this.connectionController.beginShutdown(); }
 
-  dispose() { return this.connectionController.dispose(); }
+  dispose() {
+    this.debugTrace.dispose();
+    this.connectionController.dispose();
+  }
 
-  private handleConnectionState(lane: RealtimeLane, state: AgentPlatformRealtimeConnectionState) { return this.connectionController.handleConnectionState(lane, state); }
+  private handleConnectionState(lane: RealtimeLane, state: AgentPlatformRealtimeConnectionState) {
+    const previous = this.connectionStates[lane];
+    if ((state.phase === "reconnecting" || state.phase === "error") &&
+      (previous.phase !== state.phase || previous.reconnectCount !== state.reconnectCount)) {
+      this.debugTrace.recordConnectionFailure(lane, state.phase, state.generation, state.reconnectCount);
+    }
+    this.connectionController.handleConnectionState(lane, state);
+  }
 
-  private handleFrame(lane: RealtimeLane, frame: AgentPlatformRealtimeFrame, generation: number) { return this.connectionController.handleFrame(lane, frame, generation); }
+  private handleFrame(lane: RealtimeLane, frame: AgentPlatformRealtimeFrame, generation: number, wireBytes: number) {
+    return this.connectionController.handleFrame(lane, frame, generation, wireBytes);
+  }
 
-  private handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame) { return this.queryController.handleQueryStream(transaction, frame); }
+  private handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame, wireBytes: number) {
+    return this.queryController.handleQueryStream(transaction, frame, wireBytes);
+  }
 
   private handleRunStream(run: BrokerRun, frame: AgentPlatformRealtimeFrame) { return this.runChannelsController.handleRunStream(run, frame); }
 

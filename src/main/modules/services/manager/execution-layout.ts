@@ -11,7 +11,7 @@ import {
 } from "./layout";
 import { type App } from "electron";
 import { readInitializationState } from "./state-files";
-import { readBuiltinAssetSignature, computeAssetSignature, ensureBundleAssetHealthy } from "./bundle-assets";
+import { computeAssetSignature, ensureBundleAssetHealthy, getBuiltinAssetPath, readSyncedBuiltinAssetSignature } from "./bundle-assets";
 
 export function ensureDir(targetPath: string) {
   fs.mkdirSync(targetPath, { recursive: true });
@@ -21,9 +21,9 @@ export function isDirectoryAssetPath(assetPath: string) {
   return fs.existsSync(assetPath) && fs.statSync(assetPath).isDirectory();
 }
 
-export function copyDirectoryAssetToTempRoot(assetPath: string, tempRoot: string) {
+export async function copyDirectoryAssetToTempRoot(assetPath: string, tempRoot: string) {
   const targetRoot = path.join(tempRoot, path.basename(assetPath));
-  fs.cpSync(assetPath, targetRoot, { recursive: true, force: true });
+  await fs.promises.cp(assetPath, targetRoot, { recursive: true, force: true });
   return targetRoot;
 }
 
@@ -34,7 +34,7 @@ export function prepareServiceExecutionLayout(_service: ServiceDefinition, layou
   ensureDir(layout.logDir);
 }
 
-export function isAssetNewerThanInstall(
+export async function isAssetNewerThanInstall(
   assetPath: string,
   layout: ServiceLayout,
   app?: App,
@@ -47,9 +47,8 @@ export function isAssetNewerThanInstall(
     }
     const initializationState = readInitializationState(layout);
     if (initializationState?.assetSignature) {
-      const assetSignature = app && service
-        ? readBuiltinAssetSignature(app, service) ?? computeAssetSignature(assetPath)
-        : computeAssetSignature(assetPath);
+      const bundledSignature = app && service ? readSyncedBuiltinAssetSignature(app, service) : undefined;
+      const assetSignature = bundledSignature ?? await computeAssetSignature(assetPath);
       return initializationState.assetSignature !== assetSignature;
     }
     const assetMtime = fs.statSync(assetPath).mtimeMs;
@@ -59,26 +58,20 @@ export function isAssetNewerThanInstall(
   }
 }
 
-export function needsBundledAssetRefresh(app: App, service: ServiceDefinition) {
+export async function needsBundledAssetRefresh(app: App, service: ServiceDefinition) {
   if (service.kind !== "builtin") {
     return false;
   }
 
   const installDir = getInstallDir(app, service);
   const layout = getServiceLayout(app, service);
-  let assetPath: string;
   try {
-    assetPath = ensureBundleAssetHealthy(app, service);
-  } catch {
-    return false;
-  }
-
-  if (!fs.existsSync(installDir)) {
+    const assetPath = getBuiltinAssetPath(app, service);
+    if (fs.existsSync(installDir) && !await isAssetNewerThanInstall(assetPath, layout, app, service)) {
+      return false;
+    }
+    await ensureBundleAssetHealthy(app, service);
     return true;
-  }
-
-  try {
-    return isAssetNewerThanInstall(assetPath, layout, app, service);
   } catch {
     return false;
   }

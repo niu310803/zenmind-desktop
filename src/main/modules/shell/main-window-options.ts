@@ -3,6 +3,7 @@ import type { LocaleSettings } from "../../../shared/i18n/types";
 import type { MainWindowOptions, MainRendererDevToolsContentsLike, MainWindowRendererLoadLike } from "./window-model";
 import { createInitialLocaleArguments } from "../../../shared/i18n/initial-locale-args";
 import { PRODUCT_NAME } from "../../../shared/brand";
+import { DESKTOP_PERFORMANCE_DIAGNOSTICS_ARGUMENT } from "../../../shared/performance-diagnostics";
 import { MAC_TRAFFIC_LIGHT_POSITION, WINDOWS_BACKGROUND_DARK, WINDOWS_BACKGROUND_LIGHT } from "./window-model";
 import type { BrowserWindow } from "electron";
 
@@ -12,10 +13,12 @@ export function buildMainWindowOptions(input: {
   initialLocaleSettings?: LocaleSettings;
   shouldUseDarkColors?: boolean;
   iconPath?: string;
+  performanceDiagnosticsEnabled?: boolean;
 }): MainWindowOptions {
-  const initialLocaleArguments = input.initialLocaleSettings
+  const additionalArguments = input.initialLocaleSettings
     ? createInitialLocaleArguments(input.initialLocaleSettings)
     : [];
+  if (input.performanceDiagnosticsEnabled) additionalArguments.push(DESKTOP_PERFORMANCE_DIAGNOSTICS_ARGUMENT);
   return {
     width: 1440,
     height: 920,
@@ -51,7 +54,7 @@ export function buildMainWindowOptions(input: {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
-      ...(initialLocaleArguments.length > 0 ? { additionalArguments: initialLocaleArguments } : {})
+      ...(additionalArguments.length > 0 ? { additionalArguments } : {})
     }
   };
 }

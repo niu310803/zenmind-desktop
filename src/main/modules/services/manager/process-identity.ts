@@ -1,5 +1,6 @@
 import path from "node:path";
-import { execFile, spawnSync } from "node:child_process";
+import { processIdentityContainsPath } from "../../../infrastructure/process/process-path";
+import { execFile } from "node:child_process";
 import {
   buildServiceEnv
 } from "./command-env";
@@ -10,110 +11,16 @@ import {
 
 export type ProcessInstallDirMatch = "matched" | "mismatched" | "unknown";
 
-function readProcessCommand(pid: number) {
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return "";
-  }
-
-  const env = buildServiceEnv();
-
-  try {
-    if (IS_WINDOWS) {
-      const query = [
-        `$process = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"`,
-        "if ($null -ne $process) { @($process.ExecutablePath, $process.CommandLine) -join [Environment]::NewLine }"
-      ].join("; ");
-      const result = spawnSync(windowsPowerShellPath(), ["-NoProfile", "-Command", query], {
-        encoding: "utf8",
-        env,
-        timeout: 3000
-      });
-      if (result.status !== 0 || result.error) {
-        return "";
-      }
-      return result.stdout.trim();
-    }
-
-    const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf8",
-      env,
-      timeout: 1500
-    });
-    if (result.status !== 0 || result.error) {
-      return "";
-    }
-    return result.stdout.trim();
-  } catch {
-    return "";
-  }
-}
-
-function readWindowsProcessPath(pid: number) {
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return "";
-  }
-
-  const env = buildServiceEnv();
-
-  try {
-    const query = `(Get-Process -Id ${pid} -ErrorAction Stop).Path`;
-    const result = spawnSync(windowsPowerShellPath(), ["-NoProfile", "-Command", query], {
-      encoding: "utf8",
-      env,
-      timeout: 1500
-    });
-    if (result.status !== 0 || result.error) {
-      return "";
-    }
-    return result.stdout.trim();
-  } catch {
-    return "";
-  }
-}
-
-function normalizeProcessPath(value: string) {
-  return path.normalize(value).replace(/\\/gu, "/");
-}
-
 function processIdentityMatchesInstallDir(identity: string, installDir: string) {
-  const normalizedCommand = normalizeProcessPath(identity);
-  const normalizedInstallDir = normalizeProcessPath(installDir);
-  return IS_WINDOWS
-    ? normalizedCommand.toLowerCase().includes(normalizedInstallDir.toLowerCase())
-    : normalizedCommand.includes(normalizedInstallDir);
+  return processIdentityContainsPath(identity, path.normalize(installDir), process.platform);
 }
 
-export function matchProcessInstallDir(pid: number, installDir: string): ProcessInstallDirMatch {
-  if (IS_WINDOWS) {
-    const processPath = readWindowsProcessPath(pid);
-    if (processPath && processIdentityMatchesInstallDir(processPath, installDir)) {
-      return "matched";
-    }
-
-    const command = readProcessCommand(pid);
-    if (command && processIdentityMatchesInstallDir(command, installDir)) {
-      return "matched";
-    }
-
-    if (processPath || command) {
-      return "mismatched";
-    }
-    return "unknown";
-  }
-
-  const command = readProcessCommand(pid);
-  if (!command) {
-    return "unknown";
-  }
-  return processIdentityMatchesInstallDir(command, installDir) ? "matched" : "mismatched";
-}
-
-export function pidMatchesInstallDir(pid: number, installDir: string) {
-  return matchProcessInstallDir(pid, installDir) === "matched";
+export async function pidMatchesInstallDir(pid: number, installDir: string) {
+  return (await matchProcessInstallDirAsync(pid, installDir)) === "matched";
 }
 
 function readProcessCommandAsync(pid: number, executablePathOnly = false) {
-  if (!Number.isFinite(pid) || pid <= 0) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
     return Promise.resolve("");
   }
   const command = IS_WINDOWS
@@ -143,12 +50,11 @@ function readProcessCommandAsync(pid: number, executablePathOnly = false) {
   });
 }
 
-export async function matchProcessInstallDirAsync(
+async function probeProcessInstallDir(
   pid: number,
   installDir: string
 ): Promise<ProcessInstallDirMatch> {
   if (IS_WINDOWS) {
-    // Match the synchronous probe's fast executable-path check, without blocking Main.
     // Script runtimes still need the command line fallback to prove their install root.
     const processPath = await readProcessCommandAsync(pid, true);
     if (processPath && processIdentityMatchesInstallDir(processPath, installDir)) return "matched";
@@ -163,4 +69,17 @@ export async function matchProcessInstallDirAsync(
   return processIdentityMatchesInstallDir(identity, installDir)
     ? "matched"
     : "mismatched";
+}
+
+const pendingProcessProbes = new Map<string, Promise<ProcessInstallDirMatch>>();
+
+export function matchProcessInstallDirAsync(pid: number, installDir: string) {
+  const key = `${pid}\0${installDir}`;
+  const pending = pendingProcessProbes.get(key);
+  if (pending) {
+    return pending;
+  }
+  const probe = probeProcessInstallDir(pid, installDir).finally(() => pendingProcessProbes.delete(key));
+  pendingProcessProbes.set(key, probe);
+  return probe;
 }

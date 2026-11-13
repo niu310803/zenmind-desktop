@@ -4777,7 +4777,7 @@ test("webapps expose desktop api and start from webs sidebar route", () => {
     ),
     /notifyCoreServicesChanged|notifyServicesChanged/
   );
-  assert.match(startupPipeline, /options\.setStartupPhase\("core-services-starting"\);[\s\S]*?options\.loadBuiltinServices\(options\.app\);[\s\S]*?options\.loadInstalledPlugins\(options\.app\);[\s\S]*?options\.notifyCoreServicesChanged\(\);/);
+  assert.match(startupPipeline, /options\.setStartupPhase\("core-services-starting"\);[\s\S]*?await options\.loadBuiltinServices\(options\.app\);[\s\S]*?options\.loadInstalledPlugins\(options\.app\);[\s\S]*?options\.notifyCoreServicesChanged\(\);/);
   assert.match(startupPipeline, /options\.setStartupPhase\("core-ready"\);\s*options\.startNonCoreRuntime\(\);/);
   assert.match(desktopActions, /"desktop\.webapp\.start"/);
   assert.match(desktopActions, /"desktop\.webapp\.stop"/);
@@ -6992,7 +6992,7 @@ test("assistant chat export writes directly to the download location", () => {
   assert.doesNotMatch(saveExportBlock, /showSaveDialog/u);
 });
 
-test("assistant static HTML export saves the complete document returned by the persistent Worker", () => {
+test("assistant static HTML export saves the complete document returned by the on-demand Worker", () => {
   const htmlExport = readSourceFile("src", "main", "modules", "conversation-share", "html-export.ts");
   const assistantHandlers = readSourceFile("src", "main", "modules", "assistant", "ipc.ts");
   const htmlRenderService = readSourceFile("src", "main", "modules", "conversation-share", "html-render-service.ts");
@@ -7013,7 +7013,8 @@ test("assistant static HTML export saves the complete document returned by the p
   assert.match(htmlExport, /getAvailableFilePath/u);
   assert.doesNotMatch(htmlExport, /downloadChatShareEventStream|frontend\/dist|conversation\.template\.html|base64|Buffer\.concat|fetch\(|tunnel|showSaveDialog/iu);
   assert.match(conversationShareFacade, /new ConversationHtmlRenderService/u);
-  assert.match(conversationShareFacade, /start:\s*\(\) => renderer\.start\(\)/u);
+  assert.doesNotMatch(conversationShareFacade, /renderer\.start\(/u);
+  assert.match(htmlRenderService, /if \(!this\.worker\) this\.start\(\);/u);
   assert.match(htmlRenderService, /Buffer\.from\(response\.html\)/u);
   assert.doesNotMatch(htmlRenderService, /Buffer\.concat|response\.text\(\)/u);
   assert.match(htmlWorker, /postMessage\(response, \[response\.html\]\)/u);
@@ -8323,7 +8324,7 @@ test("tool menu opens directly while account state stays subscribed", () => {
   assert.match(appShell, /onRequestToolMenuOpen=\{shellOverlay\.requestToolMenuOpen\}/);
   assert.doesNotMatch(appShell, /requestToolMenuOpen\(refreshDesktopSsoStatus\)/);
   assert.match(appShell, /desktopSsoStatus=\{desktopSsoStatus\}/);
-  assert.match(appShell, /ssoApi\.onStatusChanged\(\(status\) => \{\s*setDesktopSsoStatus\(status\);/);
+  assert.match(appShell, /ssoApi\.onStatusChanged\(\(status\) => \{\s*receivedStatus = true;\s*setDesktopSsoStatus\(status\);/);
 });
 
 test("desktop sso waits for a user click and keeps pending login recoverable", () => {

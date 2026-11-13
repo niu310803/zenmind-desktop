@@ -26,6 +26,8 @@ import {
   collectManagedServiceStopState
 } from "./managed-cleanup";
 
+export const BUILTIN_EXTRACTION_PREFIX = ".extract-";
+
 export function listBuiltinSiblingInstallDirs(app: App, service: ServiceDefinition, currentInstallDir: string) {
   const versionRoot = getBuiltinServiceVersionRoot(app, service.id);
   if (!fs.existsSync(versionRoot)) {
@@ -33,7 +35,7 @@ export function listBuiltinSiblingInstallDirs(app: App, service: ServiceDefiniti
   }
 
   return fs.readdirSync(versionRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith(BUILTIN_EXTRACTION_PREFIX))
     .map((entry) => path.join(versionRoot, entry.name))
     .filter((installDir) => path.normalize(installDir) !== path.normalize(currentInstallDir));
 }
@@ -50,10 +52,10 @@ export async function stopBuiltinInstallDir(service: ServiceDefinition, installD
 
   const envPath = layout?.envPath ?? path.join(installDir, ".env");
   const env = fs.existsSync(envPath) ? readEnvFile(envPath) : new Map<string, string>();
-  if (!forceStopServiceInstallDir(service, layout ?? installDir, env)) {
+  if (!await forceStopServiceInstallDir(service, layout ?? installDir, env)) {
     throw new Error(`${service.id} process could not be stopped; installation was not replaced`);
   }
-  const remaining = collectManagedServiceStopState(service, layout ?? installDir, env);
+  const remaining = await collectManagedServiceStopState(service, layout ?? installDir, env);
   if (remaining.managedMainPid || remaining.managedPortPids.length > 0) {
     throw new Error(`${service.id} process is still running; installation was not replaced`);
   }
@@ -71,11 +73,11 @@ export async function reconcileBuiltinSiblingInstallDirs(app: App, service: Serv
 
     const pidFilePath = resolveRuntimePath(layout, service.runtime.pidRelativePath);
     const pidFromFile = readPid(pidFilePath);
-    if (pidFromFile && isProcessRunning(pidFromFile) && pidMatchesInstallDir(pidFromFile, installDir)) {
+    if (pidFromFile && isProcessRunning(pidFromFile) && await pidMatchesInstallDir(pidFromFile, installDir)) {
       continue;
     }
 
-    fs.rmSync(installDir, { recursive: true, force: true });
+    await fs.promises.rm(installDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 
   return siblingInstallDirs;

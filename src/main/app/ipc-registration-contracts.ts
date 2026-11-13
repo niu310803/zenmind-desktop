@@ -62,6 +62,7 @@ export type MainIpcRegistrationOptions = {
   maximizeLogViewerWindow: (...args: any[]) => unknown;
   openAgentPlatformMonitorWindow: (...args: any[]) => Promise<any>;
   openAgentRealtimeInspectorWindow: (...args: any[]) => Promise<any>;
+  getAgentRealtimeInspectorWindow: () => BrowserWindow | null;
   openDesktopActionWorkbenchWindow: (...args: any[]) => Promise<any> | any;
   closeDesktopActionWorkbenchWindow: (...args: any[]) => Promise<any> | any;
   revealPathInFileManager: (...args: any[]) => Promise<any>;

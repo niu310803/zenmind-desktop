@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import type { App } from "electron";
 import { getPluginsRoot, getProgramsRoot } from "../../infrastructure/filesystem/user-paths";
+import { processIdentityContainsPath } from "../../infrastructure/process/process-path";
 import { buildServiceEnv } from "../../modules/services";
-import { terminateProcessTree } from "../../modules/services";
+import { terminateProcessTreeAsync } from "../../modules/services";
 import { windowsPowerShellPath } from "../../modules/services";
 
 export const PROGRAM_DATA_VERSION_FILE = "VERSION";
@@ -21,9 +22,8 @@ type CleanupFailure = {
 
 type CleanupOptions = {
   platform?: NodeJS.Platform;
-  spawnSyncImpl?: typeof spawnSync;
-  terminateProcessTreeImpl?: typeof terminateProcessTree;
-  listProcessesImpl?: (platform: NodeJS.Platform, spawnSyncImpl: typeof spawnSync) => ProcessInfo[];
+  terminateProcessTreeImpl?: typeof terminateProcessTreeAsync;
+  listProcessesImpl?: (platform: NodeJS.Platform) => ProcessInfo[] | Promise<ProcessInfo[]>;
 };
 
 export type ProgramDataVersionCleanupResult = {
@@ -136,71 +136,41 @@ function parseWindowsProcesses(output: string): ProcessInfo[] {
   }
 }
 
-function listProcesses(platform: NodeJS.Platform, spawnSyncImpl: typeof spawnSync): ProcessInfo[] {
-  try {
-    if (platform === "win32") {
-      const command = [
-        "$ErrorActionPreference = 'SilentlyContinue'",
-        "Get-CimInstance Win32_Process | Select-Object ProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress"
-      ].join("; ");
-      const result = spawnSyncImpl(windowsPowerShellPath(), ["-NoProfile", "-Command", command], {
-        encoding: "utf8",
-        env: buildServiceEnv(),
-        timeout: 5000
-      });
-      if (result.status !== 0 || result.error) {
-        return [];
-      }
-      return parseWindowsProcesses(result.stdout);
-    }
-
-    const result = spawnSyncImpl("ps", ["-axo", "pid=,command="], {
+function readProcessList(command: string, args: string[], timeout: number) {
+  return new Promise<string>((resolve) => {
+    execFile(command, args, {
       encoding: "utf8",
       env: buildServiceEnv(),
-      timeout: 3000
-    });
-    if (result.status !== 0 || result.error) {
-      return [];
-    }
-    return parsePosixProcesses(result.stdout);
-  } catch {
-    return [];
-  }
+      timeout,
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024
+    }, (error, stdout) => resolve(error ? "" : stdout));
+  });
 }
 
-function normalizeComparablePath(value: string, platform: NodeJS.Platform) {
-  const pathApi = pathApiForPlatform(platform);
-  const normalized = pathApi.normalize(value).replace(/\\/gu, "/");
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function isPathBoundary(value: string, index: number) {
-  if (index < 0 || index >= value.length) {
-    return true;
+async function listProcesses(platform: NodeJS.Platform): Promise<ProcessInfo[]> {
+  if (platform === "win32") {
+    const command = "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | " +
+      "Select-Object ProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress";
+    return parseWindowsProcesses(await readProcessList(
+      windowsPowerShellPath(),
+      ["-NoProfile", "-NonInteractive", "-Command", command],
+      5000
+    ));
   }
-  return /[\s"'/:]/u.test(value[index]);
+  return parsePosixProcesses(await readProcessList("ps", ["-axo", "pid=,command="], 3000));
 }
 
 function processIdentityMatchesRoot(identity: string, root: string, platform: NodeJS.Platform) {
-  const normalizedIdentity = normalizeComparablePath(identity, platform);
-  const normalizedRoot = normalizeComparablePath(root, platform).replace(/\/$/u, "");
-  let index = normalizedIdentity.indexOf(normalizedRoot);
-  while (index !== -1) {
-    const afterIndex = index + normalizedRoot.length;
-    if (isPathBoundary(normalizedIdentity, afterIndex)) {
-      return true;
-    }
-    index = normalizedIdentity.indexOf(normalizedRoot, index + 1);
-  }
-  return false;
+  return processIdentityContainsPath(identity, pathApiForPlatform(platform).normalize(root), platform);
 }
 
-function stopProcessesUnderRoots(
+async function stopProcessesUnderRoots(
   roots: string[],
-  options: Required<Pick<CleanupOptions, "platform" | "spawnSyncImpl" | "terminateProcessTreeImpl" | "listProcessesImpl">>
+  options: Required<CleanupOptions>
 ) {
-  const pids = options
-    .listProcessesImpl(options.platform, options.spawnSyncImpl)
+  const processes = await options.listProcessesImpl(options.platform);
+  const pids = processes
     .filter((processInfo) =>
       processInfo.pid !== process.pid &&
       roots.some((root) => processIdentityMatchesRoot(processInfo.identity, root, options.platform))
@@ -208,20 +178,28 @@ function stopProcessesUnderRoots(
     .map((processInfo) => processInfo.pid);
 
   const stoppedPids: number[] = [];
+  const failedPids: number[] = [];
+  const verifyRoot = async (pid: number) => {
+    const current = (await options.listProcessesImpl(options.platform)).find((candidate) => candidate.pid === pid);
+    return Boolean(current && roots.some((root) => processIdentityMatchesRoot(current.identity, root, options.platform)));
+  };
   for (const pid of [...new Set(pids)]) {
-    options.terminateProcessTreeImpl(pid, { platform: options.platform });
-    stoppedPids.push(pid);
+    if (await options.terminateProcessTreeImpl(pid, options.platform, verifyRoot)) {
+      stoppedPids.push(pid);
+    } else {
+      failedPids.push(pid);
+    }
   }
-  return stoppedPids;
+  return { stoppedPids, failedPids };
 }
 
-function removeProgramDataTargets(targets: string[]) {
+async function removeProgramDataTargets(targets: string[]) {
   const removedPaths: string[] = [];
   const failedPaths: CleanupFailure[] = [];
 
   for (const targetPath of targets) {
     try {
-      fs.rmSync(targetPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await fs.promises.rm(targetPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
       removedPaths.push(targetPath);
     } catch (error) {
       failedPaths.push({
@@ -234,14 +212,13 @@ function removeProgramDataTargets(targets: string[]) {
   return { removedPaths, failedPaths };
 }
 
-export function cleanupProgramDataForVersion(
+export async function cleanupProgramDataForVersion(
   app: App,
   currentVersion: string,
   options: CleanupOptions = {}
-): ProgramDataVersionCleanupResult {
+): Promise<ProgramDataVersionCleanupResult> {
   const platform = options.platform ?? process.platform;
-  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
-  const terminateProcessTreeImpl = options.terminateProcessTreeImpl ?? terminateProcessTree;
+  const terminateProcessTreeImpl = options.terminateProcessTreeImpl ?? terminateProcessTreeAsync;
   const listProcessesImpl = options.listProcessesImpl ?? listProcesses;
   const programRoot = getProgramsRoot(app);
   const pluginsRoot = getPluginsRoot(app);
@@ -280,15 +257,23 @@ export function cleanupProgramDataForVersion(
   }
 
   const removalTargets = listProgramDataRemovalTargets(programRoot, platform);
-  const stoppedPids = removalTargets.length > 0
-    ? stopProcessesUnderRoots(removalTargets, {
+  const { stoppedPids, failedPids } = removalTargets.length > 0
+    ? await stopProcessesUnderRoots(removalTargets, {
       platform,
-      spawnSyncImpl,
       terminateProcessTreeImpl,
       listProcessesImpl
     })
-    : [];
-  const { removedPaths, failedPaths } = removeProgramDataTargets(removalTargets);
+    : { stoppedPids: [], failedPids: [] };
+  if (failedPids.length > 0) {
+    return {
+      ...baseResult,
+      stoppedPids,
+      cleaned: false,
+      skipped: false,
+      failedPaths: [{ path: programRoot, message: `Could not stop process(es): ${failedPids.join(", ")}` }]
+    };
+  }
+  const { removedPaths, failedPaths } = await removeProgramDataTargets(removalTargets);
 
   if (failedPaths.length === 0) {
     try {

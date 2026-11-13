@@ -6,12 +6,13 @@ import {
   type ServiceLayout
 } from "./layout";
 import {
-  matchProcessInstallDir
+  matchProcessInstallDirAsync,
+  type ProcessInstallDirMatch
 } from "./process-identity";
 
 type ReadManagedPidFileOptions = {
   isProcessRunningImpl: (pid: number | null) => boolean;
-  matchProcessInstallDirImpl?: typeof matchProcessInstallDir;
+  matchProcessInstallDirImpl?: (pid: number, installDir: string) => ProcessInstallDirMatch | Promise<ProcessInstallDirMatch>;
   removePidFileImpl?: typeof removePidFile;
   verifyInstallDir?: boolean;
 };
@@ -76,12 +77,12 @@ export function getManagedPidFilePaths(service: ServiceDefinition, layout: Servi
   return [resolveRuntimePath(layout, service.runtime.pidRelativePath)];
 }
 
-export function readManagedPidFile(
+export async function readManagedPidFile(
   pidFilePaths: string[],
   installDir: string | undefined,
   options: ReadManagedPidFileOptions
 ) {
-  const matchProcessInstallDirImpl = options.matchProcessInstallDirImpl ?? matchProcessInstallDir;
+  const matchProcessInstallDirImpl = options.matchProcessInstallDirImpl ?? matchProcessInstallDirAsync;
   const removePidFileImpl = options.removePidFileImpl ?? removePidFile;
 
   for (const pidFilePath of pidFilePaths) {
@@ -97,18 +98,16 @@ export function readManagedPidFile(
       continue;
     }
     if (installDir && options.verifyInstallDir !== false) {
-      const match = matchProcessInstallDirImpl(pid, installDir);
-      if (match === "mismatched") {
+      const match = await matchProcessInstallDirImpl(pid, installDir);
+      if (readPid(pidFilePath) !== pid) {
+        continue;
+      }
+      if (match === "mismatched" || !options.isProcessRunningImpl(pid)) {
         removePidFileImpl(pidFilePath);
         continue;
       }
-      if (match === "unknown") {
-        return pid;
-      }
     }
-    if (pid) {
-      return pid;
-    }
+    return pid;
   }
   return null;
 }

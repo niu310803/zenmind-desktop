@@ -376,10 +376,10 @@ function parseLoadedImageRef(output: string) {
   return match?.[1]?.trim() || "";
 }
 
-function findBundledImageArchiveEntry(sourcePath: string) {
+async function findBundledImageArchiveEntry(sourcePath: string) {
   let entries: Set<string>;
   try {
-    entries = listArchiveEntries(sourcePath);
+    entries = await listArchiveEntries(sourcePath);
   } catch {
     return "";
   }
@@ -396,7 +396,7 @@ function findBundledImageArchiveEntry(sourcePath: string) {
 }
 
 async function prepareImageArchiveForImport(sourcePath: string): Promise<{ archivePath: string; cleanup: () => void }> {
-  const entry = findBundledImageArchiveEntry(sourcePath);
+  const entry = await findBundledImageArchiveEntry(sourcePath);
   if (!entry) {
     return {
       archivePath: sourcePath,

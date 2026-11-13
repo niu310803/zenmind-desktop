@@ -23,6 +23,17 @@ test("desktop profile enables Desktop Action confirmation by default", (t) => {
   assert.equal("enterpriseChatEnabled" in profile.general, false);
 });
 
+test("performance diagnostics defaults off and persists independently of other profile preferences", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-performance-profile-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, "profile.json"), JSON.stringify({ schemaVersion: 1, diagnostics: { performanceEnabled: "true" } }));
+  assert.equal(readDesktopProfileFromRoot(root).diagnostics.performanceEnabled, false);
+  updateDesktopProfileInRoot(root, { diagnostics: { performanceEnabled: true } });
+  const profile = updateDesktopProfileInRoot(root, { general: { deviceName: "fixture" } });
+  assert.equal(profile.diagnostics.performanceEnabled, true);
+  assert.equal(profile.general.deviceName, "fixture");
+});
+
 test("action confirmation exemptions persist only always-tier names and survive other profile edits", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "desktop-action-exempt-profile-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

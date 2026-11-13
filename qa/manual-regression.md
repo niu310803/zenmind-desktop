@@ -578,7 +578,7 @@
 - macOS 与 Windows 分别模拟 query/attach 返回 `409 active_stream_exists`：聊天错误正文直接说明上一条运行流尚未释放，不必展开 Technical details；详情保留原始错误码与 409。模拟未知错误码时正文直接显示服务端原因，发送失败保留输入草稿，不自动重发 query。
 - 分别断开 Primary、BTW 和 Selection Explain，确认其他 lane 的 Inspector phase 与活动 Run 不被标记为断线；账号、endpoint 或 device identity 变化时三条 lane 一起轮换。Primary 收到旁聊或解释 runId 的 `run.finished` 后能收敛对应 RunChannel。
 - 进入 Kanban 前先在其他页面打开 Copilot Dock；进入 `/kanban` 后确认 Dock guest 立即 inactive 并卸载，Launcher、System Bar、程序化 open/toggle 和旧 Kanban session 都不能恢复 Dock。Kanban Chat、claim、run prepare、native run 与事件同步继续正常；离开 Kanban 后其他页面原有 Dock session 可以恢复。
-- 打包环境正常操作不得持续写入 attach/detach/navigation debug，开发环境重复 debug 应在 500ms 窗口聚合；日志不得包含 token、Cookie、用户正文或完整业务帧，用户主动打开的本地 Inspector 按原值展示已有调试数据。
+- 在打包环境中关闭 Inspector，用同一段测试文本发送对话后再打开 Inspector，确认此前的业务帧未被采集。开启 `PERF=1` 重复此步骤。打开后发送新对话，确认能看到请求、响应和流帧预览，流帧正文最长 200 字符。关闭后等待 60 秒再打开，确认前一批业务帧已清空。正常日志与性能采集均不应含 token、Cookie 或对话正文。
 - 从设置的调试分类打开“桌面运行时观察器”，确认独立窗口可持续列出所有 Registry Surface、每个已打开 WebView 及未登记 WebView；Surface、WebContents ID、PID、owner、原始 URL（含查询参数、片段与已有凭据）和 active/loading/crashed 状态与实际运行一致。
 - 在观察器中按 RSS、5 分钟增量和 CPU 排序，确认多个 WebView 共享 renderer PID 时显示同一进程 RSS 并明确标记 shared，不把进程内存伪装成单 WebView 独占内存；macOS 与 Windows 都能持续刷新且冻结后数值停止变化。
 - 选择任一存活 WebView 后切换概览、内存、事件和原始数据，确认复制快照保留 URL query、hash、用户名和密码；“打开 DevTools”只对仍存活的 WebView 可用，guest 销毁后返回不可用而不误开其他页面。

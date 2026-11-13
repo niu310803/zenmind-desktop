@@ -485,8 +485,8 @@ export function listArchiveEntries(archivePath) {
   );
 }
 
-export function readManifestFromArchive(archivePath) {
-  const manifestEntry = [...listArchiveEntries(archivePath)].find(
+function readArchiveManifestText(archivePath, entries = listArchiveEntries(archivePath)) {
+  const manifestEntry = [...entries].find(
     (entry) =>
       entry === "manifest.json" ||
       entry.endsWith("/manifest.json") ||
@@ -513,8 +513,15 @@ export function readManifestFromArchive(archivePath) {
   } else {
     raw = execFileSync("tar", ["-xOf", archivePath, manifestEntry], execOpts);
   }
-  const stripped = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;  // 去 UTF-8 BOM
-  return JSON.parse(stripped);
+  return raw;
+}
+
+function parseArchiveManifest(raw) {
+  return raw === null ? null : JSON.parse(raw.replace(/^\uFEFF/u, ""));
+}
+
+export function readManifestFromArchive(archivePath) {
+  return parseArchiveManifest(readArchiveManifestText(archivePath));
 }
 
 export function readArchiveEntryText(archivePath, entryPath) {
@@ -836,11 +843,15 @@ function readSyncedAssetManifest(outputRoot) {
 }
 
 function writeSyncedAssetManifest(outputRoot, services) {
-  fs.writeFileSync(
-    path.join(outputRoot, "manifest.json"),
-    `${JSON.stringify({ generatedAt: new Date().toISOString(), services }, null, 2)}\n`,
-    "utf8"
-  );
+  const manifestPath = path.join(outputRoot, "manifest.json");
+  const staging = fs.mkdtempSync(path.join(outputRoot, ".manifest-"));
+  const stagedPath = path.join(staging, "manifest.json");
+  try {
+    fs.writeFileSync(stagedPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), services }, null, 2)}\n`, "utf8");
+    fs.renameSync(stagedPath, manifestPath);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 function validateExistingSyncedAssets(projectRoot, platform = {}, options = {}) {
@@ -862,10 +873,12 @@ function validateExistingSyncedAssets(projectRoot, platform = {}, options = {}) 
       throw new Error(`synced builtin asset is missing for ${entry.id}: ${assetPath}`);
     }
 
-    const assetStat = fs.statSync(assetPath);
-    const assetManifest = assetStat.isDirectory()
+    const assetType = fs.statSync(assetPath).isDirectory() ? "directory" : "archive";
+    const assetEntries = assetType === "archive" ? listArchiveEntries(assetPath) : undefined;
+    const archiveManifestText = assetEntries ? readArchiveManifestText(assetPath, assetEntries) : null;
+    const assetManifest = assetType === "directory"
       ? readDirectoryAssetManifest(assetPath)
-      : readManifestFromArchive(assetPath);
+      : parseArchiveManifest(archiveManifestText);
     if (!assetManifest || assetManifest.kind !== "builtin") {
       throw new Error(`synced builtin asset manifest is invalid for ${entry.id}: ${assetPath}`);
     }
@@ -875,22 +888,25 @@ function validateExistingSyncedAssets(projectRoot, platform = {}, options = {}) 
 
     const service = serviceFromBundleManifest(assetManifest, assetPath);
     services.push(service);
-    const assetType = assetStat.isDirectory() ? "directory" : "archive";
-    if (assetStat.isDirectory()) {
+    if (assetType === "directory") {
       validateBundleDirectory(service, assetPath);
     } else {
-      validateBundleArchive(service, assetPath);
+      validateBundleArchiveContents(service, assetPath, assetEntries, assetManifest);
     }
 
     selectedAssets.push({
       entry,
       service,
       assetPath,
-      assetType
+      assetType,
+      ...(assetType === "archive" && service.platform.os === "windows" && isZipArchive(assetPath)
+        ? { manifestSha256: createHash("sha256").update(archiveManifestText).digest("hex") }
+        : {})
     });
   }
 
   assertRequiredDesktopCoreServices(services, platform);
+  let indexChanged = false;
   if (options.signDarwin) {
     const darwinAssets = selectedAssets.filter(({ service }) => service.platform.os === "darwin");
     if (darwinAssets.length > 0) {
@@ -909,17 +925,32 @@ function validateExistingSyncedAssets(projectRoot, platform = {}, options = {}) 
         asset.entry.assetSignature = computeAssetSignature(asset.assetPath);
         asset.entry.assetType = asset.assetType;
       }
-      writeSyncedAssetManifest(outputRoot, manifest.services);
+      indexChanged = true;
     }
   }
 
-  return selectedAssets.map(({ service, assetPath, assetType }) => ({
-    id: service.id,
-    version: service.version,
-    assetFileName: path.basename(assetPath),
-    assetType,
-    assetSignature: computeAssetSignature(assetPath)
-  }));
+  const validated = selectedAssets.map(({ entry, service, assetPath, assetType, manifestSha256 }) => {
+    const assetSignature = computeAssetSignature(assetPath);
+    if (manifestSha256 && (
+      entry.manifestSha256 !== manifestSha256 ||
+      entry.assetSignature !== assetSignature
+    )) {
+      Object.assign(entry, { assetSignature, manifestSha256 });
+      indexChanged = true;
+    }
+    return {
+      id: service.id,
+      version: service.version,
+      assetFileName: path.basename(assetPath),
+      assetType,
+      assetSignature,
+      ...(manifestSha256 ? { manifestSha256 } : {})
+    };
+  });
+  if (indexChanged) {
+    writeSyncedAssetManifest(outputRoot, manifest.services);
+  }
+  return validated;
 }
 
 function normalizeBuiltinVersion(version) {
@@ -1121,6 +1152,13 @@ export function validateBundleArchive(service, archivePath) {
   }
 
   const entries = listArchiveEntries(archivePath);
+  const manifestText = readArchiveManifestText(archivePath, entries);
+  validateBundleArchiveContents(service, archivePath, entries, parseArchiveManifest(manifestText));
+  return manifestText;
+}
+
+function validateBundleArchiveContents(service, archivePath, entries, manifest) {
+  const serviceRoot = path.join(WORKSPACE_ROOT, service.id);
   const missingEntries = findMissingBundleEntries(service, entries);
   if (missingEntries.length > 0) {
     throw new Error(
@@ -1131,7 +1169,7 @@ export function validateBundleArchive(service, archivePath) {
     );
   }
 
-  validateBundleHostContract(service, readManifestFromArchive(archivePath), archivePath);
+  validateBundleHostContract(service, manifest, archivePath);
 }
 
 function findMissingBundleDirectoryEntries(service, directoryPath) {
@@ -1215,6 +1253,7 @@ export function syncBuiltinAssets(projectRoot = process.cwd(), options = {}) {
       : service.assetFileName;
     const outputAssetPath = path.join(serviceDir, assetFileName);
 
+    let manifestSha256;
     if (isDarwinService) {
       extractArchiveToBundleDirectory(sourcePath, outputAssetPath, service);
       if (darwinSigningIdentity) {
@@ -1223,7 +1262,10 @@ export function syncBuiltinAssets(projectRoot = process.cwd(), options = {}) {
       validateBundleDirectory(service, outputAssetPath);
     } else {
       fs.copyFileSync(sourcePath, outputAssetPath);
-      validateBundleArchive(service, outputAssetPath);
+      const manifestText = validateBundleArchive(service, outputAssetPath);
+      if (service.platform.os === "windows" && isZipArchive(outputAssetPath) && manifestText !== null) {
+        manifestSha256 = createHash("sha256").update(manifestText).digest("hex");
+      }
     }
 
     return {
@@ -1231,7 +1273,8 @@ export function syncBuiltinAssets(projectRoot = process.cwd(), options = {}) {
       version: service.version,
       assetFileName,
       assetType: isDarwinService ? "directory" : "archive",
-      assetSignature: computeAssetSignature(outputAssetPath)
+      assetSignature: computeAssetSignature(outputAssetPath),
+      ...(manifestSha256 ? { manifestSha256 } : {})
     };
   });
 

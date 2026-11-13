@@ -1,6 +1,5 @@
 import type { LaneStreams } from "./lane-stream";
 import type { BrokerDiagnosticsCounters, RootObserverSnapshot } from "./realtime-broker.shared";
-import { type AgentRealtimeDebugTraceEntry } from "../../../../shared/contracts";
 import { AgentPlatformRealtimeClient } from "./agent-platform-realtime-client";
 import {
   BrokerRun,
@@ -16,7 +15,6 @@ import {
   RunSubscription,
   readText,
 } from "./realtime-broker.shared";
-import { RealtimeDebugTraceBuffer } from "./realtime-debug-trace";
 
 /** Dependencies limited to diagnostics; state remains owned by the Broker. */
 export interface DiagnosticsPort {
@@ -37,7 +35,6 @@ export interface DiagnosticsPort {
   lastCloneCancellationReason: string;
   hasSystemRunLease(run: BrokerRun): boolean;
   diagnostics: BrokerDiagnosticsCounters;
-  debugTrace: RealtimeDebugTraceBuffer;
 }
 
 export function createDiagnostics(deps: DiagnosticsPort) {
@@ -136,17 +133,5 @@ export function createDiagnostics(deps: DiagnosticsPort) {
     };
   }
 
-  function appendDebugTrace(input: Parameters<RealtimeDebugTraceBuffer["append"]>[0]): AgentRealtimeDebugTraceEntry {
-    return deps.debugTrace.append(input);
-  }
-
-  function getDebugTraceEntries() {
-    return deps.debugTrace.snapshot();
-  }
-
-  function clearDebugTrace(): void {
-    deps.debugTrace.clear();
-  }
-
-  return { getDiagnostics, appendDebugTrace, getDebugTraceEntries, clearDebugTrace };
+  return { getDiagnostics };
 }

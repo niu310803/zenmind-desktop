@@ -128,6 +128,15 @@ const RETIRED_DOWNSTREAM_SSO_REFRESH_HOOKS = new Set([
   "refreshUsageAccessToken",
   "createDesktopSsoTokenRefresher"
 ]);
+const EXISTING_SYNCHRONOUS_PROCESS_APIS = new Map([
+  ["src/main/infrastructure/filesystem/runtime-root.ts", "execFileSync"],
+  ["src/main/modules/browser-use/settings-store.ts", "execFileSync"],
+  ["src/main/modules/credentials/access-control.ts", "execFileSync"],
+  ["src/main/modules/identity/device-identity.ts", "execFileSync"],
+  ["src/main/modules/marketplace/software-package-market.ts", "execFileSync"],
+  ["src/main/modules/services/manager/command-env.ts", "spawnSync"]
+]);
+const SYNCHRONOUS_PROCESS_APIS = new Set(["spawnSync", "execFileSync", "execSync"]);
 function mayRenewDesktopSso(file) {
   const rel = relative(file);
   return rel.startsWith("src/main/modules/identity/") || rel === "src/main/app/assembly/identity.ts";
@@ -154,6 +163,8 @@ for (const file of files) {
     errors.push(`${relative(file)} exposes a global integration-port locator; inject ports explicitly`);
   }
   const source = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
+  const fileName = relative(file);
+  const reportedSynchronousApis = new Set();
   const sourceArea = areaOf(file);
   const sourceModule = moduleNameOf(file);
   const visit = (node) => {
@@ -196,6 +207,9 @@ for (const file of files) {
     }
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
       const name = node.text;
+      if (SYNCHRONOUS_PROCESS_APIS.has(name) && EXISTING_SYNCHRONOUS_PROCESS_APIS.get(fileName) !== name) {
+        reportedSynchronousApis.add(name);
+      }
       if (SSO_RENEWAL_MEMBERS.has(name) && !mayRenewDesktopSso(file)) {
         errors.push(`${relative(file)} references Desktop SSO renewal (${name}); downstream services must only read the published token`);
       }
@@ -203,9 +217,19 @@ for (const file of files) {
         errors.push(`${relative(file)} reintroduces a downstream SSO refresh hook (${name})`);
       }
     }
+    if (
+      (ts.isPropertyAccessExpression(node) && node.expression.getText(source) === "Atomics" && node.name.text === "wait") ||
+      (ts.isElementAccessExpression(node) && node.expression.getText(source) === "Atomics" &&
+        ts.isStringLiteral(node.argumentExpression) && node.argumentExpression.text === "wait")
+    ) {
+      reportedSynchronousApis.add("Atomics.wait");
+    }
     ts.forEachChild(node, visit);
   };
   visit(source);
+  for (const api of reportedSynchronousApis) {
+    errors.push(`${fileName} uses ${api} in Electron main; use asynchronous process and timer APIs`);
+  }
 }
 
 for (const component of stronglyConnectedComponents(files, fileEdges)) {

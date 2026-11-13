@@ -68,24 +68,25 @@ test("installer shutdown acknowledgement validates branded temp paths and writes
   );
 });
 
-test("Windows taskkill success is not trusted until every captured descendant is verified", () => {
-  const { terminateProcessTree } = require("../dist-electron/main/modules/services/manager/process-cleanup.js");
+test("Windows taskkill success is not trusted until every captured descendant is verified", async () => {
+  const { terminateCapturedProcessTreeAsync } = require("../dist-electron/main/modules/services/manager/process-cleanup.js");
   const running = new Set([4321, 4322]);
-  const fallbackCalls = [];
-  const terminated = terminateProcessTree(4321, {
+  const calls = [];
+  const terminated = await terminateCapturedProcessTreeAsync(4321, [4322, 4321], {
     platform: "win32",
     isProcessRunningImpl: (pid) => running.has(pid),
-    listProcessTreePidsImpl: () => [4322, 4321],
-    spawnSyncImpl: () => ({ status: 0, signal: null, stdout: "", stderr: "", pid: 1, output: [] }),
-    terminateProcessListImpl: (pids) => {
-      fallbackCalls.push([...pids]);
-      pids.forEach((pid) => running.delete(pid));
-      return true;
+    runCommandImpl: async (command, args) => {
+      calls.push([command, ...args]);
+      running.delete(Number(args[1]));
+      return { status: 0, stdout: "", stderr: "" };
     }
   });
 
   assert.equal(terminated, true);
-  assert.deepEqual(fallbackCalls, [[4322, 4321]]);
+  assert.deepEqual(calls, [
+    ["taskkill.exe", "/PID", "4321", "/T", "/F"],
+    ["taskkill.exe", "/PID", "4322", "/F"]
+  ]);
   assert.deepEqual([...running], []);
 });
 
@@ -348,7 +349,7 @@ test("managed force cleanup uses bounded concurrency and waits for every root", 
       maxConcurrency: 2,
       collectManagedProcessCleanupTargetsImpl: () => ({
         roots: [],
-        stalePidFilePaths: []
+        stalePidFiles: []
       }),
       listProcessTreePidsImpl: () => [],
       isProcessRunningImpl: (pid) => running.has(pid),

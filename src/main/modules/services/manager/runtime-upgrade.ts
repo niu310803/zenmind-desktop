@@ -58,7 +58,7 @@ export async function stopServiceForDesktopConfigUpgrade(
 
   const layout = getServiceLayout(app, service);
   const env = fs.existsSync(layout.envPath) ? readEnvFile(layout.envPath) : new Map<string, string>();
-  const stopState = collectManagedServiceStopState(service, layout, env);
+  const stopState = await collectManagedServiceStopState(service, layout, env);
   const survivingPids = [
     stopState.managedMainPid,
     ...stopState.managedPortPids

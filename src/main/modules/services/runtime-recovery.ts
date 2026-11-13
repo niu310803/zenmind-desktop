@@ -5,7 +5,7 @@ import { getService } from "./service-registry";
 import { ensureBundleAssetHealthy, ensureDirectoryAssetHealthy } from "./manager/bundle-assets";
 import { runExecFile, SERVICE_DEPLOY_TIMEOUT_MS } from "./manager/command-runner";
 import { getServiceLayout } from "./manager/layout";
-import { terminateProcessTree } from "./manager/process-cleanup";
+import { terminateProcessTreeAsync } from "./manager/process-cleanup";
 import { extractArchiveToDir } from "../../support/archive/archive-utils";
 import { readManifestFile, resolveCommand } from "../../support/manifest/manifest-utils";
 
@@ -16,7 +16,7 @@ export async function preparePlatformRuntimeRecovery(app: App, transactionRoot: 
   if (!service || service.desktop.runtimeRecovery !== "v1") {
     throw new Error("Reinstallation requires an agent-platform bundle declaring desktop.runtimeRecovery=v1.");
   }
-  const asset = ensureBundleAssetHealthy(app, service);
+  const asset = await ensureBundleAssetHealthy(app, service);
   const sourceConfigDir = getServiceLayout(app, service).configDir;
   const staging = path.join(transactionRoot, "platform-program");
   await fs.promises.mkdir(staging, { recursive: true, mode: 0o700 });
@@ -55,7 +55,7 @@ export async function preparePlatformRuntimeRecovery(app: App, transactionRoot: 
           "--runtime-recovery-config-dir", sourceConfigDir,
           "--ap-runtime-dir", candidate
         ], program, { timeoutMs: action === "restore" ? 30 * 60_000 : SERVICE_DEPLOY_TIMEOUT_MS,
-          onTimeout: pid => terminateProcessTree(pid) });
+          onTimeout: pid => terminateProcessTreeAsync(pid) });
         await fs.promises.writeFile(path.join(transactionRoot, `platform-${action}.log`), result.stdout, { mode: 0o600 });
       }
     } catch (error) {

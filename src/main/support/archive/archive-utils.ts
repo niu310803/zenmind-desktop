@@ -1,16 +1,18 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import packageValidation = require("./package-safety.js");
 import { beginStartupTiming } from "../logging/startup-timing";
+import { windowsPowerShellPath } from "../../infrastructure/process/windows-powershell";
+import { listZipEntries, readZipEntryText } from "./zip-reader";
 
 const {
   WEBAPP_PACKAGE_LIMITS,
   validateZipEntrySafety
 } = packageValidation;
 
-function isZipArchive(archivePath: string) {
+export function isZipArchive(archivePath: string) {
   return archivePath.toLowerCase().endsWith(".zip");
 }
 
@@ -35,9 +37,8 @@ function quotePowerShell(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-const SYNC_TIMEOUT_MS = 300_000;
-// PortableGit bundles exceed Node's default 1 MiB stdout limit. Windows also
-// expands UTF-8 output through Base64; keep a bounded allowance for both formats.
+const ARCHIVE_TIMEOUT_MS = 300_000;
+// PortableGit bundle listings exceed Node's default 1 MiB stdout limit.
 const ARCHIVE_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 function tarCommand() {
   if (process.platform === "win32") {
@@ -49,27 +50,12 @@ function tarCommand() {
   return "tar";
 }
 
-function unzipCommand() {
-  if (process.platform === "win32") {
-    return "";
-  }
-  return "unzip";
-}
-
-function runPowerShell(script: string) {
-  return execFileSync(
-    "powershell",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-    { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES }
-  );
-}
-
-function runPowerShellAsync(script: string): Promise<string> {
-  return new Promise((resolve, reject) => {
+function runArchiveCommand(command: string, args: string[]) {
+  return new Promise<string>((resolve, reject) => {
     execFile(
-      "powershell",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES },
+      command,
+      args,
+      { encoding: "utf8", windowsHide: true, timeout: ARCHIVE_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES },
       (error, stdout) => {
         if (error) {
           reject(error);
@@ -81,14 +67,11 @@ function runPowerShellAsync(script: string): Promise<string> {
   });
 }
 
-function decodeBase64Utf8(content: string) {
-  const trimmed = content.trim();
-  return trimmed ? Buffer.from(trimmed, "base64").toString("utf8") : "";
-}
-
-// PowerShell stdout follows the active code page, so return UTF-8 text as Base64.
-function runPowerShellForUtf8Text(script: string) {
-  return decodeBase64Utf8(runPowerShell(script));
+function runPowerShell(script: string) {
+  return runArchiveCommand(windowsPowerShellPath(), [
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+    "$ErrorActionPreference = 'Stop';\n" + script
+  ]);
 }
 
 function unsafeArchiveEntryPath(value: string) {
@@ -111,15 +94,6 @@ function resolveSafeArchiveTarget(rootDir: string, entryName: string) {
     throw new Error(`archive entry escapes target directory: ${entryName}`);
   }
   return target;
-}
-
-async function listZipArchiveEntriesWithJSZip(archivePath: string) {
-  const zip = await JSZip.loadAsync(await fs.promises.readFile(archivePath));
-  return new Set(
-    Object.values(zip.files)
-      .map((entry) => entry.name.trim().replace(/\\/g, "/"))
-      .filter(Boolean)
-  );
 }
 
 export async function inspectZipArchiveSafety(
@@ -187,46 +161,13 @@ async function extractZipArchiveWithJSZip(archivePath: string, targetDir: string
   }
 }
 
-export function listArchiveEntries(archivePath: string) {
+async function readArchiveEntries(archivePath: string) {
   const archiveType = ensureSupportedArchive(archivePath);
   if (archiveType === "zip") {
-    const isWindows = process.platform === "win32";
-    if (isWindows) {
-      const output = runPowerShellForUtf8Text(`
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead(${quotePowerShell(archivePath)})
-try {
-  $entries = @($zip.Entries | ForEach-Object { $_.FullName })
-  $json = if ($entries.Count -eq 0) { "[]" } else { ConvertTo-Json -Compress -InputObject $entries }
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$json)
-  [Console]::Out.Write([System.Convert]::ToBase64String($bytes))
-} finally {
-  $zip.Dispose()
-}
-`);
-      const entries = JSON.parse(output) as unknown;
-      if (!Array.isArray(entries)) {
-        throw new Error(`unexpected zip entry listing output: ${archivePath}`);
-      }
-
-      return new Set(
-        entries
-          .filter((entry): entry is string => typeof entry === "string")
-          .map((entry) => entry.trim().replace(/\\/g, "/"))
-          .filter(Boolean)
-      );
-    }
-
-    const output = execFileSync(unzipCommand(), ["-Z1", archivePath], { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES });
-    return new Set(
-      output
-        .split(/\r?\n/u)
-        .map((entry) => entry.trim().replace(/\\/g, "/"))
-        .filter(Boolean)
-    );
+    return listZipEntries(archivePath);
   }
 
-  const output = execFileSync(tarCommand(), ["-tzf", archivePath], { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES });
+  const output = await runArchiveCommand(tarCommand(), ["-tzf", archivePath]);
 
   return new Set(
     output
@@ -236,12 +177,32 @@ try {
   );
 }
 
-export async function listArchiveEntriesAsync(archivePath: string) {
-  const archiveType = ensureSupportedArchive(archivePath);
-  if (archiveType === "zip" && process.platform !== "win32") {
-    return listZipArchiveEntriesWithJSZip(archivePath);
+const archiveEntryCache = new Map<string, { fingerprint: string; entries: Promise<Set<string>> }>();
+
+export async function listArchiveEntries(archivePath: string, options: { cache?: boolean } = {}) {
+  if (!options.cache) {
+    return readArchiveEntries(archivePath);
   }
-  return listArchiveEntries(archivePath);
+
+  const stat = await fs.promises.stat(archivePath);
+  const fingerprint = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`;
+  const cached = archiveEntryCache.get(archivePath);
+  if (cached?.fingerprint === fingerprint) {
+    return cached.entries;
+  }
+
+  const entries = readArchiveEntries(archivePath).catch((error) => {
+    if (archiveEntryCache.get(archivePath)?.entries === entries) {
+      archiveEntryCache.delete(archivePath);
+    }
+    throw error;
+  });
+  if (archiveEntryCache.size >= 16) {
+    const oldest = archiveEntryCache.keys().next().value;
+    if (oldest !== undefined) archiveEntryCache.delete(oldest);
+  }
+  archiveEntryCache.set(archivePath, { fingerprint, entries });
+  return entries;
 }
 
 export async function extractArchiveToDir(archivePath: string, targetDir: string): Promise<void> {
@@ -250,7 +211,7 @@ export async function extractArchiveToDir(archivePath: string, targetDir: string
   });
   const archiveType = ensureSupportedArchive(archivePath);
   try {
-    fs.mkdirSync(targetDir, { recursive: true });
+    await fs.promises.mkdir(targetDir, { recursive: true });
 
     if (archiveType === "zip") {
       const isWindows = process.platform === "win32";
@@ -259,28 +220,15 @@ export async function extractArchiveToDir(archivePath: string, targetDir: string
         return;
       }
       try {
-        await new Promise<void>((resolve, reject) => {
-          execFile(
-            "tar.exe",
-            ["-xf", archivePath, "-C", targetDir],
-            { timeout: SYNC_TIMEOUT_MS },
-            (error) => {
-              if (error) {
-                reject(error);
-              } else {
-                resolve();
-              }
-            }
-          );
-        });
+        await runArchiveCommand("tar.exe", ["-xf", archivePath, "-C", targetDir]);
         return;
       } catch (tarError) {
         console.warn(`[archive-utils] tar.exe failed to extract, falling back to PowerShell:`, tarError);
         try {
-          fs.rmSync(targetDir, { recursive: true, force: true });
+          await fs.promises.rm(targetDir, { recursive: true, force: true });
         } catch {}
-        fs.mkdirSync(targetDir, { recursive: true });
-        await runPowerShellAsync(`
+        await fs.promises.mkdir(targetDir, { recursive: true });
+        await runPowerShell(`
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $dest = ${quotePowerShell(targetDir)}
 [System.IO.Compression.ZipFile]::ExtractToDirectory(${quotePowerShell(archivePath)}, $dest)
@@ -289,59 +237,23 @@ $dest = ${quotePowerShell(targetDir)}
       }
     }
 
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        tarCommand(),
-        ["-xzf", archivePath, "-C", targetDir],
-        { timeout: SYNC_TIMEOUT_MS },
-        (error) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve();
-          }
-        }
-      );
-    });
+    await runArchiveCommand(tarCommand(), ["-xzf", archivePath, "-C", targetDir]);
   } finally {
     timing.end({ type: archiveType });
   }
 }
 
 
-export function readFileFromArchive(archivePath: string, entryPath: string) {
+export async function readFileFromArchive(archivePath: string, entryPath: string) {
   const archiveType = ensureSupportedArchive(archivePath);
   if (archiveType === "zip") {
-    if (process.platform !== "win32") {
-      return execFileSync(unzipCommand(), ["-p", archivePath, entryPath], { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES });
+    const normalizedPath = entryPath.replace(/\\/g, "/");
+    const entry = await readZipEntryText(archivePath, (name) => name === normalizedPath);
+    if (entry === null) {
+      throw new Error(`archive entry not found: ${entryPath}`);
     }
-    return runPowerShellForUtf8Text(`
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead(${quotePowerShell(archivePath)})
-try {
-  $entry = $zip.Entries | Where-Object { $_.FullName.Replace('\\', '/') -eq ${quotePowerShell(entryPath.replace(/\\/g, "/"))} } | Select-Object -First 1
-  if ($null -eq $entry) {
-    throw ${quotePowerShell(`archive entry not found: ${entryPath}`)}
+    return entry;
   }
 
-  $stream = $entry.Open()
-  try {
-    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true)
-    try {
-      $content = $reader.ReadToEnd()
-      $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$content)
-      [Console]::Out.Write([System.Convert]::ToBase64String($bytes))
-    } finally {
-      $reader.Dispose()
-    }
-  } finally {
-    $stream.Dispose()
-  }
-} finally {
-  $zip.Dispose()
-}
-`);
-  }
-
-  return execFileSync(tarCommand(), ["-xzf", archivePath, "-O", entryPath], { encoding: "utf8", timeout: SYNC_TIMEOUT_MS, maxBuffer: ARCHIVE_MAX_BUFFER_BYTES });
+  return runArchiveCommand(tarCommand(), ["-xzf", archivePath, "-O", entryPath]);
 }

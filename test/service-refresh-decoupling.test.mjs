@@ -28,22 +28,23 @@ function writeText(filePath, content) {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-test("asset refresh follows initialization and bundle signatures, not service-owned config", (t) => {
+test("asset refresh follows initialization and bundle signatures, not service-owned config", async (t) => {
   const root = createTempDir(t, "zenmind-asset-refresh-");
   const assetPath = path.join(root, "bundle.zip");
   const installDir = path.join(root, "installed");
+  const layout = { stateDir: path.join(root, "state") };
   writeText(assetPath, "bundle-v1");
-  assert.equal(isAssetNewerThanInstall(assetPath, installDir), true);
-  writeInitializationState(installDir, {
+  assert.equal(await isAssetNewerThanInstall(assetPath, layout), true);
+  writeInitializationState(layout, {
     version: "1.0.0", status: "succeeded", updatedAt: new Date().toISOString(),
-    assetSignature: computeAssetSignature(assetPath)
+    assetSignature: await computeAssetSignature(assetPath)
   });
-  assert.equal(isAssetNewerThanInstall(assetPath, installDir), false);
+  assert.equal(await isAssetNewerThanInstall(assetPath, layout), false);
   writeText(path.join(installDir, ".env"), "SERVICE_PRIVATE_SETTING=custom\n");
   writeText(path.join(installDir, "configs", "runtime.yml"), "privateKey: custom\n");
-  assert.equal(isAssetNewerThanInstall(assetPath, installDir), false);
+  assert.equal(await isAssetNewerThanInstall(assetPath, layout), false);
   writeText(assetPath, "bundle-v2-updated");
-  assert.equal(isAssetNewerThanInstall(assetPath, installDir), true);
+  assert.equal(await isAssetNewerThanInstall(assetPath, layout), true);
 });
 
 test("runtime.requiredPaths still drives generic install health", (t) => {

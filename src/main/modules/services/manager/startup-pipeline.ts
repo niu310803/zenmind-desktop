@@ -13,8 +13,9 @@ import {
 import { DEFAULT_STARTUP_SERVICE_IDS } from "./state-files";
 import { ensureEmbeddedNodeRuntime } from "./embedded-node-runtime";
 import { recordDesktopServiceConfigCoreHealthFailure, completeDesktopServiceConfigUpgrade } from "./desktop-config-upgrade";
-import { flushStartupTimingSummary } from "../../../support/logging/startup-timing";
+import { beginStartupTiming, flushStartupTimingSummary } from "../../../support/logging/startup-timing";
 import { installBuiltinService } from "./installation";
+import { createStartupProbeSnapshot } from "./managed-cleanup";
 
 export async function runStartupPreparation(
   app: App,
@@ -74,20 +75,35 @@ export async function runStartupPreparation(
       };
     }
 
-    await integrationPorts(options.integrationPorts).ensureProviderRegisterApiKey(app, true);
+    const providerTiming = beginStartupTiming("ensureProviderRegisterApiKey");
+    try {
+      await integrationPorts(options.integrationPorts).ensureProviderRegisterApiKey(app, true);
+    } finally {
+      providerTiming.end();
+    }
 
+    const probeSnapshot = createStartupProbeSnapshot();
+    const stateReadOptions = probeSnapshot ? { listListeningPids: probeSnapshot.listListeningPids } : undefined;
     const initialMode = desktopConfigUpgrade && desktopConfigUpgrade.mode !== "none"
       ? "bootstrap"
-      : await resolveStartupPreparationMode(app, options.integrationPorts);
+      : await resolveStartupPreparationMode(app, options.integrationPorts, stateReadOptions);
     resolveMode(initialMode);
     const started: ServiceId[] = [];
     const failures: string[] = [];
 
+    // Start copying npm during service preparation. The existing startup
+    // barrier still keeps every core service stopped if preparation fails.
+    const nodeTiming = beginStartupTiming("ensureEmbeddedNodeRuntime");
+    const nodePreparation = ensureEmbeddedNodeRuntime(app)
+      .then(() => ({ ok: true as const }), (error: unknown) => ({ ok: false as const, error }))
+      .finally(() => nodeTiming.end());
     const preparedDefaultServices = new Map<ServiceId, ServiceState>();
     const preparationResults = await Promise.all(
       DEFAULT_STARTUP_SERVICE_IDS.map((serviceId) =>
         prepareStartupService(app, serviceId, {
           integrationPorts: options.integrationPorts,
+          stateReadOptions,
+          invalidateProbeSnapshot: probeSnapshot?.invalidate,
           onProgress: options.onProgress
         })
       )
@@ -105,9 +121,9 @@ export async function runStartupPreparation(
 
     // Shared runtime preparation is a barrier before any core service starts.
     // A failure must leave all three start callbacks uncalled and allow retry.
-    try {
-      await ensureEmbeddedNodeRuntime(app);
-    } catch (error) {
+    const nodeResult = await nodePreparation;
+    if (!nodeResult.ok) {
+      const error = nodeResult.error;
       return {
         mode: initialMode,
         started: [],
@@ -122,15 +138,9 @@ export async function runStartupPreparation(
       onProgress: options.onProgress
     };
     const startResults = await Promise.all(
-      DEFAULT_STARTUP_SERVICE_IDS
-        .filter((serviceId) => preparedDefaultServices.has(serviceId))
-        .map((serviceId) =>
-          startPreparedStartupService(
-            app,
-            serviceId,
-            startOptions
-          )
-        )
+      [...preparedDefaultServices].map(([serviceId, preparedState]) =>
+        startPreparedStartupService(app, serviceId, startOptions, preparedState)
+      )
     );
     const startResultById = new Map(startResults.map((result) => [result.serviceId, result]));
     const coreFailures: string[] = [];

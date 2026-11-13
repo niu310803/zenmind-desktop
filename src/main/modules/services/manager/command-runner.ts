@@ -4,6 +4,9 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { buildServiceEnv, resolveNodeBin } from "./command-env";
 import { t } from "../../../support/i18n/main-i18n";
+import { windowsPowerShellPath } from "../../../infrastructure/process/windows-powershell";
+
+export { windowsPowerShellPath };
 
 export const IS_WINDOWS = process.platform === "win32";
 export const SERVICE_COMMAND_TIMEOUT_MS = 60_000;
@@ -23,20 +26,17 @@ type PowerShellCapturePayload = ExecResult & {
 export type RunExecFileOptions = {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
-  onTimeout?: (pid: number) => boolean;
+  onTimeout?: (pid: number) => boolean | Promise<boolean>;
 };
 
-function stopTimedOutCommand(child: ChildProcess, options: RunExecFileOptions) {
+async function stopTimedOutCommand(child: ChildProcess, options: RunExecFileOptions) {
   if (child.pid && options.onTimeout) {
-    try { if (options.onTimeout(child.pid)) return; }
+    try { if (await options.onTimeout(child.pid)) return; }
     catch (error) { console.warn("[service-command] timeout cleanup failed", error); }
   }
-  child.kill("SIGKILL");
-}
-
-export function windowsPowerShellPath() {
-  const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
-  return path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
 }
 
 function quotePowerShell(value: string) {
@@ -214,7 +214,7 @@ function runPowerShellScript(scriptPath: string, args: string[], cwd: string, op
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    let didTimeout = false;
+    let timeoutCleanup: Promise<void> | undefined;
     let settled = false;
 
     const cleanup = () => {
@@ -235,8 +235,7 @@ function runPowerShellScript(scriptPath: string, args: string[], cwd: string, op
     };
 
     const killTimer = setTimeout(() => {
-      didTimeout = true;
-      stopTimedOutCommand(child, options);
+      timeoutCleanup = stopTimedOutCommand(child, options);
     }, timeoutMs);
     killTimer.unref?.();
 
@@ -249,7 +248,9 @@ function runPowerShellScript(scriptPath: string, args: string[], cwd: string, op
     child.once("error", (err) => {
       settle(() => reject(err));
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", async (code, signal) => {
+      clearTimeout(killTimer);
+      await timeoutCleanup;
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       const decoded = decodePowerShellCapturePayload(stdout);
@@ -262,7 +263,7 @@ function runPowerShellScript(scriptPath: string, args: string[], cwd: string, op
       };
 
       settle(() => {
-        if (didTimeout) {
+        if (timeoutCleanup) {
           reject(new Error(formatExecErrorMessage(`PowerShell command timed out after ${timeoutMs}ms`, result)));
           return;
         }
@@ -294,11 +295,11 @@ function resolveExecCommand(command: string, args: string[], cwd: string) {
   return { command, args, powershellScript: false };
 }
 
-export function runExecFile(command: string, args: string[], cwd: string, options: RunExecFileOptions = {}) {
+export async function runExecFile(command: string, args: string[], cwd: string, options: RunExecFileOptions = {}): Promise<ExecResult> {
   // JavaScript lifecycle entrypoints use the host Node runtime on both platforms.
   // This is a launcher capability, independent of any particular plugin.
   if (/\.(?:mjs|cjs)$/iu.test(command)) {
-    const node = resolveNodeBin();
+    const node = await resolveNodeBin();
     const entry = path.resolve(cwd, command);
     return runExecFile(node, [entry, ...args], cwd, { ...options, env: { ...options.env,
       ...(node === process.execPath ? { ELECTRON_RUN_AS_NODE: "1" } : {}) } });
@@ -322,11 +323,10 @@ export function runExecFile(command: string, args: string[], cwd: string, option
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    let didTimeout = false;
+    let timeoutCleanup: Promise<void> | undefined;
 
     const killTimer = setTimeout(() => {
-      didTimeout = true;
-      stopTimedOutCommand(child, options);
+      timeoutCleanup = stopTimedOutCommand(child, options);
     }, timeoutMs);
     killTimer.unref?.();
 
@@ -340,11 +340,12 @@ export function runExecFile(command: string, args: string[], cwd: string, option
       clearTimeout(killTimer);
       reject(err);
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", async (code, signal) => {
       clearTimeout(killTimer);
+      await timeoutCleanup;
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      if (didTimeout) {
+      if (timeoutCleanup) {
         reject(new Error(`Command timed out after ${timeoutMs}ms: ${resolved.command} ${resolved.args.join(" ")}\n${stderr || stdout}`.trim()));
         return;
       }

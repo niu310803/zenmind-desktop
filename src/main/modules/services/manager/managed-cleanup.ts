@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import type { App } from "electron";
 import type { ServiceId } from "../../../../shared/contracts";
 import type { ServiceDefinition } from "../../../support/manifest/manifest-utils";
 import { readEnvFile } from "../../../infrastructure/filesystem/env-file";
+import { processIdentityContainsPath } from "../../../infrastructure/process/process-path";
 import { getAllServices } from "../service-registry";
 import {
   getInstallDir,
@@ -20,17 +21,17 @@ import {
 } from "./command-runner";
 import {
   isProcessRunning,
-  listProcessTreePids,
+  listProcessTreePidsAsync,
   terminateProcess,
-  terminateProcessList,
-  terminateProcessTree
+  terminateProcessTreeAsync,
+  terminateCapturedProcessTreeAsync
 } from "./process-cleanup";
 import {
   buildProcessTreePids,
   type ProcessTreeRow
 } from "./process-tree";
 import {
-  matchProcessInstallDir,
+  matchProcessInstallDirAsync,
   pidMatchesInstallDir
 } from "./process-identity";
 import {
@@ -57,7 +58,7 @@ export type ManagedProcessCleanupTarget = ManagedRootPid & {
 
 export type ManagedProcessCleanupTargets = {
   roots: ManagedRootPid[];
-  stalePidFilePaths: string[];
+  stalePidFiles: Array<{ filePath: string; pid: number | null }>;
 };
 
 export type ManagedServiceStopState = {
@@ -69,16 +70,14 @@ export type ManagedServiceStopState = {
 
 export type ForceCleanupManagedProcessesOptions = {
   platform?: NodeJS.Platform | string;
-  collectManagedProcessCleanupTargetsImpl?: (app: App) => ManagedProcessCleanupTargets;
-  terminateProcessTreeImpl?: typeof terminateProcessTree;
-  terminateProcessListImpl?: typeof terminateProcessList;
+  collectManagedProcessCleanupTargetsImpl?: (app: App) => ManagedProcessCleanupTargets | Promise<ManagedProcessCleanupTargets>;
   terminateCapturedProcessTreeImpl?: (
     rootPid: number,
     capturedPids: number[]
   ) => Promise<boolean>;
-  listProcessTreePidsImpl?: typeof listProcessTreePids;
+  listProcessTreePidsImpl?: (rootPid: number) => number[] | Promise<number[]>;
   isProcessRunningImpl?: (pid: number | null) => boolean;
-  pidMatchesInstallDirImpl?: typeof pidMatchesInstallDir;
+  pidMatchesInstallDirImpl?: (pid: number, installDir: string) => boolean | Promise<boolean>;
   removePidFileImpl?: typeof removePidFile;
   consoleError?: (message: string) => void;
   maxConcurrency?: number;
@@ -94,72 +93,80 @@ export type ForceCleanupManagedProcessesResult = {
   survivors: number[];
 };
 
-export function listListeningPids(port: number) {
+function readListeningPorts(command: string, args: string[]) {
+  return new Promise<string>((resolve) => {
+    execFile(command, args, {
+      encoding: "utf8",
+      env: buildServiceEnv(),
+      timeout: 1500,
+      windowsHide: true,
+      maxBuffer: 4 * 1024 * 1024
+    }, (error, stdout) => resolve(error ? "" : stdout));
+  });
+}
+
+async function readWindowsListeningPidsByPort() {
+  const stdout = await readListeningPorts("netstat", ["-ano", "-p", "tcp"]);
+  const listeners = new Map<number, Set<number>>();
+  for (const line of stdout.split(/\r?\n/u)) {
+    const [protocol, localAddress, , state, pidText] = line.trim().split(/\s+/u);
+    if (protocol !== "TCP" || state?.toUpperCase() !== "LISTENING") {
+      continue;
+    }
+    const port = Number.parseInt(localAddress.split(":").at(-1) ?? "", 10);
+    const pid = Number.parseInt(pidText ?? "", 10);
+    if (port <= 0 || !Number.isFinite(port) || pid <= 0 || !Number.isFinite(pid)) {
+      continue;
+    }
+    const pids = listeners.get(port) ?? new Set<number>();
+    pids.add(pid);
+    listeners.set(port, pids);
+  }
+  return listeners;
+}
+
+let pendingWindowsListeningPids: ReturnType<typeof readWindowsListeningPidsByPort> | undefined;
+
+export function createStartupProbeSnapshot() {
+  if (process.platform !== "win32") {
+    return undefined;
+  }
+  let snapshot: ReturnType<typeof readWindowsListeningPidsByPort> | undefined;
+  return {
+    async listListeningPids(port: number) {
+      snapshot ??= readWindowsListeningPidsByPort();
+      return [...((await snapshot).get(port) ?? [])];
+    },
+    invalidate() {
+      snapshot = undefined;
+    }
+  };
+}
+
+export async function listListeningPids(port: number) {
   if (!Number.isFinite(port) || port <= 0) {
     return [];
   }
-
-  const env = buildServiceEnv();
-
-  try {
-    if (IS_WINDOWS) {
-      const result = spawnSync("netstat", ["-ano", "-p", "tcp"], {
-        encoding: "utf8",
-        env,
-        timeout: 1500
-      });
-      if (result.status !== 0 || result.error) {
-        return [];
-      }
-
-      const pids = new Set<number>();
-      for (const line of result.stdout.split(/\r?\n/u)) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("TCP")) {
-          continue;
-        }
-
-        const parts = trimmed.split(/\s+/u);
-        const localAddress = parts[1] ?? "";
-        const state = (parts[3] ?? "").toUpperCase();
-        const pidText = parts[4] ?? "";
-        if (state !== "LISTENING") {
-          continue;
-        }
-
-        const parsedPort = Number.parseInt(localAddress.split(":").at(-1) ?? "", 10);
-        const pid = Number.parseInt(pidText, 10);
-        if (parsedPort === port && Number.isFinite(pid)) {
-          pids.add(pid);
-        }
-      }
-
-      return [...pids];
-    }
-
-    const result = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-      encoding: "utf8",
-      env,
-      timeout: 1500
+  if (process.platform === "win32") {
+    // Concurrent service checks share one inventory. Later checks see a fresh snapshot.
+    pendingWindowsListeningPids ??= readWindowsListeningPidsByPort().finally(() => {
+      pendingWindowsListeningPids = undefined;
     });
-    if (result.status !== 0 || result.error) {
-      return [];
-    }
-
-    return [...new Set(
-      result.stdout
-        .split(/\r?\n/u)
-        .map((line) => Number.parseInt(line.trim(), 10))
-        .filter((pid) => Number.isFinite(pid))
-    )];
-  } catch {
-    return [];
+    const listeners = await pendingWindowsListeningPids;
+    return [...(listeners.get(port) ?? [])];
   }
+
+  const stdout = await readListeningPorts("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+  return [...new Set(
+    stdout.split(/\r?\n/u)
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((pid) => Number.isFinite(pid))
+  )];
 }
 
-export function detectManagedServicePid(installDir: string, port: number) {
-  for (const pid of listListeningPids(port)) {
-    if (pidMatchesInstallDir(pid, installDir)) {
+export async function findManagedServicePid(installDir: string, listeningPids: number[]) {
+  for (const pid of listeningPids) {
+    if (await pidMatchesInstallDir(pid, installDir)) {
       return pid;
     }
   }
@@ -171,10 +178,9 @@ function addManagedRootPid(
   serviceId: ServiceId,
   pid: number | null,
   installDir: string,
-  pidFilePath = "",
-  options: { skipInstallDirCheck?: boolean } = {}
+  pidFilePath = ""
 ) {
-  if (!pid || (!options.skipInstallDirCheck && !pidMatchesInstallDir(pid, installDir))) {
+  if (!pid) {
     return;
   }
 
@@ -194,9 +200,9 @@ function addManagedRootPid(
   });
 }
 
-export function collectManagedProcessCleanupTargets(app: App): ManagedProcessCleanupTargets {
+export async function collectManagedProcessCleanupTargets(app: App): Promise<ManagedProcessCleanupTargets> {
   const roots = new Map<number, ManagedRootPid>();
-  const stalePidFilePaths = new Set<string>();
+  const stalePidFiles = new Map<string, number | null>();
 
   for (const service of getAllServices()) {
     const installDir = getInstallDir(app, service);
@@ -209,50 +215,48 @@ export function collectManagedProcessCleanupTargets(app: App): ManagedProcessCle
       const pid = readPid(pidFilePath);
       if (!pid) {
         if (fs.existsSync(pidFilePath)) {
-          stalePidFilePaths.add(pidFilePath);
+          stalePidFiles.set(pidFilePath, pid);
         }
         continue;
       }
       if (!isProcessRunning(pid)) {
-        stalePidFilePaths.add(pidFilePath);
+        stalePidFiles.set(pidFilePath, pid);
         continue;
       }
-      const match = matchProcessInstallDir(pid, installDir);
+      const match = await matchProcessInstallDirAsync(pid, installDir);
+      if (readPid(pidFilePath) !== pid) {
+        continue;
+      }
       if (match === "mismatched") {
-        stalePidFilePaths.add(pidFilePath);
+        stalePidFiles.set(pidFilePath, pid);
         continue;
       }
       if (match === "unknown") {
         continue;
       }
-      addManagedRootPid(roots, service.id, pid, installDir, pidFilePath, { skipInstallDirCheck: true });
+      addManagedRootPid(roots, service.id, pid, installDir, pidFilePath);
     }
 
     const envPath = layout.envPath;
     const env = fs.existsSync(envPath) ? readEnvFile(envPath) : new Map<string, string>();
     const port = parsePort(service, env);
     if (port > 0) {
-      for (const pid of listListeningPids(port)) {
-        addManagedRootPid(roots, service.id, pid, installDir);
+      for (const pid of await listListeningPids(port)) {
+        if (await pidMatchesInstallDir(pid, installDir)) {
+          addManagedRootPid(roots, service.id, pid, installDir);
+        }
       }
     }
   }
 
   return {
     roots: [...roots.values()],
-    stalePidFilePaths: [...stalePidFilePaths]
+    stalePidFiles: [...stalePidFiles].map(([filePath, pid]) => ({ filePath, pid }))
   };
 }
 
-export function collectManagedRootPids(app: App) {
-  return collectManagedProcessCleanupTargets(app).roots;
-}
-
-export function captureManagedProcessCleanupSnapshot(app: App) {
-  return collectManagedRootPids(app).map((root): ManagedProcessCleanupTarget => ({
-    ...root,
-    treePids: listProcessTreePids(root.pid)
-  }));
+export async function collectManagedRootPids(app: App) {
+  return (await collectManagedProcessCleanupTargets(app)).roots;
 }
 
 type ManagedProcessInventoryRow = ProcessTreeRow & {
@@ -325,11 +329,7 @@ function inventoryIdentityMatchesInstallDir(
   installDir: string,
   platform: NodeJS.Platform | string
 ) {
-  const normalizedIdentity = identity.replace(/\\/gu, "/");
-  const normalizedInstallDir = path.normalize(installDir).replace(/\\/gu, "/");
-  return platform === "win32"
-    ? normalizedIdentity.toLowerCase().includes(normalizedInstallDir.toLowerCase())
-    : normalizedIdentity.includes(normalizedInstallDir);
+  return processIdentityContainsPath(identity, path.normalize(installDir), platform);
 }
 
 export async function captureManagedProcessCleanupSnapshotAsync(
@@ -401,37 +401,37 @@ export function mergeCleanupTargets(targets: ManagedProcessCleanupTarget[], root
     if (existing) {
       existing.installDir = existing.installDir ?? root.installDir;
       existing.pidFilePaths = uniqueNonEmptyPaths([...existing.pidFilePaths, ...root.pidFilePaths]);
-      if (existing.treePids.length === 0) {
-        existing.treePids = listProcessTreePids(root.pid);
-      }
       continue;
     }
 
     merged.set(root.pid, {
       ...root,
       pidFilePaths: [...root.pidFilePaths],
-      treePids: listProcessTreePids(root.pid)
+      treePids: []
     });
   }
 
   return [...merged.values()];
 }
 
-function buildCleanupTreePids(root: ManagedProcessCleanupTarget, listProcessTreePidsImpl: typeof listProcessTreePids) {
-  const pids = [...listProcessTreePidsImpl(root.pid), ...root.treePids]
+async function buildCleanupTreePids(
+  root: ManagedProcessCleanupTarget,
+  listProcessTreePidsImpl: NonNullable<ForceCleanupManagedProcessesOptions["listProcessTreePidsImpl"]>
+) {
+  const pids = [...await listProcessTreePidsImpl(root.pid), ...root.treePids]
     .filter((pid) => Number.isFinite(pid) && pid > 0 && pid !== root.pid);
   return [...new Set([...pids, root.pid])];
 }
 
-function shouldRemoveManagedPidFile(
+async function shouldRemoveManagedPidFile(
   root: ManagedProcessCleanupTarget,
   isProcessRunningImpl: (pid: number | null) => boolean,
-  pidMatchesInstallDirImpl: typeof pidMatchesInstallDir
+  pidMatchesInstallDirImpl: NonNullable<ForceCleanupManagedProcessesOptions["pidMatchesInstallDirImpl"]>
 ) {
   if (!isProcessRunningImpl(root.pid)) {
     return true;
   }
-  if (root.installDir && !pidMatchesInstallDirImpl(root.pid, root.installDir)) {
+  if (root.installDir && !await pidMatchesInstallDirImpl(root.pid, root.installDir)) {
     return true;
   }
   return false;
@@ -470,49 +470,49 @@ export async function forceCleanupManagedProcesses(
 ) {
   const collectManagedProcessCleanupTargetsImpl =
     options.collectManagedProcessCleanupTargetsImpl ?? collectManagedProcessCleanupTargets;
-  const terminateProcessTreeImpl = options.terminateProcessTreeImpl ?? terminateProcessTree;
-  const terminateProcessListImpl = options.terminateProcessListImpl ?? terminateProcessList;
-  const terminateCapturedProcessTreeImpl = options.terminateCapturedProcessTreeImpl;
-  const listProcessTreePidsImpl = options.listProcessTreePidsImpl ?? listProcessTreePids;
   const isProcessRunningImpl = options.isProcessRunningImpl ?? isProcessRunning;
   const pidMatchesInstallDirImpl = options.pidMatchesInstallDirImpl ?? pidMatchesInstallDir;
   const removePidFileImpl = options.removePidFileImpl ?? removePidFile;
   const consoleError = options.consoleError ?? console.error;
   const platform = options.platform ?? process.platform;
+  const listProcessTreePidsImpl = options.listProcessTreePidsImpl ??
+    ((pid: number) => listProcessTreePidsAsync(pid, platform).catch(() => []));
   const maxConcurrency = options.maxConcurrency ?? 8;
-  const collected = collectManagedProcessCleanupTargetsImpl(app);
+  const collected = await collectManagedProcessCleanupTargetsImpl(app);
   const roots = mergeCleanupTargets(snapshot, collected.roots);
   const failureMessages: string[] = [];
   const cleanupFailures: ForceCleanupManagedProcessesResult["failures"] = [];
   const survivors = new Set<number>();
 
-  for (const stalePidFilePath of collected.stalePidFilePaths) {
-    removePidFileImpl(stalePidFilePath);
+  for (const { filePath, pid } of collected.stalePidFiles) {
+    if (readPid(filePath) === pid) {
+      removePidFileImpl(filePath);
+    }
   }
 
   const rootResults = await mapWithConcurrency(roots, maxConcurrency, async (root) => {
-    const treePids = buildCleanupTreePids(root, listProcessTreePidsImpl);
+    const treePids = await buildCleanupTreePids(root, listProcessTreePidsImpl);
+    if (root.installDir && isProcessRunningImpl(root.pid) && !await pidMatchesInstallDirImpl(root.pid, root.installDir)) {
+      // A live PID with uncertain ownership is never a target for force cleanup.
+      return { root, remainingPids: treePids.filter((pid) => isProcessRunningImpl(pid)) };
+    }
     let terminated = false;
     try {
-      terminated = terminateCapturedProcessTreeImpl
-        ? await terminateCapturedProcessTreeImpl(root.pid, treePids)
-        : platform === "win32"
-          ? terminateProcessTreeImpl(root.pid, {
-            platform,
-            isProcessRunningImpl,
-            listProcessTreePidsImpl,
-            terminateProcessListImpl
-          })
-          : terminateProcessListImpl(treePids);
+      terminated = options.terminateCapturedProcessTreeImpl
+        ? await options.terminateCapturedProcessTreeImpl(root.pid, treePids)
+        : await terminateCapturedProcessTreeAsync(root.pid, treePids, { platform, isProcessRunningImpl });
     } catch (error) {
       consoleError(
         `failed to terminate managed process tree for ${root.serviceId}: ` +
         `${error instanceof Error ? error.message : String(error)}`
       );
     }
-    if (terminated || shouldRemoveManagedPidFile(root, isProcessRunningImpl, pidMatchesInstallDirImpl)) {
+    if (terminated || await shouldRemoveManagedPidFile(root, isProcessRunningImpl, pidMatchesInstallDirImpl)) {
       for (const pidFilePath of root.pidFilePaths) {
-        removePidFileImpl(pidFilePath);
+        const currentPid = readPid(pidFilePath);
+        if (currentPid === root.pid || currentPid === null) {
+          removePidFileImpl(pidFilePath);
+        }
       }
     }
 
@@ -543,23 +543,28 @@ export async function forceCleanupManagedProcesses(
   };
 }
 
-export function collectManagedServiceStopState(
+export async function collectManagedServiceStopState(
   service: ServiceDefinition,
   layoutOrInstallDir: ServiceLayout | string,
   env: Map<string, string>
-): ManagedServiceStopState {
+): Promise<ManagedServiceStopState> {
   const installDir = typeof layoutOrInstallDir === "string" ? layoutOrInstallDir : layoutOrInstallDir.programDir;
   const mainPidFilePath = resolveRuntimePath(layoutOrInstallDir, service.runtime.pidRelativePath);
   const mainPid = readPid(mainPidFilePath);
-  const managedMainPid =
-    mainPid && isProcessRunning(mainPid) && pidMatchesInstallDir(mainPid, installDir)
-      ? mainPid
-      : null;
   const port = parsePort(service, env);
-  const managedPortPids =
-    port > 0
-      ? [...new Set(listListeningPids(port).filter((pid) => pidMatchesInstallDir(pid, installDir)))]
-      : [];
+  const [matchedMainPid, listeningPids] = await Promise.all([
+    mainPid && isProcessRunning(mainPid) ? pidMatchesInstallDir(mainPid, installDir) : false,
+    listListeningPids(port)
+  ]);
+  const managedMainPid = matchedMainPid && readPid(mainPidFilePath) === mainPid && isProcessRunning(mainPid)
+    ? mainPid
+    : null;
+  const managedPortPids: number[] = [];
+  for (const pid of listeningPids) {
+    if (pid === managedMainPid || await pidMatchesInstallDir(pid, installDir)) {
+      managedPortPids.push(pid);
+    }
+  }
 
   return {
     mainPidFilePath,
@@ -589,24 +594,30 @@ function buildManagedServiceStopIssues(
   return issues;
 }
 
-export function forceStopServiceInstallDir(
+export async function forceStopServiceInstallDir(
   service: ServiceDefinition,
   layoutOrInstallDir: ServiceLayout | string,
   env: Map<string, string>,
   options: {
     isWindows?: boolean;
-    collectState?: typeof collectManagedServiceStopState;
+    collectState?: (...args: Parameters<typeof collectManagedServiceStopState>) => ManagedServiceStopState | Promise<ManagedServiceStopState>;
     terminateProcessImpl?: typeof terminateProcess;
-    terminateProcessTreeImpl?: typeof terminateProcessTree;
+    terminateProcessTreeImpl?: (pid: number) => boolean | Promise<boolean>;
     removePidFileImpl?: typeof removePidFile;
   } = {}
 ) {
   const isWindows = options.isWindows ?? IS_WINDOWS;
   const collectState = options.collectState ?? collectManagedServiceStopState;
-  const terminateProcessImpl = options.terminateProcessImpl ?? terminateProcess;
-  const terminateProcessTreeImpl = options.terminateProcessTreeImpl ?? terminateProcessTree;
+  const installDir = typeof layoutOrInstallDir === "string" ? layoutOrInstallDir : layoutOrInstallDir.programDir;
+  const verifyProcess = (pid: number) => pidMatchesInstallDir(pid, installDir);
+  const terminateProcessImpl = options.terminateProcessImpl ?? (async (pid: number) => {
+    if (isProcessRunning(pid) && !await verifyProcess(pid)) return false;
+    return terminateProcess(pid, verifyProcess);
+  });
+  const terminateProcessTreeImpl = options.terminateProcessTreeImpl ??
+    ((pid: number) => terminateProcessTreeAsync(pid, "win32", verifyProcess));
   const removePidFileImpl = options.removePidFileImpl ?? removePidFile;
-  const state = collectState(service, layoutOrInstallDir, env);
+  const state = await collectState(service, layoutOrInstallDir, env);
   const pidsToTerminate = [
     state.managedMainPid,
     ...state.managedPortPids
@@ -614,25 +625,28 @@ export function forceStopServiceInstallDir(
   let allTerminated = true;
 
   for (const pid of [...new Set(pidsToTerminate)]) {
-    const terminated = isWindows ? terminateProcessTreeImpl(pid) : terminateProcessImpl(pid);
+    const terminated = await (isWindows ? terminateProcessTreeImpl(pid) : terminateProcessImpl(pid));
     allTerminated = terminated && allTerminated;
   }
 
   if (allTerminated && state.managedMainPid && state.mainPidFilePath) {
-    removePidFileImpl(state.mainPidFilePath);
+    const currentPid = readPid(state.mainPidFilePath);
+    if (currentPid === state.managedMainPid || currentPid === null) {
+      removePidFileImpl(state.mainPidFilePath);
+    }
   }
 
   return allTerminated;
 }
 
-export function ensureManagedServiceStoppedForPlatform(
+export async function ensureManagedServiceStoppedForPlatform(
   service: ServiceDefinition,
   layoutOrInstallDir: ServiceLayout | string,
   env: Map<string, string>,
   options: {
     isWindows?: boolean;
-    collectState?: typeof collectManagedServiceStopState;
-    forceStop?: typeof forceStopServiceInstallDir;
+    collectState?: (...args: Parameters<typeof collectManagedServiceStopState>) => ManagedServiceStopState | Promise<ManagedServiceStopState>;
+    forceStop?: (...args: Parameters<typeof forceStopServiceInstallDir>) => boolean | Promise<boolean>;
   } = {}
 ) {
   const isWindows = options.isWindows ?? IS_WINDOWS;
@@ -646,7 +660,7 @@ export function ensureManagedServiceStoppedForPlatform(
 
   const collectState = options.collectState ?? collectManagedServiceStopState;
   const forceStop = options.forceStop ?? forceStopServiceInstallDir;
-  const afterStopState = collectState(service, layoutOrInstallDir, env);
+  const afterStopState = await collectState(service, layoutOrInstallDir, env);
   const stopIssues = buildManagedServiceStopIssues(service, afterStopState, "stop");
   if (stopIssues.length === 0) {
     return {
@@ -656,9 +670,12 @@ export function ensureManagedServiceStoppedForPlatform(
     };
   }
 
-  forceStop(service, layoutOrInstallDir, env);
-  const afterCleanupState = collectState(service, layoutOrInstallDir, env);
+  const terminated = await forceStop(service, layoutOrInstallDir, env);
+  const afterCleanupState = await collectState(service, layoutOrInstallDir, env);
   const cleanupIssues = buildManagedServiceStopIssues(service, afterCleanupState, "cleanup");
+  if (!terminated && cleanupIssues.length === 0) {
+    cleanupIssues.push(...stopIssues);
+  }
   if (cleanupIssues.length === 0) {
     return {
       ok: true,

@@ -29,7 +29,6 @@ export function createConversationShareFacade(options: ConversationShareFacadeOp
   const client = new TunnelConversationShareClient(options.fetchImpl);
 
   return {
-    start: () => renderer.start(),
     dispose: () => renderer.dispose(),
     exportChatHtml: (chatId: string, platform: NodeJS.Platform | string = process.platform) =>
       saveConversationHtmlExport(options.app, renderer, chatId, platform),

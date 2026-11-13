@@ -296,7 +296,7 @@ const SIDEBAR_NAVIGATION_LOCK_MS = 900;
 const STARTUP_SERVICE_IDS = ["identity-center", "agent-platform", "agent-webclient"] as const;
 const STARTUP_LOADING_TIMEOUT_MS = 45000;
 
-const STARTUP_STATUS_REFRESH_MS = 1500;
+const STARTUP_STATUS_REFRESH_MS = 3000;
 const REPORTED_DEPRECATED_COMPATIBILITY_USES = new Set<string>();
 
 function reportDeprecatedRendererCompatibilityUse(
@@ -2640,15 +2640,17 @@ export function AppShell() {
         cancelled = true;
       };
     }
+    let receivedStatus = false;
     ssoApi
       .getStatus()
       .then((status) => {
-        if (!cancelled) {
+        if (!cancelled && !receivedStatus) {
           setDesktopSsoStatus(status);
         }
       })
       .catch(() => undefined);
     const dispose = ssoApi.onStatusChanged((status) => {
+      receivedStatus = true;
       setDesktopSsoStatus(status);
       void refreshWebItems().catch(() => undefined);
       if (status.pending) {
@@ -2752,10 +2754,11 @@ export function AppShell() {
 
   useEffect(() => {
     let cancelled = false;
+    let receivedPush = false;
 
-    refreshStartupRestoreState()
+    window.electronAPI.services.getStartupRestoreState()
       .then((nextState) => {
-        if (cancelled) {
+        if (cancelled || receivedPush) {
           return;
         }
         setStartupRestoreState(nextState);
@@ -2767,6 +2770,7 @@ export function AppShell() {
       if (cancelled) {
         return;
       }
+      receivedPush = true;
       setStartupRestoreState(nextState);
       refreshAssistantNavAgentsAfterStartupReady(nextState);
     });
@@ -2786,15 +2790,11 @@ export function AppShell() {
     const refreshInterval = window.setInterval(() => {
       void refreshServicesRef.current();
     }, STARTUP_STATUS_REFRESH_MS);
-    const startupStateInterval = window.setInterval(() => {
-      void refreshStartupRestoreState().catch(() => undefined);
-    }, STARTUP_STATUS_REFRESH_MS);
     const timer = window.setTimeout(() => {
       setStartupTimedOut(true);
     }, STARTUP_LOADING_TIMEOUT_MS);
     return () => {
       window.clearInterval(refreshInterval);
-      window.clearInterval(startupStateInterval);
       window.clearTimeout(timer);
     };
   }, [shouldPollStartup]);
@@ -5499,7 +5499,7 @@ export function AppShell() {
           }}
         />
       ) : null}
-      {resolvedStartupRestoreState.phase === "env-import-required" ? (
+      {resolvedStartupRestoreState.phase === "env-import-required" && !resolvedStartupRestoreState.restoringSignIn ? (
         <EnvImportOverlay
           errorMessage={envImportError || resolvedStartupRestoreState.message}
           busy={envImportBusy}

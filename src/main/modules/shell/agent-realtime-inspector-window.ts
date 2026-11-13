@@ -7,6 +7,7 @@ type AgentRealtimeInspectorWindowControllerOptions = {
   platform: NodeJS.Platform;
   loadRendererRoute: (targetWindow: BrowserWindow, routePath: string) => Promise<unknown>;
   onRendererError: (message: string, details: unknown) => void;
+  onOpenChange: (open: boolean) => void;
 };
 
 export class AgentRealtimeInspectorWindowController {
@@ -34,7 +35,7 @@ export class AgentRealtimeInspectorWindowController {
       this.options.onRendererError("agent realtime inspector failed to load", {
         error: error instanceof Error ? error.message : String(error),
       });
-      if (!targetWindow.isDestroyed()) targetWindow.close();
+      if (!targetWindow.isDestroyed()) targetWindow.destroy();
       throw error;
     }
     if (targetWindow.isDestroyed()) return { ok: false };
@@ -103,33 +104,40 @@ export class AgentRealtimeInspectorWindowController {
       });
     }
 
-    this.window.setMenuBarVisibility(false);
-    this.window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    this.window.once("ready-to-show", () => {
-      const targetWindow = this.getWindow();
-      if (!targetWindow) return;
+    const targetWindow = this.window;
+    targetWindow.setMenuBarVisibility(false);
+    targetWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    targetWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+    targetWindow.webContents.on("will-redirect", (event) => event.preventDefault());
+    targetWindow.once("ready-to-show", () => {
+      if (targetWindow.isDestroyed()) return;
       targetWindow.show();
       targetWindow.focus();
     });
-    this.window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
+    targetWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
       this.options.onRendererError("agent realtime inspector renderer failed to load", {
         errorCode,
         errorDescription,
         validatedUrl,
       });
     });
-    this.window.webContents.on("render-process-gone", (_event, details) => {
+    targetWindow.webContents.on("render-process-gone", (_event, details) => {
       this.options.onRendererError("agent realtime inspector renderer exited unexpectedly", details);
+      if (!targetWindow.isDestroyed()) targetWindow.destroy();
     });
-    this.window.webContents.on("preload-error", (_event, preloadPath, error) => {
+    targetWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
       this.options.onRendererError("agent realtime inspector preload failed", {
         preloadPath,
         error: error?.stack || String(error),
       });
+      if (!targetWindow.isDestroyed()) targetWindow.destroy();
     });
-    this.window.on("closed", () => {
+    targetWindow.once("closed", () => {
+      if (this.window !== targetWindow) return;
       this.window = null;
+      this.options.onOpenChange(false);
     });
-    return this.window;
+    this.options.onOpenChange(true);
+    return targetWindow;
   }
 }

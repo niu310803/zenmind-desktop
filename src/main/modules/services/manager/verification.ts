@@ -49,7 +49,7 @@ export async function collectServiceVerification(
   }
 
   const layout = getServiceLayout(app, service);
-  const baseVerification = buildVerificationResult(service, state, desired, probes, options);
+  const baseVerification = await buildVerificationResult(service, state, desired, probes, options);
   if (desired !== "running" || state.status !== "running") {
     return {
       state,
@@ -91,8 +91,8 @@ export async function verifyServiceState(
   const checkpoints = beginStartupCheckpoints(serviceId, `verify-${desired}`);
   let verified = false;
   try {
-    const delayMs = getServiceVerificationDelayMs();
     const service = getService(serviceId);
+    let attempt = 0;
     const retryUntil =
       service.id === "agent-container-hub" && desired === "running"
         ? Date.now() + CONTAINER_HUB_RUNNING_VERIFICATION_TIMEOUT_MS
@@ -106,9 +106,12 @@ export async function verifyServiceState(
       return current.verification;
     }
 
+    const fallbackRetryUntil = Date.now() + getServiceVerificationDelayMs(0, 1500);
     do {
       checkpoints.next("retry-delay");
-      await delay(delayMs > 0 ? delayMs : 1500);
+      const delayMs = getServiceVerificationDelayMs(attempt++);
+      const remainingMs = Math.max((retryUntil || fallbackRetryUntil) - Date.now(), 0);
+      await delay(Math.min(delayMs, remainingMs));
       checkpoints.next("retry-probe");
       current = await collectServiceVerification(app, serviceId, desired, options);
       if (current.verification.verified) {
@@ -116,9 +119,8 @@ export async function verifyServiceState(
         return current.verification;
       }
     } while (
-      retryUntil > 0 &&
-      Date.now() < retryUntil &&
-      shouldRetryServiceVerification(service, desired, current.verification)
+      Date.now() < (retryUntil || fallbackRetryUntil) &&
+      (retryUntil === 0 || shouldRetryServiceVerification(service, desired, current.verification))
     );
 
     verified = current.verification.verified;

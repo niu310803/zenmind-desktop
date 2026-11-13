@@ -7,7 +7,7 @@ import { PlatformFrameRecord, StreamBinding, protocolError, readOwner, readText,
 
 export interface QueryBindingPort {
   readonly options: {
-    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "getMainChatRootObserver" | "promoteMainChatRootObserver" | "appendDebugTrace" | "registerRunActionGrant">;
+    realtimeBroker: Pick<FramePortOptions["realtimeBroker"], "getMainChatRootObserver" | "promoteMainChatRootObserver" | "isDebugTraceEnabled" | "appendDebugTrace" | "registerRunActionGrant">;
     browserSurfaces: Pick<FramePortOptions["browserSurfaces"], "resolveWebviewSurfaceTarget">;
     syncCanonicalChat: FramePortOptions["syncCanonicalChat"];
   };
@@ -85,6 +85,7 @@ export function createQueryBinding(deps: QueryBindingPort) {
     // WebClient promotes its own live-query URL.
     promoteMainChatBundle();
     const traceCanonicalSync = (state: "ready" | "failed", reason: string) => {
+      if (!deps.options.realtimeBroker.isDebugTraceEnabled()) return;
       const target = deps.options.browserSurfaces.resolveWebviewSurfaceTarget(binding.newChatSource!.guestWebContentsId);
       deps.options.realtimeBroker.appendDebugTrace({
         layer: "surface-bridge",

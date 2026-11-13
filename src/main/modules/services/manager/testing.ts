@@ -34,13 +34,13 @@ import { resolveAcpCommandForDesktop } from "./env-normalization";
 import { parseProcessTreeRowsFromPs, parseProcessTreeRowsFromWindowsPowerShell, buildProcessTreePids } from "./process-tree";
 import {
   collectManagedRootPids,
-  captureManagedProcessCleanupSnapshot,
+  captureManagedProcessCleanupSnapshotAsync,
   mergeCleanupTargets,
   collectManagedServiceStopState,
   forceStopServiceInstallDir,
   ensureManagedServiceStoppedForPlatform
 } from "./managed-cleanup";
-import { terminateProcessTree, terminateProcessList } from "./process-cleanup";
+import { terminateProcessTreeAsync } from "./process-cleanup";
 import { getShutdownStopCommandTimeoutMs } from "./shutdown";
 import { decodePowerShellCapturePayload, runExecFile } from "./command-runner";
 import { runServiceRestart } from "./service-start";
@@ -53,7 +53,7 @@ import {
 import { probeHttpUrl } from "./service-probes";
 import { verifyServiceState } from "./verification";
 import { buildVerificationResult } from "./verification-policy";
-import { matchProcessInstallDir } from "./process-identity";
+import { matchProcessInstallDirAsync } from "./process-identity";
 import { readManagedPidFile } from "./pid-files";
 import { getInitializationStatePath } from "./layout";
 import {
@@ -105,10 +105,9 @@ export const __testInternals = {
   parseProcessTreeRowsFromPowerShell: parseProcessTreeRowsFromWindowsPowerShell,
   buildProcessTreePids,
   collectManagedRootPids,
-  captureManagedProcessCleanupSnapshot,
+  captureManagedProcessCleanupSnapshotAsync,
   mergeCleanupTargets,
-  terminateProcessTree,
-  terminateProcessList,
+  terminateProcessTreeAsync,
   collectManagedServiceStopState,
   forceStopServiceInstallDir,
   ensureManagedServiceStoppedForPlatform,
@@ -121,7 +120,7 @@ export const __testInternals = {
   verifyServiceState,
   buildVerificationResult,
   clearContainerEngineProbeCache,
-  matchProcessInstallDir,
+  matchProcessInstallDir: matchProcessInstallDirAsync,
   readManagedPidFile,
   getInitializationStatePath,
   readInitializationState,

@@ -1697,6 +1697,31 @@ function DesktopLogsDebugCard() {
   const { t } = useI18n();
   const [pendingAction, setPendingAction] = useState<DesktopLogTarget | "folder" | null>(null);
   const [message, setMessage] = useState("");
+  const [performancePreference, setPerformancePreference] = useState<boolean | null>(null);
+  const [performanceSaving, setPerformanceSaving] = useState(false);
+  const [performanceError, setPerformanceError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    window.electronAPI.diagnostics.getPerformancePreference?.()?.then((enabled) => {
+      if (active) setPerformancePreference(enabled);
+    }).catch(() => {
+      if (active) setPerformanceError(true);
+    });
+    return () => { active = false; };
+  }, []);
+
+  async function handlePerformancePreference(enabled: boolean) {
+    setPerformanceSaving(true);
+    setPerformanceError(false);
+    try {
+      setPerformancePreference(await window.electronAPI.diagnostics.setPerformancePreference(enabled));
+    } catch {
+      setPerformanceError(true);
+    } finally {
+      setPerformanceSaving(false);
+    }
+  }
 
   async function handleOpenDesktopLog(target: DesktopLogTarget) {
     setPendingAction(target);
@@ -1729,6 +1754,19 @@ function DesktopLogsDebugCard() {
       <div className="settings-debug-panel-head">
         <h2>{t("settings.debug.logs.title")}</h2>
       </div>
+      <div className="settings-debug-actions">
+        <label htmlFor="performance-diagnostics-toggle">{t("settings.debug.logs.performance")}</label>
+        <Switch
+          id="performance-diagnostics-toggle"
+          aria-describedby="performance-diagnostics-hint"
+          checked={performancePreference === true}
+          disabled={performancePreference === null || performanceSaving}
+          loading={performanceSaving}
+          onChange={(enabled) => void handlePerformancePreference(enabled)}
+        />
+      </div>
+      <p id="performance-diagnostics-hint" className="page-copy">{t("settings.debug.logs.performanceRestart")}</p>
+      {performanceError ? <p className="feedback-banner warning-banner" role="alert">{t("settings.debug.logs.performanceFailed")}</p> : null}
       <div className="settings-debug-actions">
         <Button disabled={pendingAction !== null} onClick={() => void handleOpenDesktopLog("main")}>
           {pendingAction === "main" ? t("common.loading") : t("settings.debug.logs.openMain")}

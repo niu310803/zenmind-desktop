@@ -28,6 +28,7 @@ import {
   registerWebsiteFaviconProtocol
 } from "../../modules/webs";
 import { createLogsRuntime } from "../../support/logging/runtime";
+import { beginStartupTiming, markStartupMilestone, persistStartupTimingSnapshot, startStartupLoopTiming } from "../../support/logging/startup-timing";
 import { createStartupEnvironmentRuntime } from "../bootstrap/startup-environment";
 import { cleanupProgramDataForVersion } from "../lifecycle/program-data-cleanup";
 import { createShutdownCleanupRunner } from "../lifecycle/shutdown";
@@ -45,7 +46,7 @@ export interface HandleAppReadyDependencies {
   readonly systemIdentityRuntime: Pick<ReturnType<typeof configureSystemIdentity>, "ensureDockIdentity">;
   readonly startupEnvironmentRuntime: Pick<ReturnType<typeof createStartupEnvironmentRuntime>, "handleStartupEnvRootConflict" | "prepareStartupRuntimeEnvironment" | "getDefaultEnvImportRequiredMessage">;
   startupEnvImportFailureMessage: string | null;
-  readonly startupRestoreController: Pick<ReturnType<typeof createStartupRestoreController>, "setEnvImportRequired">;
+  readonly startupRestoreController: Pick<ReturnType<typeof createStartupRestoreController>, "setEnvImportRequired" | "setRestoringSignIn">;
   readonly initializeUserDataRootsAndSettings: () => ReturnType<typeof cleanupProgramDataForVersion>;
   readonly startupPlatform: NodeJS.Platform;
   readonly logsRuntime: Pick<ReturnType<typeof createLogsRuntime>, "installConsoleTee" | "flush">;
@@ -73,27 +74,36 @@ export interface HandleAppReadyDependencies {
 }
 
 export async function handleAppReady(dependencies: HandleAppReadyDependencies) {
+  startStartupLoopTiming();
   dependencies.setStartupPhase("platform-preflight");
   dependencies.systemIdentityRuntime.ensureDockIdentity();
   dependencies.setStartupPhase("runtime-env");
-  const canContinueStartup = await dependencies.startupEnvironmentRuntime.handleStartupEnvRootConflict();
+  const envConflictTiming = beginStartupTiming("startup.env-conflict", {}, { log: false });
+  const canContinueStartup = await dependencies.startupEnvironmentRuntime.handleStartupEnvRootConflict()
+    .finally(() => envConflictTiming.end());
   if (!canContinueStartup) {
     app.exit(0);
     return;
   }
-  const startupRuntimeReady = await dependencies.startupEnvironmentRuntime.prepareStartupRuntimeEnvironment();
+  const envImportTiming = beginStartupTiming("startup.env-import", {}, { log: false });
+  const startupRuntimeReady = await dependencies.startupEnvironmentRuntime.prepareStartupRuntimeEnvironment()
+    .finally(() => envImportTiming.end());
   if (!startupRuntimeReady.ok) {
     dependencies.startupEnvImportFailureMessage =
       startupRuntimeReady.message || dependencies.startupEnvironmentRuntime.getDefaultEnvImportRequiredMessage();
     dependencies.startupRestoreController.setEnvImportRequired(dependencies.startupEnvImportFailureMessage);
   }
   dependencies.setStartupPhase("runtime-env-ready");
-  const programDataCleanup = dependencies.initializeUserDataRootsAndSettings();
+  const localStateTiming = beginStartupTiming("startup.local-state", {}, { log: false });
+  const programDataCleanup = await Promise.resolve(dependencies.initializeUserDataRootsAndSettings())
+    .finally(() => localStateTiming.end());
   // A first-install root migration must finish before protocol.handle creates
   // the default Session and opens files in the already-configured profile.
+  const protocolsTiming = beginStartupTiming("startup.protocols", {}, { log: false });
   registerDesktopPetAssetProtocol(app, protocol, net, dependencies.startupPlatform);
   registerWebsiteFaviconProtocol(app, protocol, net, dependencies.startupPlatform);
   registerDesktopSsoAvatarProtocol(app, protocol, net, session, dependencies.startupPlatform);
+  protocolsTiming.end();
   dependencies.setStartupPhase("desktop-state-ready");
   dependencies.logsRuntime.installConsoleTee();
   startPerformanceDiagnostics(dependencies.webSurfaceRuntime.browserSurfaceRegistry);
@@ -103,8 +113,6 @@ export async function handleAppReady(dependencies: HandleAppReadyDependencies) {
   } else {
     console.info("[program-data-cleanup] result", programDataCleanup);
   }
-  const desktopSsoRestoreResult = await dependencies.desktopSsoController.restoreDesktopSsoSession();
-  dependencies.applyDesktopSsoRestoreResult(desktopSsoRestoreResult);
   dependencies.pluginBridgeRuntime.configure();
   configurePluginResources({
     callAgentPlatform: (targetApp, targetPath, requestOptions) => callAgentPlatform(targetApp, targetPath, {
@@ -117,15 +125,19 @@ export async function handleAppReady(dependencies: HandleAppReadyDependencies) {
     app,
     snapshotProvider: dependencies.assistantBridgeRuntime.assistantBridge
   });
-  conversationShareFacade.start();
   app.once("will-quit", () => {
     void conversationShareFacade.dispose();
   });
   let updatesRuntime: ReturnType<typeof registerDesktopUpdates> | undefined;
+  const ipcTiming = beginStartupTiming("startup.register-ipc");
   dependencies.registerIpc(conversationShareFacade, () => updatesRuntime);
+  ipcTiming.end();
   dependencies.configureAppMediaPermissions();
   dependencies.registerFocusedWebviewDevToolsShortcut();
+  dependencies.startupRestoreController.setRestoringSignIn(true);
+  const windowTiming = beginStartupTiming("startup.create-window");
   dependencies.createWindow();
+  windowTiming.end();
   try {
     updatesRuntime = registerDesktopUpdates({
       app,
@@ -155,12 +167,34 @@ export async function handleAppReady(dependencies: HandleAppReadyDependencies) {
   }
   dependencies.setStartupPhase("shell-ready");
   dependencies.startResourceDirectoryWatcher();
+  const ssoTiming = beginStartupTiming("startup.sso-restore");
+  try {
+    const desktopSsoRestoreResult = await dependencies.desktopSsoController.restoreDesktopSsoSession();
+    if (!dependencies.appState.isHandlingQuit) {
+      dependencies.applyDesktopSsoRestoreResult(desktopSsoRestoreResult);
+    }
+  } catch (error) {
+    // Recovery failures leave the local shell and diagnostics available.
+    console.warn("[sso-restore] failed during startup", { name: error instanceof Error ? error.name : "Error" });
+  } finally {
+    ssoTiming.end();
+    dependencies.startupRestoreController.setRestoringSignIn(false);
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  if (dependencies.appState.isHandlingQuit) {
+    persistStartupTimingSnapshot();
+    return;
+  }
   void dependencies.startupPipeline.run().then(() => {
     if (["core-ready", "non-core-ready"].includes(dependencies.appState.startupPhase)) {
+      markStartupMilestone("core-ready");
       try {
         void Promise.resolve(updatesRuntime?.mainReady()).catch(error => console.warn("[updates] readiness check failed", error));
       } catch (error) { console.warn("[updates] readiness check failed", error); }
+    } else if (dependencies.appState.startupPhase === "degraded") {
+      markStartupMilestone("startup-degraded");
     }
+    persistStartupTimingSnapshot();
   });
 }
 

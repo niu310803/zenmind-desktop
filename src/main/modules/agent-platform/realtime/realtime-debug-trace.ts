@@ -7,6 +7,11 @@ import { requireEpochMillis } from "../../../../shared/time-contract";
 import type { SurfaceInteraction, SurfaceLevel, SurfaceRole } from "../../../../shared/surface-identity";
 
 const DEFAULT_MAX_ENTRIES = 500;
+const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
+const INSPECTOR_CLOSE_GRACE_MS = 60_000;
+const CONNECTION_DIAGNOSTIC_TTL_MS = 5 * 60_000;
+const MAX_RECENT_CONNECTION_DIAGNOSTICS = 32;
+const STREAM_PREVIEW_CHARS = 200;
 const MAX_TRACE_DEPTH = 8;
 const MAX_TRACE_NODES = 2_000;
 const MAX_TRACE_STRING_CHARS = 64 * 1024;
@@ -97,55 +102,190 @@ export function serializeAgentRealtimeDebugValue(value: unknown, browserFileTran
   }, 0, browserFileTransfer);
 }
 
+type TraceInput = {
+  layer: AgentRealtimeDebugTraceLayer;
+  direction: AgentRealtimeDebugTraceDirection;
+  data: unknown;
+  /** Private sender metadata for file response chunks without a method field. */
+  browserFileTransfer?: boolean;
+  wireBytes?: number;
+  surfaceId?: string;
+  webContentsId?: number;
+  surfaceKind?: string;
+  surfaceRole?: SurfaceRole;
+  surfaceLevel?: SurfaceLevel;
+  parentSurfaceId?: string;
+  interaction?: SurfaceInteraction;
+  route?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function summarizeStream(frame: Record<string, unknown>, input: TraceInput) {
+  const event = asRecord(frame.event);
+  const text = event && !input.browserFileTransfer
+    ? [event.delta, event.text, event.content, event.message, event.chunk].find((value): value is string => typeof value === "string")
+    : undefined;
+  const prefix = text?.slice(0, STREAM_PREVIEW_CHARS);
+  const preview = prefix !== undefined && text !== undefined && prefix.length < text.length
+    ? prefix.replace(/[\uD800-\uDBFF]$/u, "")
+    : prefix;
+  return {
+    frame: "stream",
+    ...(typeof frame.lane === "string" ? { lane: frame.lane } : {}),
+    ...(typeof frame.id === "string" ? { id: frame.id } : {}),
+    ...(typeof frame.streamId === "string" ? { streamId: frame.streamId } : {}),
+    ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
+    ...(typeof frame.lastSeq === "number" ? { lastSeq: frame.lastSeq } : {}),
+    ...(input.wireBytes !== undefined ? { wireBytes: input.wireBytes } : {}),
+    ...(event ? {
+      event: {
+        ...(typeof event.type === "string" ? { type: event.type } : {}),
+        ...(typeof event.seq === "number" ? { seq: event.seq } : {}),
+        ...(typeof event.runId === "string" ? { runId: event.runId } : {}),
+        ...(typeof event.chatId === "string" ? { chatId: event.chatId } : {}),
+        ...(typeof event.timestamp === "number" ? { timestamp: event.timestamp } : {}),
+        ...(input.browserFileTransfer ? { preview: REDACTED_VALUE } : {}),
+        ...(preview !== undefined && text !== undefined ? {
+          preview,
+          ...(!input.wireBytes ? { textBytes: Buffer.byteLength(text) } : {}),
+          ...(preview.length < text.length ? { previewTruncated: true } : {}),
+        } : {}),
+      },
+    } : {}),
+  };
+}
+
+function serializeTraceData(input: TraceInput) {
+  const record = asRecord(input.data);
+  const isPortEvent = record?.type === "frame" && typeof record.sessionId === "string";
+  const frame = isPortEvent ? asRecord(record?.frame) : record;
+  const summary = frame?.frame === "stream" ? summarizeStream(frame, input) : frame?.frame === "push" ? {
+    frame: "push",
+    ...(typeof frame.lane === "string" ? { lane: frame.lane } : {}),
+    ...(typeof frame.type === "string" ? { type: frame.type } : {}),
+    ...(input.wireBytes !== undefined ? { wireBytes: input.wireBytes } : {}),
+  } : null;
+  if (summary) {
+    return serializeAgentRealtimeDebugValue(isPortEvent
+      ? { type: "frame", sessionId: record?.sessionId, frame: summary }
+      : summary);
+  }
+  return serializeAgentRealtimeDebugValue(input.data, input.browserFileTransfer);
+}
+
 export class RealtimeDebugTraceBuffer {
-  private readonly entries: AgentRealtimeDebugTraceEntry[] = [];
+  private readonly entries: Array<{ entry: AgentRealtimeDebugTraceEntry; bytes: number }> = [];
+  private readonly connectionDiagnostics: AgentRealtimeDebugTraceEntry[] = [];
+  private bytes = 0;
   private sequence = 0;
+  private inspectorOpen = false;
+  private closeTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
 
-  constructor(private readonly maxEntries = DEFAULT_MAX_ENTRIES) {}
+  constructor(private readonly options: {
+    alwaysEnabled?: boolean;
+    maxEntries?: number;
+    maxBytes?: number;
+  } = {}) {}
 
-  append(input: {
-    layer: AgentRealtimeDebugTraceLayer;
-    direction: AgentRealtimeDebugTraceDirection;
-    data: unknown;
-    /** Private sender metadata for file response chunks without a method field. */
-    browserFileTransfer?: boolean;
-    surfaceId?: string;
-    webContentsId?: number;
-    surfaceKind?: string;
-    surfaceRole?: SurfaceRole;
-    surfaceLevel?: SurfaceLevel;
-    parentSurfaceId?: string;
-    interaction?: SurfaceInteraction;
-    route?: string;
-  }) {
-    this.sequence += 1;
+  isEnabled() {
+    return !this.disposed && (this.options.alwaysEnabled === true || this.inspectorOpen || this.closeTimer !== undefined);
+  }
+
+  setInspectorOpen(open: boolean) {
+    if (this.disposed || this.inspectorOpen === open) return;
+    this.inspectorOpen = open;
+    clearTimeout(this.closeTimer);
+    this.closeTimer = undefined;
+    if (!open && !this.options.alwaysEnabled) {
+      this.closeTimer = setTimeout(() => {
+        this.closeTimer = undefined;
+        this.clearFrames();
+      }, INSPECTOR_CLOSE_GRACE_MS);
+      this.closeTimer.unref?.();
+    }
+  }
+
+  append(trace: TraceInput): AgentRealtimeDebugTraceEntry | undefined {
+    if (!this.isEnabled()) return;
     const entry: AgentRealtimeDebugTraceEntry = {
-      sequence: this.sequence,
+      sequence: ++this.sequence,
       recordedAt: requireEpochMillis(Date.now(), "agentRealtimeDebugTrace.recordedAt"),
-      layer: input.layer,
-      direction: input.direction,
-      data: serializeAgentRealtimeDebugValue(input.data, input.browserFileTransfer),
-      ...(input.surfaceId?.trim() ? { surfaceId: input.surfaceId.trim() } : {}),
-      ...(Number.isSafeInteger(input.webContentsId) ? { webContentsId: input.webContentsId } : {}),
-      ...(input.surfaceKind?.trim() ? { surfaceKind: input.surfaceKind.trim() } : {}),
-      ...(input.surfaceRole ? { surfaceRole: input.surfaceRole } : {}),
-      ...(input.surfaceLevel ? { surfaceLevel: input.surfaceLevel } : {}),
-      ...(input.parentSurfaceId?.trim() ? { parentSurfaceId: input.parentSurfaceId.trim() } : {}),
-      ...(input.interaction ? { interaction: input.interaction } : {}),
-      ...(input.route?.trim() ? { route: input.route } : {}),
+      layer: trace.layer,
+      direction: trace.direction,
+      data: serializeTraceData(trace),
+      ...(trace.surfaceId?.trim() ? { surfaceId: trace.surfaceId.trim() } : {}),
+      ...(Number.isSafeInteger(trace.webContentsId) ? { webContentsId: trace.webContentsId } : {}),
+      ...(trace.surfaceKind?.trim() ? { surfaceKind: trace.surfaceKind.trim() } : {}),
+      ...(trace.surfaceRole ? { surfaceRole: trace.surfaceRole } : {}),
+      ...(trace.surfaceLevel ? { surfaceLevel: trace.surfaceLevel } : {}),
+      ...(trace.parentSurfaceId?.trim() ? { parentSurfaceId: trace.parentSurfaceId.trim() } : {}),
+      ...(trace.interaction ? { interaction: trace.interaction } : {}),
+      ...(trace.route?.trim() ? { route: trace.route.slice(0, MAX_TRACE_STRING_CHARS) } : {}),
     };
-    this.entries.push(entry);
-    if (this.entries.length > this.maxEntries) {
-      this.entries.splice(0, this.entries.length - this.maxEntries);
+    const bytes = Buffer.byteLength(JSON.stringify(entry));
+    const maxBytes = this.options.maxBytes ?? DEFAULT_MAX_BYTES;
+    const maxEntries = this.options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    if (bytes > maxBytes) return;
+    this.entries.push({ entry, bytes });
+    this.bytes += bytes;
+    while (this.entries.length > maxEntries || this.bytes > maxBytes) {
+      const oldest = this.entries.shift();
+      if (!oldest) break;
+      this.bytes -= oldest.bytes;
     }
     return entry;
   }
 
-  snapshot() {
-    return this.entries.map((entry) => ({ ...entry }));
+  recordConnectionFailure(
+    lane: "primary" | "btw" | "selection-explain",
+    phase: "reconnecting" | "error",
+    generation: number,
+    reconnectCount: number,
+  ) {
+    if (this.disposed) return;
+    const entry: AgentRealtimeDebugTraceEntry = {
+      sequence: ++this.sequence,
+      recordedAt: requireEpochMillis(Date.now(), "agentRealtimeDebugTrace.recordedAt"),
+      layer: "platform-ws",
+      direction: "platform-to-desktop",
+      data: { lane, type: "connection", phase, generation, reconnectCount },
+    };
+    // Only lifecycle metadata is retained before the Inspector opens.
+    this.connectionDiagnostics.push(entry);
+    if (this.connectionDiagnostics.length > MAX_RECENT_CONNECTION_DIAGNOSTICS) {
+      this.connectionDiagnostics.shift();
+    }
+  }
+
+  snapshot(afterSequence = 0) {
+    const cutoff = Date.now() - CONNECTION_DIAGNOSTIC_TTL_MS;
+    const events = this.entries.flatMap(({ entry }) => entry.sequence > afterSequence ? [{ ...entry }] : []);
+    for (const entry of this.connectionDiagnostics) {
+      if (entry.sequence > afterSequence && entry.recordedAt >= cutoff) events.push({ ...entry });
+    }
+    return events.sort((a, b) => a.sequence - b.sequence);
   }
 
   clear() {
+    this.clearFrames();
+    this.connectionDiagnostics.length = 0;
+  }
+
+  private clearFrames() {
     this.entries.length = 0;
+    this.bytes = 0;
+  }
+
+  dispose() {
+    this.disposed = true;
+    clearTimeout(this.closeTimer);
+    this.closeTimer = undefined;
+    this.clear();
   }
 }

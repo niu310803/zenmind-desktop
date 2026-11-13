@@ -136,13 +136,14 @@ function defaultSocketFactory(url: string): AgentPlatformRealtimeSocket {
   return new Constructor(url);
 }
 
-async function readFrameText(value: unknown, maxBytes: number): Promise<string> {
+async function readFrameText(value: unknown, maxBytes: number): Promise<{ text: string; bytes: number }> {
   let bytes: Uint8Array;
   if (typeof value === "string") {
-    if (Buffer.byteLength(value) > maxBytes) {
+    const bytes = Buffer.byteLength(value);
+    if (bytes > maxBytes) {
       throw new Error("protocol_error: Agent Platform WebSocket frame is too large");
     }
-    return value;
+    return { text: value, bytes };
   }
   if (value instanceof ArrayBuffer) {
     bytes = new Uint8Array(value);
@@ -152,14 +153,14 @@ async function readFrameText(value: unknown, maxBytes: number): Promise<string> 
     if (value.size > maxBytes) {
       throw new Error("protocol_error: Agent Platform WebSocket frame is too large");
     }
-    return value.text();
+    return { text: await value.text(), bytes: value.size };
   } else {
     throw new Error("protocol_error: unsupported Agent Platform WebSocket payload");
   }
   if (bytes.byteLength > maxBytes) {
     throw new Error("protocol_error: Agent Platform WebSocket frame is too large");
   }
-  return new TextDecoder().decode(bytes);
+  return { text: new TextDecoder().decode(bytes), bytes: bytes.byteLength };
 }
 
 function frameError(frame: AgentPlatformRealtimeFrame) {
@@ -250,11 +251,12 @@ export class AgentPlatformRealtimeClient {
     random?: () => number;
     source?: "desktop-main" | "desktop-btw" | "desktop-explain";
     surfaceId?: string;
-    onFrame(frame: AgentPlatformRealtimeFrame, generation: number): void;
+    onFrame(frame: AgentPlatformRealtimeFrame, generation: number, wireBytes: number): void;
     onStaleFrame?(): void;
     onState?(state: AgentPlatformRealtimeConnectionState): void;
     onDiagnostic?(message: string): void;
-    onTrace?(direction: "in" | "out", frame: AgentPlatformRealtimeFrame, browserFileTransfer?: boolean): void;
+    shouldTrace?(): boolean;
+    onTrace?(direction: "in" | "out", frame: AgentPlatformRealtimeFrame, browserFileTransfer: boolean, wireBytes: number): void;
   }) {
     this.unsubscribeLocale = subscribeMainLocale(() => this.syncLocale());
   }
@@ -349,9 +351,12 @@ export class AgentPlatformRealtimeClient {
       }).catch(() => {}); // The sync failure closes the connection and fails pending requests.
       return;
     }
-    socket.send(JSON.stringify(frame));
+    const text = JSON.stringify(frame);
+    socket.send(text);
     // Local diagnostic scope never becomes a wire field.
-    this.options.onTrace?.("out", frame, browserFileTransfer);
+    if (this.options.onTrace && this.options.shouldTrace?.() !== false) {
+      this.options.onTrace("out", frame, browserFileTransfer, Buffer.byteLength(text));
+    }
   }
 
   rotateIdentity() {
@@ -533,7 +538,7 @@ export class AgentPlatformRealtimeClient {
       this.options.onStaleFrame?.();
       return false;
     }
-    const text = await readFrameText(
+    const { text, bytes } = await readFrameText(
       data,
       this.options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES,
     );
@@ -542,7 +547,9 @@ export class AgentPlatformRealtimeClient {
       throw new Error("protocol_error: Agent Platform frame must be an object");
     }
     const frame = parsed as AgentPlatformRealtimeFrame;
-    this.options.onTrace?.("in", frame);
+    if (this.options.onTrace && this.options.shouldTrace?.() !== false) {
+      this.options.onTrace("in", frame, false, bytes);
+    }
     const kind = readText(frame.frame);
     const type = readText(frame.type);
     const now = Date.now();
@@ -609,7 +616,7 @@ export class AgentPlatformRealtimeClient {
       });
       return false;
     }
-    this.options.onFrame(frame, generation);
+    this.options.onFrame(frame, generation, bytes);
     return false;
   }
 

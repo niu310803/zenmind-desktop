@@ -589,6 +589,15 @@ test("window manager includes initial locale arguments for renderer bootstrap", 
   ]);
 });
 
+test("only an opted-in main window receives the performance diagnostics argument", () => {
+  const input = { platform: "win32", preloadPath: "C:/app/preload/index.js" };
+  assert.equal(buildMainWindowOptions(input).webPreferences.additionalArguments, undefined);
+  assert.deepEqual(
+    buildMainWindowOptions({ ...input, performanceDiagnosticsEnabled: true }).webPreferences.additionalArguments,
+    ["--desktop-performance-diagnostics"]
+  );
+});
+
 test("window manager loads the main renderer from dev URL or production file", async () => {
   const devWindow = new FakeWindow();
   const prodWindow = new FakeWindow();

@@ -1464,7 +1464,7 @@ function createApp(userDataRoot, options = {}) {
   };
 }
 
-function loadBuiltinsForTest(userDataRoot, assetsRoot, appOptions = {}) {
+async function loadBuiltinsForTest(userDataRoot, assetsRoot, appOptions = {}) {
   const previousAssetsRoot = process.env.DESKTOP_BUILTIN_ASSETS_ROOT;
   const previousTestCorePortBase = process.env.DESKTOP_TEST_CORE_SERVICE_PORT_BASE;
   const { servicePortDefaults, testCoreServicePortBase, ...createAppOptions } = appOptions;
@@ -1487,7 +1487,7 @@ function loadBuiltinsForTest(userDataRoot, assetsRoot, appOptions = {}) {
       ]))
     }, null, 2)}\n`, "utf8");
   }
-  loadBuiltinServices(app);
+  await loadBuiltinServices(app);
 
   return {
     app,
@@ -1510,8 +1510,8 @@ function loadBuiltinsForTest(userDataRoot, assetsRoot, appOptions = {}) {
   };
 }
 
-function loadStartupCoreBuiltinsForTest(userDataRoot, fixture, appOptions = {}) {
-  const loaded = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+async function loadStartupCoreBuiltinsForTest(userDataRoot, fixture, appOptions = {}) {
+  const loaded = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     ...appOptions,
     testCoreServicePortBase: fixture.corePortBase
   });
@@ -2010,7 +2010,7 @@ test("service manager no longer exposes built-in service env repair helpers", ()
 test("initializeService lets agent-webclient deploy initialize env without Desktop host-managed fields", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const webclientService = getBuiltinService("agent-webclient");
   const originalEnv = [
     "VOICE_BASE_URL=http://127.0.0.1:11953",
@@ -2044,10 +2044,10 @@ test("initializeService lets agent-webclient deploy initialize env without Deskt
   }
 });
 
-test("service install dir follows Application Support services/<id>/<version>", () => {
+test("service install dir follows Application Support services/<id>/<version>", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const service = getBuiltinService("agent-platform");
   const installDir = getInstallDir(app, service);
   assert.equal(
@@ -2058,10 +2058,10 @@ test("service install dir follows Application Support services/<id>/<version>", 
   fs.rmSync(fixture.tempRoot, { recursive: true, force: true });
 });
 
-test("parsePort reads Desktop core service ports from their config keys", () => {
+test("parsePort reads Desktop core service ports from their config keys", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const authService = registerPlugin({
     id: "identity-center",
     name: "认证服务",
@@ -2132,7 +2132,7 @@ test("parsePort reads Desktop core service ports from their config keys", () => 
   fs.rmSync(fixture.tempRoot, { recursive: true, force: true });
 });
 
-test("loadBuiltinServices applies configured core service default ports", () => {
+test("loadBuiltinServices applies configured core service default ports", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const configuredPorts = {
@@ -2141,7 +2141,7 @@ test("loadBuiltinServices applies configured core service default ports", () => 
     "agent-webclient": 39080,
     "identity-center": 39076
   };
-  const { restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
+  const { restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
     servicePortDefaults: configuredPorts
   });
 
@@ -2269,7 +2269,7 @@ test("plugin services without configFiles do not require .env", async () => {
 test("agent-platform start env does not inject NODE_BIN or port overrides", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const service = getBuiltinService("agent-platform");
 
   try {
@@ -2286,7 +2286,7 @@ test("agent-platform start env does not inject NODE_BIN or port overrides", asyn
 test("desktop managed service commands keep deploy, start, and stop contracts separated", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   const assertFlag = (command, flag, value) => {
     const index = command.indexOf(flag);
@@ -2381,7 +2381,7 @@ test("desktop managed service commands keep deploy, start, and stop contracts se
 test("desktop managed service commands insert configured lifecycle args before managed args", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   const assertFlag = (command, flag, value) => {
     const index = command.indexOf(flag);
@@ -2530,10 +2530,10 @@ test("desktop managed service commands insert configured lifecycle args before m
   }
 });
 
-test("agent-webclient host-managed start args require base-url only", () => {
+test("agent-webclient host-managed start args require base-url only", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     testCoreServicePortBase: fixture.corePortBase
   });
   const configPath = path.join(getDesktopConfigRoot(app), "service-lifecycle-args.json");
@@ -2604,7 +2604,7 @@ test("agent-webclient host-managed start args require base-url only", () => {
 test("agent-platform deploy command only appends Desktop required args", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   const assertFlag = (command, flag, value) => {
     const index = command.indexOf(flag);
@@ -2689,7 +2689,7 @@ test("agent-platform deploy command only appends Desktop required args", async (
 test("agent-platform deploy passes image and speech lifecycle args without backfilling model defaults", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   const findFlagValues = (command, flag) => {
     const values = [];
@@ -2758,10 +2758,10 @@ test("agent-platform deploy passes image and speech lifecycle args without backf
   }
 });
 
-test("agent-platform lifecycle args only keep supported model deploy flags", () => {
+test("agent-platform lifecycle args only keep supported model deploy flags", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   try {
     const configPath = path.join(getDesktopConfigRoot(app), "service-lifecycle-args.json");
@@ -2794,10 +2794,10 @@ test("agent-platform lifecycle args only keep supported model deploy flags", () 
   }
 });
 
-test("identity-center lifecycle args only keep the supported deploy issuer", () => {
+test("identity-center lifecycle args only keep the supported deploy issuer", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   try {
     const configPath = path.join(getDesktopConfigRoot(app), "service-lifecycle-args.json");
@@ -2839,7 +2839,7 @@ test("agent-platform deploy public key source resolves auth capability when conf
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const homeRoot = path.join(fixture.tempRoot, "home");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -3252,7 +3252,7 @@ test("core builtin start commands run in daemon mode", () => {
 test("desktop start commands skip a second builtin asset refresh", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   try {
     const options = await __testInternals.getDesktopStartCommandOptions(app, getBuiltinService("agent-platform"));
@@ -3363,11 +3363,11 @@ test("collectManagedRootPids only includes pid-file processes from the service i
     fs.mkdirSync(path.dirname(pidPath), { recursive: true });
     fs.writeFileSync(pidPath, `${child.pid}\n`, "utf8");
 
-    const roots = __testInternals.collectManagedRootPids(app);
+    const roots = await __testInternals.collectManagedRootPids(app);
     assert.equal(roots.some((root) => root.pid === child.pid && root.serviceId === "test-plugin"), true);
 
     fs.writeFileSync(pidPath, `${process.pid}\n`, "utf8");
-    const nextRoots = __testInternals.collectManagedRootPids(app);
+    const nextRoots = await __testInternals.collectManagedRootPids(app);
     assert.equal(nextRoots.some((root) => root.pid === process.pid), false);
   } finally {
     if (child?.pid) {
@@ -3405,28 +3405,8 @@ test("mergeCleanupTargets preserves pre-quit process tree snapshots", () => {
   ]);
 });
 
-test("terminateProcessTree treats already-exited pids as cleaned up", () => {
-  assert.equal(__testInternals.terminateProcessTree(99999999), true);
-});
-
-test("terminateProcessTree uses taskkill tree mode on Windows", () => {
-  const calls = [];
-  const terminated = __testInternals.terminateProcessTree(4321, {
-    platform: "win32",
-    isProcessRunningImpl: (pid) => pid === 4321,
-    spawnSyncImpl: (command, args) => {
-      calls.push({ command, args });
-      return createSpawnSyncResult(0);
-    }
-  });
-
-  assert.equal(terminated, true);
-  assert.deepEqual(calls, [
-    {
-      command: "taskkill.exe",
-      args: ["/PID", "4321", "/T", "/F"]
-    }
-  ]);
+test("terminateProcessTreeAsync treats already-exited pids as cleaned up", async () => {
+  assert.equal(await __testInternals.terminateProcessTreeAsync(99999999), true);
 });
 
 test("forceCleanupManagedProcesses recomputes process trees before killing snapshot roots", async (t) => {
@@ -3494,7 +3474,7 @@ test("forceCleanupManagedProcesses recomputes process trees before killing snaps
     fs.mkdirSync(path.dirname(pidPath), { recursive: true });
     fs.writeFileSync(pidPath, `${root.pid}\n`, "utf8");
 
-    const snapshot = __testInternals.captureManagedProcessCleanupSnapshot(app);
+    const snapshot = await __testInternals.captureManagedProcessCleanupSnapshotAsync(app);
     fs.writeFileSync(triggerPath, "spawn\n", "utf8");
     assert.equal(await waitForFile(childPidPath), true, "expected root process to spawn a child");
     childPid = Number.parseInt(fs.readFileSync(childPidPath, "utf8"), 10);
@@ -3544,10 +3524,9 @@ test("forceCleanupManagedProcesses reports failed roots and keeps live matching 
       {
         collectManagedProcessCleanupTargetsImpl: () => ({
           roots: [],
-          stalePidFilePaths: []
+          stalePidFiles: []
         }),
-        terminateProcessTreeImpl: () => false,
-        terminateProcessListImpl: () => false,
+        terminateCapturedProcessTreeImpl: async () => false,
         isProcessRunningImpl: (pid) => pid === 4321,
         pidMatchesInstallDirImpl: () => true,
         consoleError: (message) => errors.push(message)
@@ -3571,14 +3550,14 @@ function createManagedStopState(overrides = {}) {
   };
 }
 
-test("ensureManagedServiceStoppedForPlatform forces cleanup on Windows when stop leaves the main process alive", () => {
+test("ensureManagedServiceStoppedForPlatform forces cleanup on Windows when stop leaves the main process alive", async () => {
   const snapshots = [
     createManagedStopState({ managedMainPid: 4321 }),
     createManagedStopState()
   ];
   let forceCalls = 0;
 
-  const result = __testInternals.ensureManagedServiceStoppedForPlatform(
+  const result = await __testInternals.ensureManagedServiceStoppedForPlatform(
     { id: "test-plugin" },
     "/tmp/test-plugin",
     new Map(),
@@ -3600,14 +3579,14 @@ test("ensureManagedServiceStoppedForPlatform forces cleanup on Windows when stop
   });
 });
 
-test("ensureManagedServiceStoppedForPlatform fails on Windows when managed port remains occupied after cleanup", () => {
+test("ensureManagedServiceStoppedForPlatform fails on Windows when managed port remains occupied after cleanup", async () => {
   const snapshots = [
     createManagedStopState({ port: 11949, managedPortPids: [4321] }),
     createManagedStopState({ port: 11949, managedPortPids: [4321] })
   ];
   let forceCalls = 0;
 
-  const result = __testInternals.ensureManagedServiceStoppedForPlatform(
+  const result = await __testInternals.ensureManagedServiceStoppedForPlatform(
     { id: "agent-platform" },
     "/tmp/agent-platform",
     new Map(),
@@ -3629,11 +3608,11 @@ test("ensureManagedServiceStoppedForPlatform fails on Windows when managed port 
   });
 });
 
-test("forceStopServiceInstallDir cleans managed processes for agent-platform on Windows", () => {
+test("forceStopServiceInstallDir cleans managed processes for agent-platform on Windows", async () => {
   const terminatedPids = [];
   const removedPidFiles = [];
 
-  const terminated = __testInternals.forceStopServiceInstallDir(
+  const terminated = await __testInternals.forceStopServiceInstallDir(
     { id: "agent-platform" },
     "/tmp/agent-platform",
     new Map(),
@@ -3663,7 +3642,7 @@ test("forceStopServiceInstallDir cleans managed processes for agent-platform on 
 
 test("failed force stop retains PID evidence and blocks builtin directory replacement", async () => {
   const removed = [];
-  assert.equal(__testInternals.forceStopServiceInstallDir(
+  assert.equal(await __testInternals.forceStopServiceInstallDir(
     { id: "agent-platform" }, "/tmp/agent-platform", new Map(), {
       isWindows: true,
       collectState: () => createManagedStopState({ mainPidFilePath: "/tmp/agent-platform.pid", managedMainPid: 101 }),
@@ -3672,7 +3651,7 @@ test("failed force stop retains PID evidence and blocks builtin directory replac
     }
   ), false);
   assert.deepEqual(removed, []);
-  assert.equal(__testInternals.forceStopServiceInstallDir(
+  assert.equal(await __testInternals.forceStopServiceInstallDir(
     { id: "agent-platform" }, "/tmp/older-platform-version", new Map(), {
       isWindows: true,
       collectState: () => createManagedStopState({ mainPidFilePath: "/tmp/shared-platform.pid", managedMainPid: null }),
@@ -3697,7 +3676,7 @@ test("getServiceState removes stale pid files that point to unrelated live proce
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-stale-live-pid-"));
   const userDataRoot = path.join(tempRoot, "user-data");
   const fixture = createStartupCoreAssetsFixture();
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
 
   try {
     await installBuiltinService(app, "agent-platform");
@@ -3768,7 +3747,7 @@ test("listServices uses lightweight Windows state reads for UI refreshes", async
   }
 });
 
-test("readManagedPidFile preserves live pid files when process ownership is temporarily unknown", () => {
+test("readManagedPidFile preserves live pid files when process ownership is temporarily unknown", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-unknown-pid-owner-"));
   const pidPath = path.join(tempRoot, "identity-center.pid");
   const removedPidFiles = [];
@@ -3776,7 +3755,7 @@ test("readManagedPidFile preserves live pid files when process ownership is temp
   try {
     fs.writeFileSync(pidPath, "4321\n", "utf8");
 
-    const pid = __testInternals.readManagedPidFile([pidPath], "C:\\Program Files\\ZenMind\\services\\identity-center", {
+    const pid = await __testInternals.readManagedPidFile([pidPath], "C:\\Program Files\\ZenMind\\services\\identity-center", {
       isProcessRunningImpl: (candidatePid) => candidatePid === 4321,
       matchProcessInstallDirImpl: () => "unknown",
       removePidFileImpl: (candidatePath) => {
@@ -3791,6 +3770,58 @@ test("readManagedPidFile preserves live pid files when process ownership is temp
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("a pending PID check never deletes a replacement PID file", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-pid-replacement-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pidPath = path.join(root, "service.pid");
+  fs.writeFileSync(pidPath, "4321\n");
+  let finishProbe;
+  const probe = new Promise((resolve) => { finishProbe = resolve; });
+  const pending = __testInternals.readManagedPidFile([pidPath], root, {
+    isProcessRunningImpl: () => true,
+    matchProcessInstallDirImpl: () => probe
+  });
+  fs.writeFileSync(pidPath, "4322\n");
+  finishProbe("mismatched");
+  assert.equal(await pending, null);
+  assert.equal(fs.readFileSync(pidPath, "utf8"), "4322\n");
+});
+
+test("Windows startup shares port inventory and refreshes after service changes", async (t) => {
+  const { createStartupProbeSnapshot } = require("../dist-electron/main/modules/services/manager/managed-cleanup.js");
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "win32" });
+  t.after(() => Object.defineProperty(process, "platform", platform));
+  const replies = [];
+  t.mock.method(childProcess, "execFile", (command, args, options, callback) => {
+    assert.equal(command, "netstat");
+    assert.deepEqual(args, ["-ano", "-p", "tcp"]);
+    assert.equal(options.windowsHide, true);
+    replies.push(callback);
+  });
+  const snapshot = createStartupProbeSnapshot();
+  const identity = snapshot.listListeningPids(7001);
+  const platformPids = snapshot.listListeningPids(7002);
+  assert.equal(replies.length, 1);
+  replies[0](null, "TCP    127.0.0.1:7001  0.0.0.0:0  LISTENING  41\r\nTCP    [::1]:7002  [::]:0  LISTENING  42");
+  assert.deepEqual(await identity, [41]);
+  assert.deepEqual(await platformPids, [42]);
+  snapshot.invalidate();
+  const fresh = snapshot.listListeningPids(7002);
+  assert.equal(replies.length, 2);
+  replies[1](null, "");
+  assert.deepEqual(await fresh, []);
+});
+
+test("managed process paths distinguish Windows sibling installs and foreign prefixes", () => {
+  const { processIdentityContainsPath } = require("../dist-electron/main/infrastructure/process/process-path.js");
+  const install = "C:\\Program Files\\Desktop\\v1";
+  assert.equal(processIdentityContainsPath('"C:\\PROGRAM FILES\\Desktop\\v1\\server.exe"', install, "win32"), true);
+  assert.equal(processIdentityContainsPath('"C:\\Program Files\\Desktop\\v10\\server.exe"', install, "win32"), false);
+  assert.equal(processIdentityContainsPath('"C:\\prefixC:\\Program Files\\Desktop\\v1\\server.exe"', install, "win32"), false);
+  assert.equal(processIdentityContainsPath("node /private/var/desktop/v1/worker.mjs", "/var/desktop/v1", "darwin"), true);
 });
 
 test("shutdown stop timeout defaults are shorter on Windows overwrite exits", () => {
@@ -3822,11 +3853,11 @@ test("runServiceRestart does not start the service when stop fails", async () =>
   assert.equal(started, false);
 });
 
-test("listMissingRuntimeFiles detects damaged install directories", () => {
+test("listMissingRuntimeFiles detects damaged install directories", async () => {
   const userDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-damaged-registry-"));
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-damaged-assets-"));
   const { assetsRoot } = createContainerHubBundleFixture(fixtureRoot);
-  const { restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
   const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-damaged-install-"));
 
@@ -3852,7 +3883,7 @@ test("installBuiltinService repairs damaged install and preserves deploy-owned e
   fs.writeFileSync(path.join(installDir, "README.txt"), "broken\n", "utf8");
   fs.mkdirSync(path.join(installDir, "configs"), { recursive: true });
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id);
@@ -3879,17 +3910,18 @@ async function withBuiltinExtractionFault({ copyFallback = false, publishError, 
   const runtimeRoot = require("../dist-electron/main/infrastructure/filesystem/runtime-root.js");
   const originalResolveRoot = runtimeRoot.resolveRuntimeRootPath;
   runtimeRoot.resolveRuntimeRootPath = options => originalResolveRoot({ ...options, registryDataRootPath: "" });
-  const { app, restore } = loadBuiltinsForTest(path.join(fixture.tempRoot, "user-data"), fixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(path.join(fixture.tempRoot, "user-data"), fixture.assetsRoot);
   const originalRmSync = fs.rmSync;
   const originalRm = fs.promises.rm;
-  const originalRename = fs.renameSync;
+  const originalRename = fs.promises.rename;
   const originalWarn = console.warn;
+  const versionRoot = path.dirname(getInstallDir(app, getService("custom-builtin")));
   const retained = new Set();
   const warnings = [];
   const denyCleanup = (target) => {
-    const root = path.basename(String(target)).startsWith("custom-builtin-extract-")
+    const root = path.basename(String(target)).startsWith(".extract-")
       ? String(target) : path.dirname(String(target));
-    if (path.basename(root).startsWith("custom-builtin-extract-")) {
+    if (path.basename(root).startsWith(".extract-")) {
       retained.add(root);
       if (cleanupFailures-- <= 0) return;
       throw Object.assign(new Error("temporary extraction directory is locked"), { code: "EPERM", syscall: "rm" });
@@ -3898,8 +3930,8 @@ async function withBuiltinExtractionFault({ copyFallback = false, publishError, 
   try {
     fs.rmSync = (target, options) => { denyCleanup(target); return originalRmSync(target, options); };
     fs.promises.rm = async (target, options) => { denyCleanup(target); return originalRm(target, options); };
-    fs.renameSync = (source, destination) => {
-      if (path.basename(path.dirname(String(source))).startsWith("custom-builtin-extract-")) {
+    fs.promises.rename = async (source, destination) => {
+      if (path.basename(String(source)) === "custom-builtin" && path.basename(path.dirname(String(source))).startsWith(".extract-")) {
         if (publishError) throw publishError;
         if (copyFallback) throw Object.assign(new Error("cross-device publication"), { code: "EXDEV" });
       }
@@ -3910,12 +3942,12 @@ async function withBuiltinExtractionFault({ copyFallback = false, publishError, 
   } finally {
     fs.rmSync = originalRmSync;
     fs.promises.rm = originalRm;
-    fs.renameSync = originalRename;
+    fs.promises.rename = originalRename;
     console.warn = originalWarn;
     restore();
     runtimeRoot.resolveRuntimeRootPath = originalResolveRoot;
     for (const target of retained) {
-      assert.equal(path.dirname(path.resolve(target)), path.resolve(os.tmpdir()));
+      assert.equal(path.dirname(path.resolve(target)), path.resolve(versionRoot));
       originalRmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
     originalRmSync(fixture.tempRoot, { recursive: true, force: true });
@@ -3963,7 +3995,7 @@ test("Windows builtin installation retries transient temporary locks without a c
   });
 });
 
-test("readBuiltinAssetSignature uses the synced builtin asset manifest when available", () => {
+test("readBuiltinAssetSignature uses the synced builtin asset manifest when available", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-asset-signature-"));
   const userDataRoot = path.join(tempRoot, "user-data");
   const fixture = createBuiltinRestoreFixture();
@@ -3986,11 +4018,11 @@ test("readBuiltinAssetSignature uses the synced builtin asset manifest when avai
     }, null, 2)}\n`,
     "utf8"
   );
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
 
   try {
     assert.equal(
-      __testInternals.readBuiltinAssetSignature(app, getService(serviceId)),
+      await __testInternals.readBuiltinAssetSignature(app, getService(serviceId)),
       "manifest-signature-sentinel"
     );
   } finally {
@@ -4000,7 +4032,7 @@ test("readBuiltinAssetSignature uses the synced builtin asset manifest when avai
   }
 });
 
-test("loadBuiltinServices reuses newer installed builtin manifests without opening older bundled archives", () => {
+test("loadBuiltinServices reuses newer installed builtin manifests without opening older bundled archives", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-builtin-loader-installed-"));
   const userDataRoot = path.join(tempRoot, "user-data");
   const assetsRoot = path.join(tempRoot, "assets");
@@ -4063,7 +4095,7 @@ test("loadBuiltinServices reuses newer installed builtin manifests without openi
   try {
     process.env.DESKTOP_BUILTIN_ASSETS_ROOT = assetsRoot;
     registryInternals.clearServices();
-    const loaded = loadBuiltinServices(createApp(userDataRoot));
+    const loaded = await loadBuiltinServices(createApp(userDataRoot));
     const service = getBuiltinService(serviceId);
 
     assert.equal(loaded.some((item) => item.id === serviceId), true);
@@ -4091,7 +4123,7 @@ test("agent-webclient Program bundles enforce the bridge v6 version floor", () =
 test("installBuiltinService installs extracted builtin root without an extra directory copy", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-install-without-copy-"));
   const { assetsRoot, userDataRoot, installDir } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const originalCpSync = fs.cpSync;
   fs.cpSync = () => {
     throw new Error("cpSync should not be used for builtin install");
@@ -4124,12 +4156,12 @@ test("installBuiltinService installs bundled directory assets", async () => {
   });
   fs.rmSync(path.join(serviceAssetDir, archiveName), { force: true });
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
 
   try {
     const service = getBuiltinService("agent-container-hub");
     assert.equal(service.assetFileName, directoryAssetName);
-    assert.match(__testInternals.readBuiltinAssetSignature(app, service), /^dir:/u);
+    assert.match(await __testInternals.readBuiltinAssetSignature(app, service), /^dir:/u);
 
     await installBuiltinService(app, "agent-container-hub");
 
@@ -4145,18 +4177,18 @@ test("installBuiltinService installs bundled directory assets", async () => {
 test("installBuiltinService falls back to copying when Windows blocks extracted root rename", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-install-rename-fallback-"));
   const { assetsRoot, userDataRoot, installDir } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
-  const originalRenameSync = fs.renameSync;
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const originalRename = fs.promises.rename;
   let blockedRename = false;
 
-  fs.renameSync = (from, to) => {
-    if (String(from).includes("agent-container-hub") && String(to) === installDir) {
+  fs.promises.rename = async (from, to) => {
+    if (path.basename(String(from)) === "agent-container-hub" && String(to) === installDir) {
       blockedRename = true;
       const error = new Error("simulated Windows rename EPERM");
       error.code = "EPERM";
       throw error;
     }
-    return originalRenameSync(from, to);
+    return originalRename(from, to);
   };
 
   try {
@@ -4166,7 +4198,7 @@ test("installBuiltinService falls back to copying when Windows blocks extracted 
     assert.ok(fs.existsSync(path.join(installDir, "manifest.json")));
     assert.equal(__testInternals.isInstallHealthy(getService("agent-container-hub"), installDir), true);
   } finally {
-    fs.renameSync = originalRenameSync;
+    fs.promises.rename = originalRename;
     restore();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -4175,15 +4207,15 @@ test("installBuiltinService falls back to copying when Windows blocks extracted 
 test("installBuiltinService coalesces concurrent installs for the same builtin service", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-install-coalesce-"));
   const { assetsRoot, userDataRoot, installDir } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
-  const originalRenameSync = fs.renameSync;
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const originalRename = fs.promises.rename;
   let installMoves = 0;
 
-  fs.renameSync = (from, to) => {
+  fs.promises.rename = async (from, to) => {
     if (String(to) === installDir) {
       installMoves += 1;
     }
-    return originalRenameSync(from, to);
+    return originalRename(from, to);
   };
 
   try {
@@ -4195,10 +4227,33 @@ test("installBuiltinService coalesces concurrent installs for the same builtin s
     assert.equal(installMoves, 1);
     assert.ok(fs.existsSync(path.join(installDir, "manifest.json")));
   } finally {
-    fs.renameSync = originalRenameSync;
+    fs.promises.rename = originalRename;
     restore();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("an interrupted builtin replacement restores its matching previous version before retrying", async (t) => {
+  const fixture = createBuiltinRestoreFixture();
+  const userDataRoot = path.join(fixture.tempRoot, "user-data");
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+  t.after(() => {
+    restore();
+    fs.rmSync(fixture.tempRoot, { recursive: true, force: true });
+  });
+  const serviceId = "custom-builtin";
+  const installDir = await installBuiltinService(app, serviceId);
+  const versionRoot = path.dirname(installDir);
+  const interrupted = await fs.promises.mkdtemp(path.join(versionRoot, ".extract-"));
+  const previous = path.join(interrupted, ".previous-install");
+  fs.writeFileSync(path.join(interrupted, ".install-version"), path.basename(installDir));
+  fs.writeFileSync(path.join(installDir, "previous-program-marker"), "previous");
+  await fs.promises.rename(installDir, previous);
+
+  const result = await installBuiltinService(app, serviceId, { skipInitialize: true });
+  assert.equal(result, installDir);
+  assert.equal(fs.readFileSync(path.join(installDir, "previous-program-marker"), "utf8"), "previous");
+  assert.equal(fs.existsSync(interrupted), false);
 });
 
 test("installBuiltinService leaves container hub env ownership to deploy script", async () => {
@@ -4216,7 +4271,7 @@ test("installBuiltinService leaves container hub env ownership to deploy script"
 
   writeTestEnv(userDataRoot, "agent-container-hub", envContent);
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id);
@@ -4242,7 +4297,7 @@ test("installBuiltinService preserves custom absolute container hub path env", a
 
   writeTestEnv(userDataRoot, "agent-container-hub", envContent);
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id);
@@ -4265,7 +4320,7 @@ test("installBuiltinService removes stale sibling versions without env migration
   fs.writeFileSync(path.join(siblingInstallDir, ".env.example"), "BIND_ADDR=127.0.0.1:11960\n", "utf8");
   fs.writeFileSync(path.join(siblingInstallDir, "README.txt"), "stale version\n", "utf8");
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id);
@@ -4283,7 +4338,7 @@ test("installBuiltinService removes stale sibling versions without env migration
 test("getServiceState exposes runtime error log path when manifest defines it", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-error-log-state-"));
   const { assetsRoot, userDataRoot, installDir } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id);
@@ -4734,7 +4789,7 @@ test("probeContainerEngines reports installed engines separately from daemon rea
 test("getServiceState explains unsafe mounted container engine locations", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-container-engine-unsafe-"));
   const { assetsRoot, userDataRoot } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
 
   try {
     await installBuiltinService(app, "agent-container-hub");
@@ -4752,7 +4807,7 @@ test("getServiceState explains unsafe mounted container engine locations", async
 test("getServiceState explains timed-out container engine probes without blocking core services", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zenmind-container-engine-timeout-"));
   const { assetsRoot, userDataRoot } = createContainerHubBundleFixture(tempRoot);
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
 
   try {
     await installBuiltinService(app, "agent-container-hub");
@@ -4782,7 +4837,7 @@ test("installBuiltinService force reinstalls healthy install and preserves deplo
   fs.writeFileSync(path.join(installDir, "start.sh"), existingStartScript, "utf8");
   fs.writeFileSync(path.join(installDir, "README.txt"), "stale\n", "utf8");
 
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   assert.equal(__testInternals.isInstallHealthy(service, installDir), true);
@@ -4821,7 +4876,7 @@ test("installBuiltinService installs from selected archive when archivePath is p
   });
   writeDirectoryArchive(selectedArchiveRoot, selectedArchivePath, "agent-container-hub");
 
-  const { app, restore } = loadBuiltinsForTest(builtinFixture.userDataRoot, builtinFixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(builtinFixture.userDataRoot, builtinFixture.assetsRoot);
   const service = getBuiltinService("agent-container-hub");
 
   await installBuiltinService(app, service.id, {
@@ -5015,7 +5070,7 @@ test("initializeService lets core service deploy scripts recreate config after d
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const homeRoot = path.join(fixture.tempRoot, "home");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -5098,7 +5153,7 @@ test("initializeService applies configured core service default ports", async ()
     "agent-webclient": 39180,
     "identity-center": 39176
   };
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
     servicePortDefaults: configuredPorts
   });
   const serviceIds = ["agent-container-hub", "identity-center", "agent-platform", "agent-webclient"];
@@ -5136,7 +5191,7 @@ test("initializeService applies configured core service default ports", async ()
 test("initializeService lets deploy scripts apply configured default ports without rewriting webclient port", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, {
     servicePortDefaults: {
       "agent-container-hub": 39279,
       "agent-platform": 39278,
@@ -5192,7 +5247,7 @@ for (const { name, originalContent } of [
   test(name, async (t) => {
     const fixture = createStartupCoreAssetsFixture();
     const userDataRoot = path.join(fixture.tempRoot, "user-data");
-    const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+    const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
     t.after(() => {
       restore();
       fs.rmSync(fixture.tempRoot, { recursive: true, force: true });
@@ -5210,7 +5265,7 @@ for (const { name, originalContent } of [
 test("ensurePreStartRequirements leaves identity-center env untouched", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
   const service = getBuiltinService("identity-center");
 
   try {
@@ -5264,7 +5319,7 @@ test("readServiceConfig returns template content without creating target file", 
 test("writeServiceConfig saves agent-platform env verbatim without runtime migration", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const platformService = getBuiltinService("agent-platform");
   const runtimePath = path.join(getTestConfigDir(userDataRoot, platformService.id), "configs", "runtime.yml");
   const nextEnv = "SERVER_PORT=7901\nAUTH_ENABLED=true\nCUSTOM=value\n";
@@ -5290,7 +5345,7 @@ test("writeServiceConfig saves agent-platform env verbatim without runtime migra
 test("writeServiceConfig does not sync agent-platform env changes into agent-webclient", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const webclientService = getBuiltinService("agent-webclient");
   const webclientEnvPath = getTestEnvPath(userDataRoot, webclientService.id);
   const originalWebclientEnv = [
@@ -5336,7 +5391,7 @@ test("writeServiceConfig does not sync agent-platform env changes into agent-web
 test("writeServiceConfig saves core env content without automatic port migration", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   const platformService = getBuiltinService("agent-platform");
   const webclientService = getBuiltinService("agent-webclient");
   const platformRuntimePath = path.join(getTestConfigDir(userDataRoot, platformService.id), "configs", "runtime.yml");
@@ -5511,7 +5566,7 @@ test("startService rejects services that still require initialization", async ()
 test("startService reinitializes a core builtin when its config was deleted", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
 
   try {
     const platformStart = await startService(app, "agent-platform");
@@ -5540,7 +5595,7 @@ test("startService returns a port conflict error for agent-container-hub when an
   const { assetsRoot, userDataRoot, installDir } = createContainerHubBundleFixture(tempRoot, {
     bindAddr: `127.0.0.1:${port}`
   });
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot, {
     testCoreServicePortBase: port - 3
   });
   const service = getBuiltinService("agent-container-hub");
@@ -5589,7 +5644,7 @@ test("startService verifies command success and reports delayed container hub cr
       "exit 0"
     ].join("\n")
   });
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot, {
     testCoreServicePortBase: port - 3
   });
   const service = getBuiltinService("agent-container-hub");
@@ -5678,7 +5733,7 @@ test("startService verifies running container hub with port and healthz probe", 
       "exit 1"
     ].join("\n")
   });
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot, {
     testCoreServicePortBase: port - 3
   });
   const service = getBuiltinService("agent-container-hub");
@@ -5767,7 +5822,7 @@ test("startService waits for delayed container hub healthz readiness", async (t)
       "printf '%s\\n' \"$!\" > \"$state_dir/agent-container-hub.pid\""
     ].join("\n")
   });
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, assetsRoot, {
     testCoreServicePortBase: port - 3
   });
   const service = getBuiltinService("agent-container-hub");
@@ -5821,7 +5876,7 @@ test("ensurePreStartRequirements applies provider-register before agent-platform
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -5901,7 +5956,7 @@ test("ensurePreStartRequirements does not replace nonempty provider keys when le
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -5972,7 +6027,7 @@ test("ensurePreStartRequirements fills null and blank provider keys", async () =
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6048,7 +6103,7 @@ test("ensurePreStartRequirements leaves legacy agent-platform auth env untouched
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const homeRoot = path.join(fixture.tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6079,7 +6134,7 @@ test("agent-platform deploy copies public key and preStart does not overwrite it
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const homeRoot = path.join(fixture.tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6112,7 +6167,7 @@ test("startService starts agent-platform when desktop-managed container hub is u
   const fixture = createStartupCoreAssetsFixture();
   addContainerHubAssetToFixture(fixture);
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     await installBuiltinService(app, "agent-container-hub");
@@ -6147,7 +6202,7 @@ test("initializeService does not migrate legacy relay settings into the local-cl
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6227,7 +6282,7 @@ test("ensurePreStartRequirements preserves a custom provider api key env part", 
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6268,7 +6323,7 @@ test("ensurePreStartRequirements does not fill default env for the local-cli-acp
   const tempRoot = fixture.tempRoot;
   const userDataRoot = path.join(tempRoot, "user-data");
   const homeRoot = path.join(tempRoot, "home");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot, {
     homePath: homeRoot,
     desktopPath: path.join(homeRoot, "Desktop")
   });
@@ -6320,7 +6375,7 @@ test("ensurePreStartRequirements does not fill default env for the local-cli-acp
 test("ensurePreStartRequirements preserves service-owned configuration bytes", async (t) => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture);
   t.after(() => {
     restore();
     fs.rmSync(fixture.tempRoot, { recursive: true, force: true });
@@ -6335,7 +6390,7 @@ test("ensurePreStartRequirements preserves service-owned configuration bytes", a
 test("startService hosts agent-webclient without executing bundle start script", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const webclientService = getBuiltinService("agent-webclient");
   const webclientInstallDir = getInstallDir(app, webclientService);
   const startFileName = process.platform === "win32" ? "start.ps1" : "start.sh";
@@ -6394,7 +6449,7 @@ test("startService injects local-cli-acp-relay NODE_BIN without persisting it to
   const userDataRoot = path.join(tempRoot, "user-data");
   const installDir = getTestPluginProgramDir(userDataRoot, "local-cli-acp-relay");
   const app = createApp(userDataRoot);
-  const expectedNodeBin = __testInternals.resolveNodeBin();
+  const expectedNodeBin = await __testInternals.resolveNodeBin();
   const expectedNodeBinLiteral = expectedNodeBin.includes(" ") ? `"${expectedNodeBin}"` : expectedNodeBin;
   const relayPidPath = getTestPidPath(userDataRoot, "local-cli-acp-relay", "test-plugin.pid", "plugins");
 
@@ -6482,7 +6537,7 @@ test("startService injects local-cli-acp-relay NODE_BIN without persisting it to
 test("startService reuses a running identity-center despite frontend route and launcher drift", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const service = getBuiltinService("identity-center");
   const installDir = getTestServiceProgramDir(userDataRoot, service.id, service.version);
 
@@ -6552,7 +6607,7 @@ test("startService reuses a running identity-center despite frontend route and l
 test("startService applies agent-webclient host-managed base-url start arg over env", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const upstream = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
@@ -6620,7 +6675,7 @@ test("startService applies agent-webclient host-managed base-url start arg over 
 test("startService leaves a running agent-webclient alone after agent-platform is manually restarted", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     const firstPlatformStart = await startService(app, "agent-platform");
@@ -6651,7 +6706,7 @@ test("startService leaves a running agent-webclient alone after agent-platform i
 test("startService leaves a running agent-webclient alone when agent-platform is refreshed while running", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const platformArchiveDir = path.join(fixture.assetsRoot, "agent-platform");
   const platformArchivePath = path.join(platformArchiveDir, fs.readdirSync(platformArchiveDir)[0]);
 
@@ -6881,19 +6936,19 @@ test("restoreRunningServices skips install-only container hub and restores other
     });
     writeTestEnv(userDataRoot, "restored-plugin", "PORT=0\n", "plugins");
     markInitializationState(getTestInitializationStatePath(userDataRoot, "restored-plugin", "plugins"));
+    const pidPath = getTestPidPath(userDataRoot, "restored-plugin", "test-plugin.pid", "plugins");
+    fs.mkdirSync(path.dirname(pidPath), { recursive: true });
     if (process.platform === "win32") {
       writeExecutableFile(
         path.join(pluginFolder, "start.ps1"),
         [
-          "$pidDir = Join-Path $PSScriptRoot 'run'",
-          "New-Item -ItemType Directory -Path $pidDir -Force | Out-Null",
           "$runDir = Join-Path $PSScriptRoot 'run'",
           "New-Item -ItemType Directory -Path $runDir -Force | Out-Null",
           "$fixtureScript = Join-Path $runDir 'restored-plugin-fixture.mjs'",
           "[System.IO.File]::WriteAllText($fixtureScript, 'setInterval(() => {}, 1000);')",
           "$nodeBin = if ($env:NODE_BIN) { $env:NODE_BIN } else { 'node' }",
           "$proc = Start-Process -FilePath $nodeBin -ArgumentList $fixtureScript -WindowStyle Hidden -PassThru",
-          "$proc.Id | Set-Content -LiteralPath (Join-Path $pidDir 'test-plugin.pid')"
+          `$proc.Id | Set-Content -LiteralPath '${pidPath.replace(/'/gu, "''")}'`
         ].join("\r\n")
       );
     } else {
@@ -6902,13 +6957,11 @@ test("restoreRunningServices skips install-only container hub and restores other
         [
           "#!/usr/bin/env bash",
           "set -euo pipefail",
-          'pid_dir="$PWD/run"',
-          'mkdir -p "$pid_dir"',
           'mkdir -p run',
           'fixture_script="$PWD/run/restored-plugin-fixture.mjs"',
           'printf "setInterval(() => {}, 1000);\\n" > "$fixture_script"',
           'node "$fixture_script" >/dev/null 2>&1 &',
-          'echo $! > "$pid_dir/test-plugin.pid"'
+          `echo $! > ${JSON.stringify(pidPath)}`
         ].join("\n")
       );
     }
@@ -7056,7 +7109,7 @@ test("restoreRunningServices skips unavailable install-only container hub", asyn
   const fixture = createStartupCoreAssetsFixture();
   addContainerHubAssetToFixture(fixture);
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const startupEvents = [];
 
   try {
@@ -7095,7 +7148,7 @@ test("restoreRunningServices skips unavailable install-only container hub", asyn
 test("restoreRunningServices auto-installs and starts builtin services that are not installed yet", async () => {
   const fixture = createBuiltinRestoreFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
+  const { app, restore } = await loadBuiltinsForTest(userDataRoot, fixture.assetsRoot);
   const startupEvents = [];
 
   try {
@@ -7132,7 +7185,7 @@ test("runStartupPreparation applies provider-register before preparing builtin s
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
   const homeRoot = getTestHomeRoot(userDataRoot);
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const providersRoot = path.join(getTestRuntimeRoot(userDataRoot), "registries", "providers");
   const registerPath = path.join(getTestRuntimeRoot(userDataRoot), "provider-register.json");
   const originalFetch = globalThis.fetch;
@@ -7210,7 +7263,7 @@ test("runStartupPreparation applies provider-register before preparing builtin s
 test("runStartupPreparation bootstraps packaged first launch with the three core services", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     const result = await runStartupPreparation(app);
@@ -7243,7 +7296,7 @@ test("runStartupPreparation bootstraps packaged first launch with the three core
 test("runStartupPreparation prepares packaged first-launch core services in parallel", async (t) => {
   const fixture = createStartupCoreAssetsFixture({ deployDelayMs: 600 });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const installingTimes = new Map();
   const runtimeModule = require("../dist-electron/main/modules/services/manager/embedded-node-runtime.js");
   let releaseRuntime, runtimeEntered;
@@ -7302,7 +7355,7 @@ test("runStartupPreparation prepares packaged first-launch core services in para
 test("runStartupPreparation preserves partial identity-center env before packaged bootstrap", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     const originalContent = [
@@ -7334,7 +7387,7 @@ test("runStartupPreparation preserves partial identity-center env before package
 test("runStartupPreparation does not reinstall healthy packaged core services when synced asset mtimes are newer", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     for (const serviceId of ["agent-container-hub", "identity-center", "agent-platform", "agent-webclient"]) {
@@ -7367,8 +7420,8 @@ test("runStartupPreparation does not reinstall healthy packaged core services wh
 test("runStartupPreparation does not reinstall a healthy packaged service with a runtime error", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
-  const originalRenameSync = fs.renameSync;
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const originalRename = fs.promises.rename;
   let portServer;
 
   try {
@@ -7384,18 +7437,18 @@ test("runStartupPreparation does not reinstall a healthy packaged service with a
       portServer.listen(platformPort, "127.0.0.1", resolve);
     });
 
-    fs.renameSync = (from, to) => {
+    fs.promises.rename = async (from, to) => {
       if (String(to).includes(`${path.sep}agent-platform${path.sep}`)) {
         throw new Error("agent-platform should not be reinstalled for a runtime-only startup error");
       }
-      return originalRenameSync(from, to);
+      return originalRename(from, to);
     };
 
     const result = await runStartupPreparation(app);
 
     assert.doesNotMatch(result.failures.join("\n"), /should not be reinstalled/);
   } finally {
-    fs.renameSync = originalRenameSync;
+    fs.promises.rename = originalRename;
     if (portServer) {
       await new Promise((resolve) => portServer.close(resolve));
     }
@@ -7412,7 +7465,7 @@ test("runStartupPreparation does not reinstall a healthy packaged service with a
 test("runStartupPreparation restores second-launch core services in parallel", async () => {
   const fixture = createStartupCoreAssetsFixture({ recordStartTime: true, startDelayMs: 500 });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const previousVerifyDelay = process.env.SERVICE_VERIFY_DELAY_MS;
   const startingTimes = new Map();
   const succeededTimes = new Map();
@@ -7477,7 +7530,7 @@ test("runStartupPreparation restores second-launch core services in parallel", a
 test("runStartupPreparation prepares packaged first-launch core services in parallel and gates webclient verification", async () => {
   const fixture = createStartupCoreAssetsFixture({ recordStartTime: true, startDelayMs: 500, deployDelayMs: 300 });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const previousVerifyDelay = process.env.SERVICE_VERIFY_DELAY_MS;
   const installingTimes = new Map();
   const startingTimes = new Map();
@@ -7545,7 +7598,7 @@ test("runStartupPreparation checks unauthenticated agent-platform healthz indepe
     platformHealthRequiresAuth: false
   });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const previousVerifyDelay = process.env.SERVICE_VERIFY_DELAY_MS;
   const fixturePids = [];
 
@@ -7604,7 +7657,7 @@ test("runStartupPreparation checks unauthenticated agent-platform healthz indepe
 test("runStartupPreparation reuses a running identity-center during restore", async () => {
   const fixture = createStartupCoreAssetsFixture({ recordStartTime: true, startDelayMs: 100 });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const previousVerifyDelay = process.env.SERVICE_VERIFY_DELAY_MS;
 
   process.env.SERVICE_VERIFY_DELAY_MS = "0";
@@ -7648,7 +7701,7 @@ test("runStartupPreparation reuses a running identity-center during restore", as
 test("runStartupPreparation collects parallel restore failures without cancelling sibling services", async () => {
   const fixture = createStartupCoreAssetsFixture({ failOnStartServiceId: "agent-platform" });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const previousVerifyDelay = process.env.SERVICE_VERIFY_DELAY_MS;
   const previousDependencyVerifyTimeout = process.env.SERVICE_DEPENDENCY_VERIFY_TIMEOUT_MS;
 
@@ -7693,7 +7746,7 @@ test("runStartupPreparation collects parallel restore failures without cancellin
 test("runStartupPreparation prepares missing container hub in the background when core services are healthy", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     for (const serviceId of ["identity-center", "agent-platform", "agent-webclient"]) {
@@ -7732,7 +7785,7 @@ test("runStartupPreparation does not block core services when optional container
     }
   });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     const result = await runStartupPreparation(app);
@@ -7762,7 +7815,7 @@ test("runStartupPreparation does not block core services when optional container
 test("runStartupPreparation reinitializes packaged core services that are missing init state", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     for (const serviceId of ["identity-center", "agent-platform", "agent-webclient"]) {
@@ -7787,7 +7840,7 @@ test("runStartupPreparation reinitializes packaged core services that are missin
 test("runStartupPreparation reports one bootstrap failure without blocking independent dependents", async () => {
   const fixture = createStartupCoreAssetsFixture({ failOnStartServiceId: "identity-center" });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
 
   try {
     const result = await runStartupPreparation(app);
@@ -7809,7 +7862,7 @@ test("runStartupPreparation reports one bootstrap failure without blocking indep
 test("runStartupPreparation bootstraps development first launch with core services", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: false });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: false });
 
   try {
     const result = await runStartupPreparation(app);
@@ -7965,7 +8018,7 @@ test("stopRunningServicesForShutdown returns quickly when a stop script times ou
       ].join("\n")
     });
 
-    const snapshot = __testInternals.captureManagedProcessCleanupSnapshot(app);
+    const snapshot = await __testInternals.captureManagedProcessCleanupSnapshotAsync(app);
     const startedAt = Date.now();
     const result = await stopRunningServicesForShutdown(app, { stopCommandTimeoutMs: 75 });
     const elapsedMs = Date.now() - startedAt;
@@ -8115,7 +8168,7 @@ test("stopService keeps the normal command timeout outside the shutdown path", a
 test("0.4.1 to 0.4.2 startup restores consumed provider registration and commits only after key acquisition", async () => {
   const fixture = createStartupCoreAssetsFixture({ runtimeResources: true });
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: false });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: false });
   const upgrade = require("../dist-electron/main/modules/services/manager/desktop-config-upgrade.js");
   const JSZip = require("jszip");
   const runtimeRoot = getTestRuntimeRoot(userDataRoot);
@@ -8171,7 +8224,7 @@ test("0.4.1 to 0.4.2 startup restores consumed provider registration and commits
 test("Node preparation failure prevents every core start and is reported for retry", async (t) => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   const runtimeModule = require("../dist-electron/main/modules/services/manager/embedded-node-runtime.js");
   t.mock.method(runtimeModule, "ensureEmbeddedNodeRuntime", async () => { throw new Error("npm fixture unavailable"); });
   const starting = [];
@@ -8193,7 +8246,7 @@ test("Node preparation failure prevents every core start and is reported for ret
 test("runtime reinstall replaces healthy core programs and keeps optional programs", async () => {
   const fixture = createStartupCoreAssetsFixture();
   const userDataRoot = path.join(fixture.tempRoot, "user-data");
-  const { app, restore } = loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
+  const { app, restore } = await loadStartupCoreBuiltinsForTest(userDataRoot, fixture, { isPackaged: true });
   try {
     const ids = ["agent-container-hub", "identity-center", "agent-platform", "agent-webclient"];
     for (const id of ids) {

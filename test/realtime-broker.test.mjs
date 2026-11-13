@@ -69,7 +69,7 @@ function createHarness(t, options = {}) {
   }
 
   const broker = new RealtimeBroker({
-    app: { getPath: () => root },
+    app: { isPackaged: options.isPackaged, getPath: () => root },
     issueAccessToken: async () => ({ ok: true, token: jwt(), message: "" }),
     getDesktopDeviceId: () => "desktop-test",
     createWebSocket: (url) => new FakeSocket(url),
@@ -114,6 +114,35 @@ function runEvent(type, runId, chatId, seq, extra = {}) {
 function requestOfType(socket, type) {
   return socket.sent.filter((frame) => frame.frame === "request" && frame.type === type);
 }
+
+test("packaged realtime keeps wire delivery independent of Inspector capture", async (t) => {
+  const h = createHarness(t, { isPackaged: true });
+  const responses = [];
+  const send = async (localId) => {
+    await h.broker.forwardRequest({
+      baseUrl: "http://localhost:7078",
+      token: h.token,
+      consumerId: "inspect-capture-test",
+      localId,
+      type: "/api/chat",
+      onFrame: (frame) => responses.push(frame),
+      onError: assert.fail,
+    });
+    return h.socket("primary").sent.at(-1);
+  };
+  const first = await send("before-open");
+  h.socket("primary").emit({ frame: "response", id: first.id, code: 0 });
+  await nextTurn();
+  assert.deepEqual(h.broker.getDebugTraceEntries(), []);
+  h.broker.setDebugInspectorOpen(true);
+  const second = await send("after-open");
+  h.socket("primary").emit({ frame: "response", id: second.id, data: { text: "中文" } });
+  await nextTurn();
+  const traces = h.broker.getDebugTraceEntries();
+  assert.deepEqual(traces.map((entry) => entry.data.id), [second.id, second.id]);
+  assert.deepEqual(traces[1].data.data, { text: "中文" });
+  assert.deepEqual(responses.map((frame) => frame.id), ["before-open", "after-open"]);
+});
 
 for (const platform of ["darwin", "win32"]) {
   test(`business notification pushes reach Desktop surfaces on ${platform}`, async (t) => {

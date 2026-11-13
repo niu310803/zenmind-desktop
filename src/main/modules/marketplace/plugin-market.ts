@@ -89,7 +89,7 @@ export async function installPluginMarketItem(
   const item = resolved.item;
   const archivePath = await downloadAsset(app, item, resolved.asset, options, resolved.downloadUrl);
   try {
-    const manifest = readManifestFromArchive(archivePath);
+    const manifest = await readManifestFromArchive(archivePath);
     const manifestKind = manifest && typeof manifest === "object" && !Array.isArray(manifest)
       ? (manifest as { kind?: unknown }).kind
       : undefined;

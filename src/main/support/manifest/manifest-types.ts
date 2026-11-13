@@ -74,6 +74,8 @@ export interface ServiceDefinition extends Manifest {
     ui: ManifestPluginSettingsUi;
   };
   assetFileName: string;
+  // Repair metadata supplied by the Windows bundle index, never by a service manifest.
+  builtinAssetManifestSha256?: string;
   bundleTopLevelDir: string;
   startCommand: string[];
   stopCommand: string[];

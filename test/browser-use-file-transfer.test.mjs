@@ -23,11 +23,11 @@ for (const [name, file] of [
 }
 const { ChromeTransferStore, decodeBrowserUploadFiles, BROWSER_FILE_MAX_BYTES } = require(path.join(temporary, "chrome-file-transfer.js"));
 test.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
-const { RealtimeDebugTraceBuffer, serializeAgentRealtimeDebugValue } =
+const { RealtimeDebugTraceBuffer } =
   require("../dist-electron/main/modules/agent-platform/realtime/realtime-debug-trace.js");
 
 test("browser file traces omit bytes without hiding ordinary data or chunk diagnostics", () => {
-  const buffer = new RealtimeDebugTraceBuffer();
+  const buffer = new RealtimeDebugTraceBuffer({ alwaysEnabled: true });
   const append = data => buffer.append({ layer: "platform-ws", direction: "desktop-to-platform", data }).data;
   const bytes = Buffer.from("private fixture file").toString("base64");
   const upload = { lane: "primary", frame: "request", type: "desktop.cdp.call", payload: {
@@ -46,11 +46,16 @@ test("browser file traces omit bytes without hiding ordinary data or chunk diagn
   for (const frame of [
     { frame: "response", type: "/api/example", data: { mimeType: "text/plain", sha256: "checksum", data: "ordinary data", chunk: "ordinary chunk" } },
     { frame: "response", type: "/api/example", data: { method: "Surface.readDownload", result: { data: "ordinary data" } } },
+  ]) assert.deepEqual(append(frame), frame);
+  for (const frame of [
     { frame: "stream", event: { type: "text.delta", encoding: "base64", chunk: "ordinary encoded message" } },
     { frame: "stream", event: { type: "desktop.bridge.response.delta", encoding: "utf8", chunk: "ordinary text" } },
     { frame: "stream", event: { type: "desktop.bridge.response.delta", encoding: "base64", chunk: "ordinary bridge response" } },
     { frame: "stream", event: { type: "desktop.cdp.screenshot.delta", encoding: "base64", chunk: "screenshot retains main diagnostics" } },
-  ]) assert.deepEqual(append(frame), frame);
+  ]) {
+    assert.equal(append(frame).event.preview, frame.event.chunk);
+    assert.equal(append(frame).event.chunk, undefined);
+  }
 });
 
 test("large browser downloads carry local trace scope without changing ordinary bridge chunks or wire bytes", async () => {
@@ -61,12 +66,12 @@ test("large browser downloads carry local trace scope without changing ordinary 
     ["desktop.cdp.call", "Surface.getState", false],
     ["desktop.action", "Surface.readDownload", false],
   ]) {
-    const buffer = new RealtimeDebugTraceBuffer(), wire = [];
+    const buffer = new RealtimeDebugTraceBuffer({ alwaysEnabled: true }), wire = [];
     const client = {
       state: { phase: "connected" },
       socket: { send: raw => wire.push(JSON.parse(raw)) },
-      options: { onTrace: (_direction, frame, browserFileTransfer) => buffer.append({
-        layer: "platform-ws", direction: "desktop-to-platform", data: { lane: "primary", ...frame }, browserFileTransfer,
+      options: { onTrace: (_direction, frame, browserFileTransfer, wireBytes) => buffer.append({
+        layer: "platform-ws", direction: "desktop-to-platform", data: { lane: "primary", ...frame }, browserFileTransfer, wireBytes,
       }) },
       send: AgentPlatformRealtimeClient.prototype.send,
     };
@@ -79,8 +84,8 @@ test("large browser downloads carry local trace scope without changing ordinary 
     assert.ok(wire.every(frame => !("browserFileTransfer" in frame)), "trace scope is not part of the protocol");
     const traces = buffer.snapshot().filter(entry => entry.data.frame === "stream");
     for (let index = 0; index < chunks.length; index++) {
-      const ordinaryPreview = serializeAgentRealtimeDebugValue({ lane: "primary", ...chunks[index] });
-      assert.equal(traces[index].data.event.chunk, hidden ? "<REDACTED>" : ordinaryPreview.event.chunk);
+      assert.equal(traces[index].data.event.preview, hidden ? "<REDACTED>" : chunks[index].event.chunk.slice(0, 200));
+      assert.equal(traces[index].data.event.chunk, undefined);
       assert.equal(traces[index].data.event.seq, chunks[index].event.seq);
     }
   }

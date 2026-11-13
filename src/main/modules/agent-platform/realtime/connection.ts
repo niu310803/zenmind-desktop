@@ -59,7 +59,7 @@ export interface ConnectionPort {
   restoreRun(run: BrokerRun): Promise<void>;
   handlePush(frame: AgentPlatformRealtimeFrame): void;
   handleInboundRequest(lane: RealtimeLane, frame: AgentPlatformRealtimeFrame): void;
-  handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame): void;
+  handleQueryStream(transaction: QueryTransaction, frame: AgentPlatformRealtimeFrame, wireBytes: number): void;
   handleRunStream(run: BrokerRun, frame: AgentPlatformRealtimeFrame): void;
   completeRun(run: BrokerRun, result: RealtimeQueryCompleted, source: NonNullable<BrokerRun["terminalSource"]>): void;
   expireAttachStream(run: BrokerRun, requestId: string, error: Error): void;
@@ -293,7 +293,7 @@ export function createConnection(deps: ConnectionPort) {
     }
   }
 
-  function handleFrame(lane: RealtimeLane, frame: AgentPlatformRealtimeFrame, generation: number): void {
+  function handleFrame(lane: RealtimeLane, frame: AgentPlatformRealtimeFrame, generation: number, wireBytes: number): void {
     if (!deps.acceptingDelivery)
       return;
     if (generation !== deps.connectionStates[lane].generation) {
@@ -339,7 +339,7 @@ export function createConnection(deps: ConnectionPort) {
         deps.failQuery(query, frameError(frame));
       }
       else if (kind === "stream")
-        deps.handleQueryStream(query, frame);
+        deps.handleQueryStream(query, frame, wireBytes);
       return;
     }
     const run = [...deps.runChannels.values()].find((candidate) => candidate.lane === lane && candidate.upstreamRequestId === id);
