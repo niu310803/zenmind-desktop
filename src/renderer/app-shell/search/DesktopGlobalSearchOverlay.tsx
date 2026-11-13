@@ -511,7 +511,7 @@ function resolveRowShortcut(
   targets: DesktopGlobalSearchShortcutTargets
 ): DesktopGlobalSearchShortcut | null {
   if (row.kind === "action") {
-    return { kind: "action", actionId: row.actionId };
+    return row.actionId === "settings" ? null : { kind: "action", actionId: row.actionId };
   }
   if (row.kind === "chat") {
     const index = targets.attention.findIndex((target) => target.key === row.key);
@@ -566,8 +566,6 @@ function getActionShortcutKey(actionId: DesktopGlobalSearchActionShortcutId) {
       return "L";
     case "mcpConnectors":
       return "C";
-    case "settings":
-      return "P";
   }
 }
 

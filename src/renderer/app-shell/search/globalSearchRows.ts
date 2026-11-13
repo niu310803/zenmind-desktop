@@ -8,8 +8,7 @@ import type { EpochMilliseconds } from "../../../shared/time-contract";
 import type { TranslateFunction } from "../../../shared/i18n";
 import { decodeRoutePathSegment } from "../../../shared/route-path";
 
-// Every Actions row is addressable by a keyboard shortcut, so the row id and shortcut id stay identical.
-export type DesktopGlobalSearchActionId = DesktopGlobalSearchActionShortcutId;
+export type DesktopGlobalSearchActionId = DesktopGlobalSearchActionShortcutId | "settings";
 export type DesktopGlobalSearchSectionId = "awaiting" | "unread" | "actions" | "agents" | "chats";
 export type DesktopGlobalSearchProjectAgentKind = "coder" | "kbase";
 

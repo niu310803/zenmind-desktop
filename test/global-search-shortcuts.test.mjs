@@ -47,10 +47,7 @@ test("global search command shortcuts map macOS Command actions and Option agent
     resolveGlobalSearchCommandShortcut("darwin", keyDown("c", { meta: true })),
     { kind: "action", actionId: "mcpConnectors" },
   );
-  assert.deepEqual(
-    resolveGlobalSearchCommandShortcut("darwin", keyDown("p", { meta: true })),
-    { kind: "action", actionId: "settings" },
-  );
+  assert.equal(resolveGlobalSearchCommandShortcut("darwin", keyDown("p", { meta: true })), null);
   assert.equal(resolveGlobalSearchCommandShortcut("darwin", keyDown("m", { meta: true })), null);
   // `K` must keep opening the overlay instead of activating the Skills row.
   assert.equal(resolveGlobalSearchCommandShortcut("darwin", keyDown("k", { meta: true })), null);
@@ -105,10 +102,7 @@ test("global search command shortcuts map Windows Ctrl actions and Alt agent slo
     resolveGlobalSearchCommandShortcut("win32", keyDown("c", { control: true })),
     { kind: "action", actionId: "mcpConnectors" },
   );
-  assert.deepEqual(
-    resolveGlobalSearchCommandShortcut("win32", keyDown("p", { control: true })),
-    { kind: "action", actionId: "settings" },
-  );
+  assert.equal(resolveGlobalSearchCommandShortcut("win32", keyDown("p", { control: true })), null);
   assert.equal(resolveGlobalSearchCommandShortcut("win32", keyDown("m", { control: true })), null);
   assert.equal(resolveGlobalSearchCommandShortcut("win32", keyDown("k", { control: true })), null);
   assert.deepEqual(
