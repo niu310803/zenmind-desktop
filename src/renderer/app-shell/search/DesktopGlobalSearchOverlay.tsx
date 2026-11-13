@@ -511,12 +511,7 @@ function resolveRowShortcut(
   targets: DesktopGlobalSearchShortcutTargets
 ): DesktopGlobalSearchShortcut | null {
   if (row.kind === "action") {
-    return row.actionId === "newChat" ||
-      row.actionId === "history" ||
-      row.actionId === "agents" ||
-      row.actionId === "shareManagement"
-      ? { kind: "action", actionId: row.actionId }
-      : null;
+    return row.actionId === "settings" ? null : { kind: "action", actionId: row.actionId };
   }
   if (row.kind === "chat") {
     const index = targets.attention.findIndex((target) => target.key === row.key);
@@ -567,6 +562,10 @@ function getActionShortcutKey(actionId: DesktopGlobalSearchActionShortcutId) {
       return "A";
     case "shareManagement":
       return "S";
+    case "skills":
+      return "L";
+    case "mcpConnectors":
+      return "C";
   }
 }
 

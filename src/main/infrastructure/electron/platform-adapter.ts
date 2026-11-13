@@ -94,6 +94,8 @@ export function resolveGlobalSearchCommandShortcut(
   if (slot) {
     return { kind: "attention", slot };
   }
+  // Supported Actions rows own a letter while the search overlay is visible. `k` stays reserved for
+  // opening the overlay and `,` for the native Settings menu accelerator, so neither is bound here.
   switch (key) {
     case "n":
       return { kind: "action", actionId: "newChat" };
@@ -103,6 +105,10 @@ export function resolveGlobalSearchCommandShortcut(
       return { kind: "action", actionId: "agents" };
     case "s":
       return { kind: "action", actionId: "shareManagement" };
+    case "l":
+      return { kind: "action", actionId: "skills" };
+    case "c":
+      return { kind: "action", actionId: "mcpConnectors" };
     default:
       return null;
   }

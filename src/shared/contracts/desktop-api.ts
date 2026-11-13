@@ -867,7 +867,13 @@ export type DesktopHistoryGestureProgress = {
   committed: boolean;
 };
 export type DesktopHistoryGestureProgressListener = (progress: DesktopHistoryGestureProgress | null) => void;
-export type DesktopGlobalSearchActionShortcutId = "newChat" | "history" | "agents" | "shareManagement";
+export type DesktopGlobalSearchActionShortcutId =
+  | "newChat"
+  | "history"
+  | "agents"
+  | "shareManagement"
+  | "skills"
+  | "mcpConnectors";
 export type DesktopGlobalSearchShortcutSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type DesktopGlobalSearchShortcut =
   | { kind: "action"; actionId: DesktopGlobalSearchActionShortcutId }
