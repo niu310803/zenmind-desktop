@@ -1205,6 +1205,8 @@ export function AppShell() {
     !startupCardDismissed &&
     shouldShowStartupProgressCard(startupRestoreState, startupAllReady, location.pathname);
   const shouldPollStartup = startupRestoreState === null || showStartupCard;
+  const showWorkspaceNavigation =
+    !showStartupCard && resolvedStartupRestoreState.phase !== "env-import-required";
   const showsEmptyContentSurface = location.pathname === "/";
   // SSO may temporarily replace the startup card without ending startup.
   const shouldShowEnterpriseChat =
@@ -1314,7 +1316,7 @@ export function AppShell() {
   }, [effectiveSidebarCollapsed, isMac]);
   // macOS shares one window-anchored group across both sidebar states. Windows
   // keeps its system-bar group, switching to the fixed group only in fullscreen.
-  const showSidebarHeaderNavigation = sidebarMode === "primary" && !workPanelFullscreenOwnerChatId && (
+  const showSidebarHeaderNavigation = showWorkspaceNavigation && sidebarMode === "primary" && !workPanelFullscreenOwnerChatId && (
     isMac || (isWindows && windowFullScreen) || (!isWindows && effectiveSidebarCollapsed && showMainChatWorkPanelToggle)
   );
   const showCollapsedChatHeaderNavigation = showSidebarHeaderNavigation && effectiveSidebarCollapsed && showMainChatWorkPanelToggle;
@@ -4857,7 +4859,7 @@ export function AppShell() {
               <span className="app-system-bar-product-name">{PRODUCT_NAME}</span>
             ) : null}
             {/* Settings and capabilities keep their own secondary header; only history stays in the system bar. */}
-            <nav className="app-system-bar-primary-actions" aria-label={t("nav.main")}>
+            {showWorkspaceNavigation ? <nav className="app-system-bar-primary-actions" aria-label={t("nav.main")}>
               {sidebarMode === "primary" ? (
                 <>
                   <button
@@ -4903,7 +4905,7 @@ export function AppShell() {
                   <SidebarActionIcon kind="sidebar_left" />
                 </button>
               ) : null}
-            </nav>
+            </nav> : null}
             <WindowsApplicationMenu disabled={windowControlsMasked} helpEnabled={helpEnabled} />
           </div>
           <div className="app-system-bar-window-controls" aria-hidden={windowControlsMasked}>
